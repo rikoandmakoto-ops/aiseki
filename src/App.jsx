@@ -14,11 +14,32 @@ const COLORS = {
   gold: "#eda100",
 };
 
+const img = (gender, n) => `https://randomuser.me/api/portraits/${gender}/${n}.jpg`;
+
 const parties = [
-  { id: 1, name: "金曜ナイト飲み", area: "渋谷", venue: "炭火居酒屋 山", people: 3, time: "20:00〜", treat: "奢り", points: 500, gender: "女性", tags: ["20代", "社会人"], avatar: "🍻" },
-  { id: 2, name: "週末カジュアル会", area: "六本木", venue: "Bar LUNA", people: 2, time: "21:00〜", treat: "割り勘", points: 200, gender: "女性", tags: ["25〜30歳", "お酒好き"], avatar: "🌙" },
-  { id: 3, name: "仕事終わりの一杯", area: "新宿", venue: "和食ダイニング 花", people: 4, time: "19:30〜", treat: "奢り", points: 400, gender: "女性", tags: ["社会人", "まったり"], avatar: "🌸" },
-  { id: 4, name: "土曜ワイン会", area: "恵比寿", venue: "Wine & Dine CAVA", people: 2, time: "19:00〜", treat: "割り勘", points: 300, gender: "女性", tags: ["ワイン好き", "大人"], avatar: "🍷" },
+  { id: 1, name: "金曜ナイト飲み", area: "渋谷", venue: "炭火居酒屋 山", people: 3, time: "20:00〜", treat: "奢り", points: 500, gender: "女性", tags: ["20代", "社会人"], avatar: "🍻",
+    members: [
+      { name: "みお", age: 24, photo: img("women", 44) },
+      { name: "あや", age: 26, photo: img("women", 68) },
+      { name: "りな", age: 23, photo: img("women", 25) },
+    ] },
+  { id: 2, name: "週末カジュアル会", area: "六本木", venue: "Bar LUNA", people: 2, time: "21:00〜", treat: "割り勘", points: 200, gender: "女性", tags: ["25〜30歳", "お酒好き"], avatar: "🌙",
+    members: [
+      { name: "さき", age: 27, photo: img("women", 33) },
+      { name: "ゆき", age: 29, photo: img("women", 51) },
+    ] },
+  { id: 3, name: "仕事終わりの一杯", area: "新宿", venue: "和食ダイニング 花", people: 4, time: "19:30〜", treat: "奢り", points: 400, gender: "女性", tags: ["社会人", "まったり"], avatar: "🌸",
+    members: [
+      { name: "なな", age: 25, photo: img("women", 12) },
+      { name: "えみ", age: 28, photo: img("women", 9) },
+      { name: "かな", age: 26, photo: img("women", 60) },
+      { name: "ほのか", age: 24, photo: img("women", 41) },
+    ] },
+  { id: 4, name: "土曜ワイン会", area: "恵比寿", venue: "Wine & Dine CAVA", people: 2, time: "19:00〜", treat: "割り勘", points: 300, gender: "女性", tags: ["ワイン好き", "大人"], avatar: "🍷",
+    members: [
+      { name: "まり", age: 30, photo: img("women", 79) },
+      { name: "ちひろ", age: 31, photo: img("women", 90) },
+    ] },
 ];
 
 const Badge = ({ children, color, bg }) => (
@@ -95,6 +116,26 @@ const DetailScreen = ({ party, onBack }) => (
           </div>
           <h2 style={{ fontSize: 20, fontWeight: 600, margin: "0 0 4px", color: COLORS.text }}>{party.name}</h2>
           <p style={{ fontSize: 13, color: COLORS.textSec, margin: "0 0 20px" }}>{party.gender}グループ · {party.tags.join(" · ")}</p>
+
+          {party.members && (
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: COLORS.text, marginBottom: 12 }}>参加メンバー</div>
+              <div style={{ display: "flex", gap: 12, overflowX: "auto", paddingBottom: 4 }}>
+                {party.members.map((m, i) => (
+                  <div key={i} style={{ textAlign: "center", flexShrink: 0, width: 72 }}>
+                    <img
+                      src={m.photo}
+                      alt={m.name}
+                      loading="lazy"
+                      style={{ width: 64, height: 64, borderRadius: 32, objectFit: "cover", border: `2px solid ${COLORS.primaryLight}`, background: "#f0f0f0" }}
+                    />
+                    <div style={{ fontSize: 12, fontWeight: 600, color: COLORS.text, marginTop: 6 }}>{m.name}</div>
+                    <div style={{ fontSize: 11, color: COLORS.textMuted }}>{m.age}歳</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
             {[
@@ -286,7 +327,7 @@ const ChatScreen = () => (
 const MyPageScreen = () => (
   <div style={{ padding: "8px 20px 20px" }}>
     <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 20 }}>
-      <div style={{ width: 56, height: 56, borderRadius: 28, background: COLORS.primaryLight, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}>👤</div>
+      <img src={img("men", 32)} alt="ザキ" style={{ width: 56, height: 56, borderRadius: 28, objectFit: "cover", background: COLORS.primaryLight }} />
       <div>
         <div style={{ fontWeight: 600, fontSize: 18, color: COLORS.text }}>ザキ</div>
         <div style={{ fontSize: 13, color: COLORS.textSec }}>東京 · 28歳</div>
