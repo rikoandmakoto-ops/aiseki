@@ -5,20 +5,52 @@
 }
 
 body {
-  background: #ececec;
   min-height: 100vh;
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  padding: 24px 0;
-  font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP",
-    sans-serif;
+  padding: 28px 0;
+  background:
+    radial-gradient(90% 60% at 50% -10%, rgba(168, 32, 58, 0.22), transparent 60%),
+    radial-gradient(70% 50% at 50% 110%, rgba(232, 200, 116, 0.12), transparent 60%),
+    linear-gradient(180deg, #0e0a10 0%, #060507 100%);
+  background-attachment: fixed;
+  color: #f4efe3;
+  font-family: "Zen Kaku Gothic New", -apple-system, BlinkMacSystemFont, sans-serif;
   -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+/* Subtle gold shimmer for the balance card */
+@keyframes sheen {
+  0% {
+    transform: translateX(-120%) skewX(-18deg);
+  }
+  60%,
+  100% {
+    transform: translateX(320%) skewX(-18deg);
+  }
+}
+
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
+input::placeholder {
+  color: rgba(244, 239, 227, 0.35);
 }
 
 @media (max-width: 430px) {
   body {
-    background: #f8f7f4;
     padding: 0;
+    background:
+      radial-gradient(90% 40% at 50% 0%, rgba(168, 32, 58, 0.22), transparent 60%),
+      linear-gradient(180deg, #0e0a10 0%, #060507 100%);
   }
 }
