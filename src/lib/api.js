@@ -1,11 +1,36 @@
 import { supabase } from "./supabase";
 
+/* =====================================================================
+   グループ限定マッチングの共通ルール
+   ・1つの会は「ホスト側2名以上」×「参加側2名以上」でのみ成立する（1対1は不可）
+   ・個人プロフィールは同じ会に参加承認された相手にのみ公開（RLSで担保）
+   ===================================================================== */
+export const MIN_GROUP_SIZE = 2;
+
+// マイグレーション未適用（新カラムが無い）場合に分かりやすいエラーへ変換する
+function wrapSchemaError(error) {
+  const msg = error?.message || "";
+  if (/group_size|host_group_size|guest_group_size|applicant_name|host_name/.test(msg)) {
+    return new Error(
+      "データベースがグループ限定仕様に更新されていません。" +
+      "Supabase の SQL Editor で supabase/migration_group_only.sql を実行してください。"
+    );
+  }
+  return error;
+}
+
 /* ============================ Auth ============================ */
-export async function signUp({ email, password, username, gender, age }) {
+// 18歳未満は利用禁止。性別は登録時に一切収集しない（性別による制限を設けないため）。
+export const MIN_AGE = 18;
+
+export async function signUp({ email, password, username, age }) {
+  if (!(Number(age) >= MIN_AGE)) {
+    throw new Error(`本サービスは${MIN_AGE}歳未満の方はご利用いただけません。`);
+  }
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
-    options: { data: { username, gender, age: age ? String(age) : "" } },
+    options: { data: { username, age: String(age) } },
   });
   if (error) throw error;
   return data;
@@ -87,10 +112,13 @@ export async function convertPoints(amount, description) {
 }
 
 /* ========================== Parties ========================== */
+// 一覧・詳細では会の情報（場所・時間・人数・ポイント）と
+// ホストのニックネーム（parties.host_name）だけを取得する。
+// 参加者個人のプロフィールは join せず、承認後に getPartyMembers() でのみ取得する。
 export async function listParties(area) {
   let q = supabase
     .from("parties")
-    .select("*, host:host_id(username, gender, age)")
+    .select("*")
     .eq("status", "recruiting")
     .order("created_at", { ascending: false });
   if (area) q = q.eq("area", area);
@@ -102,30 +130,47 @@ export async function listParties(area) {
 export async function getParty(id) {
   const { data, error } = await supabase
     .from("parties")
-    .select("*, host:host_id(username, gender, age)")
+    .select("*")
     .eq("id", id)
     .single();
   if (error) throw error;
   return data;
 }
 
+// 参加メンバーの詳細。RLS により、その会に参加承認された本人のみ取得できる
+//（未承認・非参加者には空配列が返る）。
 export async function getPartyMembers(partyId) {
   const { data, error } = await supabase
     .from("party_members")
-    .select("role, joined_at, user_id, profiles(username, avatar_url, age, gender)")
+    .select("role, joined_at, user_id, profiles(username, avatar_url, age)")
     .eq("party_id", partyId)
     .order("joined_at", { ascending: true });
   if (error) throw error;
   return data ?? [];
 }
 
+// 会の作成。ホスト側・参加側ともに2名以上のグループが必須（1対1は作成不可）。
+// 実際の人数・定員はサーバ側トリガー enforce_group_party() が確定させる。
 export async function createParty(hostId, fields) {
+  const hostGroup = Number(fields.host_group_size);
+  const guestGroup = Number(fields.guest_group_size);
+  if (!(hostGroup >= MIN_GROUP_SIZE) || !(guestGroup >= MIN_GROUP_SIZE)) {
+    throw new Error(`会は${MIN_GROUP_SIZE}名以上のグループ同士でのみ作成できます。`);
+  }
   const { data, error } = await supabase
     .from("parties")
-    .insert({ host_id: hostId, current_members: 1, status: "recruiting", ...fields })
+    .insert({
+      host_id: hostId,
+      status: "recruiting",
+      ...fields,
+      host_group_size: hostGroup,
+      guest_group_size: guestGroup,
+      max_members: hostGroup + guestGroup,
+      current_members: hostGroup,
+    })
     .select()
     .single();
-  if (error) throw error;
+  if (error) throw wrapSchemaError(error);
   return data;
 }
 
@@ -140,14 +185,18 @@ export async function listMyParties(userId) {
 }
 
 /* ====================== Join requests ======================== */
-// 参加者が会に参加リクエストを送る（募集側＝ホストは無料。ポイントは承認時に移動）
-export async function sendJoinRequest(userId, partyId) {
+// グループ単位の参加リクエスト（募集側＝ホストは無料。ポイントは承認時に移動）
+export async function sendJoinRequest(userId, partyId, groupSize) {
+  const size = Number(groupSize);
+  if (!(size >= MIN_GROUP_SIZE)) {
+    throw new Error(`参加は${MIN_GROUP_SIZE}名以上のグループ単位でのみ申し込めます。`);
+  }
   const { data, error } = await supabase
     .from("join_requests")
-    .insert({ user_id: userId, party_id: partyId, status: "pending" })
+    .insert({ user_id: userId, party_id: partyId, group_size: size, status: "pending" })
     .select()
     .single();
-  if (error) throw error;
+  if (error) throw wrapSchemaError(error);
   return data;
 }
 
@@ -155,7 +204,7 @@ export async function sendJoinRequest(userId, partyId) {
 export async function getMyJoinRequest(userId, partyId) {
   const { data, error } = await supabase
     .from("join_requests")
-    .select("id, status")
+    .select("id, status, group_size")
     .eq("user_id", userId)
     .eq("party_id", partyId)
     .order("created_at", { ascending: false })
@@ -165,6 +214,8 @@ export async function getMyJoinRequest(userId, partyId) {
 }
 
 // 自分がホストの会に届いた参加リクエスト（受信箱）
+// 承認前に閲覧できるのは「代表者のニックネーム」と「グループ人数」のみ。
+// 顔写真・年齢・性別などの個人情報は承認後にのみ参照できる。
 export async function listIncomingRequests(userId) {
   const { data: myParties, error: pErr } = await supabase
     .from("parties")
@@ -176,7 +227,7 @@ export async function listIncomingRequests(userId) {
 
   const { data, error } = await supabase
     .from("join_requests")
-    .select("*, applicant:user_id(username, avatar_url, age, gender), party:party_id(id, title, point_request)")
+    .select("id, party_id, group_size, applicant_name, status, created_at, party:party_id(id, title, point_request)")
     .in("party_id", ids)
     .eq("status", "pending")
     .order("created_at", { ascending: false });
@@ -191,7 +242,11 @@ export async function respondJoinRequest(requestId, status) {
   if (error) throw error;
 }
 
-/* ========================= Messages ========================== */
+/* ========================= Messages ==========================
+   チャットは必ず「会（グループ）」に紐づくグループチャットのみ。
+   個人間DMの API は存在せず、messages は party_id 必須。
+   閲覧・投稿はその会の参加メンバーに限られる（RLS: is_party_member）。
+   ============================================================= */
 export async function listMessages(partyId) {
   const { data, error } = await supabase
     .from("messages")

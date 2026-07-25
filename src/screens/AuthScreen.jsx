@@ -1,17 +1,32 @@
 import { useState } from "react";
-import { Sparkles } from "lucide-react";
+import { Sparkles, Users, ChevronLeft, Check } from "lucide-react";
 import {
   C, FONT_LOGO, FONT_SERIF_JP, FONT_BODY, goldText, glass, goldBtn, ghostBtn, fieldStyle, labelStyle,
 } from "../lib/theme.jsx";
-import { signIn, signUp } from "../lib/api";
+import { signIn, signUp, MIN_AGE } from "../lib/api";
+import { TermsBody } from "./TermsScreen.jsx";
+
+const shellStyle = {
+  maxWidth: 400, width: "100%", margin: "0 auto", minHeight: 720,
+  display: "flex", flexDirection: "column",
+  borderRadius: 30, overflow: "hidden",
+  background:
+    "radial-gradient(120% 80% at 85% -5%, rgba(178,58,76,0.30), transparent 55%)," +
+    "radial-gradient(100% 60% at 0% 5%, rgba(216,189,130,0.1), transparent 50%)," +
+    "linear-gradient(180deg, #100c0e 0%, #070506 100%)",
+  border: `1px solid ${C.line}`,
+  boxShadow: "0 44px 96px rgba(0,0,0,0.72), inset 0 1px 0 rgba(255,255,255,0.08)",
+  fontFamily: FONT_BODY,
+};
 
 export default function AuthScreen() {
   const [mode, setMode] = useState("login"); // 'login' | 'signup'
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [username, setUsername] = useState("");
-  const [gender, setGender] = useState("男性");
   const [age, setAge] = useState("");
+  const [agreed, setAgreed] = useState(false);
+  const [showTerms, setShowTerms] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -20,13 +35,25 @@ export default function AuthScreen() {
     e.preventDefault();
     setError("");
     setNotice("");
+
+    if (mode === "signup") {
+      if (!agreed) {
+        setError("利用規約への同意と、18歳以上であることの確認が必要です。");
+        return;
+      }
+      if (!(Number(age) >= MIN_AGE)) {
+        setError(`本サービスは${MIN_AGE}歳未満の方はご利用いただけません。`);
+        return;
+      }
+    }
+
     setLoading(true);
     try {
       if (mode === "login") {
         await signIn({ email, password });
         // 成功後は App の onAuthStateChange が画面を切り替える
       } else {
-        const data = await signUp({ email, password, username, gender, age: age ? Number(age) : null });
+        const data = await signUp({ email, password, username, age: Number(age) });
         if (!data.session) {
           // メール確認が有効な場合
           setNotice("確認メールを送信しました。メール内のリンクを開いてから、ログインしてください。");
@@ -40,18 +67,28 @@ export default function AuthScreen() {
     }
   };
 
+  if (showTerms) {
+    return (
+      <div style={shellStyle}>
+        <div style={{ padding: "0 22px 30px" }}>
+          <button className="press" onClick={() => setShowTerms(false)} style={{
+            display: "inline-flex", alignItems: "center", gap: 4, background: "none", border: "none",
+            fontSize: 13.5, color: C.gold, cursor: "pointer", padding: "20px 0 14px", fontWeight: 600, letterSpacing: 0.4,
+          }}>
+            <ChevronLeft size={18} strokeWidth={2} /> 戻る
+          </button>
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: C.gold, letterSpacing: 2.4, textTransform: "uppercase", marginBottom: 4 }}>Terms of Service</div>
+            <div style={{ fontFamily: FONT_SERIF_JP, fontSize: 23, fontWeight: 600, letterSpacing: 0.5, color: C.text }}>利用規約</div>
+          </div>
+          <TermsBody />
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div style={{
-      maxWidth: 400, width: "100%", margin: "0 auto", minHeight: 720, display: "flex", flexDirection: "column",
-      borderRadius: 30, overflow: "hidden",
-      background:
-        "radial-gradient(120% 80% at 85% -5%, rgba(178,58,76,0.30), transparent 55%)," +
-        "radial-gradient(100% 60% at 0% 5%, rgba(216,189,130,0.1), transparent 50%)," +
-        "linear-gradient(180deg, #100c0e 0%, #070506 100%)",
-      border: `1px solid ${C.line}`,
-      boxShadow: "0 44px 96px rgba(0,0,0,0.72), inset 0 1px 0 rgba(255,255,255,0.08)",
-      fontFamily: FONT_BODY,
-    }}>
+    <div style={shellStyle}>
       {/* ── Brand / hero ── */}
       <div style={{ position: "relative", padding: "62px 30px 34px", textAlign: "center", overflow: "hidden" }}>
         {/* ambient glow */}
@@ -59,16 +96,23 @@ export default function AuthScreen() {
           background: "radial-gradient(circle, rgba(216,189,130,0.16), transparent 66%)", animation: "floatGlow 7s ease-in-out infinite", pointerEvents: "none" }} />
 
         <div style={{ position: "relative" }}>
-          <div style={{ fontSize: 9, letterSpacing: 5, color: C.textMuted, textTransform: "uppercase", marginBottom: 14 }}>Premium Lounge Matching</div>
+          <div style={{ fontSize: 9, letterSpacing: 5, color: C.textMuted, textTransform: "uppercase", marginBottom: 14 }}>Group Dining Matching</div>
           {/* hairline · logo · hairline */}
           <div style={{ display: "flex", alignItems: "center", gap: 14, justifyContent: "center" }}>
             <span style={{ height: 1, width: 34, background: `linear-gradient(90deg, transparent, ${C.gold})` }} />
             <span style={{ fontFamily: FONT_LOGO, fontSize: 46, fontWeight: 700, letterSpacing: 7, ...goldText, lineHeight: 1 }}>AISEKI</span>
             <span style={{ height: 1, width: 34, background: `linear-gradient(90deg, ${C.gold}, transparent)` }} />
           </div>
-          <div style={{ fontFamily: FONT_SERIF_JP, fontSize: 15, color: C.text, letterSpacing: 4, marginTop: 12, opacity: 0.85 }}>相 席</div>
-          <div style={{ fontFamily: FONT_SERIF_JP, fontSize: 13.5, color: C.textSec, letterSpacing: 0.8, marginTop: 18, lineHeight: 1.7 }}>
-            夜の街で、「会」と「会」がめぐり逢う。<br />大人のための、上質な相席ラウンジ。
+          <div style={{ fontFamily: FONT_SERIF_JP, fontSize: 15, color: C.text, letterSpacing: 4, marginTop: 12, opacity: 0.85 }}>グループ飲み会</div>
+          <div style={{
+            display: "inline-flex", alignItems: "center", gap: 6, marginTop: 14,
+            padding: "5px 14px", borderRadius: 20, fontSize: 11, fontWeight: 700, letterSpacing: 0.6,
+            color: C.goldBright, background: "rgba(216,189,130,0.09)", border: `1px solid ${C.lineGold}`,
+          }}>
+            <Users size={13} strokeWidth={2} /> 2名以上のグループ同士でマッチング
+          </div>
+          <div style={{ fontFamily: FONT_SERIF_JP, fontSize: 13.5, color: C.textSec, letterSpacing: 0.8, marginTop: 16, lineHeight: 1.7 }}>
+            夜の街で、「グループ」と「グループ」が卓を囲む。<br />大人のための、上質な飲み会マッチング。
           </div>
         </div>
       </div>
@@ -116,18 +160,42 @@ export default function AuthScreen() {
             </div>
 
             {mode === "signup" && (
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
-                <div>
-                  <label style={labelStyle}>性別</label>
-                  <select value={gender} onChange={(e) => setGender(e.target.value)} style={{ ...fieldStyle, colorScheme: "dark" }}>
-                    {["男性", "女性", "その他"].map((g) => <option key={g}>{g}</option>)}
-                  </select>
+              <>
+                <div style={{ marginBottom: 16 }}>
+                  <label style={labelStyle}>年齢（18歳以上）</label>
+                  <input type="number" required min={18} max={99} value={age} onChange={(e) => setAge(e.target.value)} placeholder="28" style={fieldStyle} />
                 </div>
-                <div>
-                  <label style={labelStyle}>年齢</label>
-                  <input type="number" min={18} max={99} value={age} onChange={(e) => setAge(e.target.value)} placeholder="28" style={fieldStyle} />
+
+                {/* 年齢確認 & 規約同意（インターネット異性紹介事業に該当しないための必須要件） */}
+                <div
+                  onClick={() => setAgreed((v) => !v)}
+                  style={{
+                    display: "flex", gap: 11, alignItems: "flex-start", cursor: "pointer", marginBottom: 16,
+                    padding: "13px 15px", borderRadius: 14,
+                    background: agreed ? "rgba(216,189,130,0.08)" : "rgba(255,255,255,0.028)",
+                    border: `1px solid ${agreed ? C.lineGold : C.lineSoft}`,
+                    transition: "background .2s ease, border-color .2s ease",
+                  }}
+                >
+                  <span style={{
+                    flexShrink: 0, width: 20, height: 20, borderRadius: 6, marginTop: 1,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    ...(agreed
+                      ? { background: C.goldGrad, boxShadow: "inset 0 1px 0 rgba(255,255,255,0.5)" }
+                      : { background: "rgba(255,255,255,0.05)", border: `1px solid ${C.lineSoft}` }),
+                  }}>
+                    {agreed && <Check size={13} strokeWidth={3} color="#241704" />}
+                  </span>
+                  <span style={{ fontSize: 11.5, color: C.textSec, lineHeight: 1.75 }}>
+                    私は<b style={{ color: C.text, fontWeight: 700 }}>18歳以上</b>であり、
+                    <button type="button" onClick={(e) => { e.stopPropagation(); setShowTerms(true); }} style={{
+                      background: "none", border: "none", padding: 0, cursor: "pointer",
+                      color: C.gold, fontWeight: 700, fontSize: 11.5, textDecoration: "underline", textUnderlineOffset: 3,
+                    }}>利用規約</button>
+                    に同意します。本サービスはグループでの飲み会・食事会のマッチングサービスであり、異性交際・1対1の出会いを目的とした利用が禁止されていることを理解しました。
+                  </span>
                 </div>
-              </div>
+              </>
             )}
 
             {error && (
@@ -137,12 +205,17 @@ export default function AuthScreen() {
               <div style={{ fontSize: 12, color: C.goldBright, background: "rgba(216,189,130,0.1)", border: `1px solid ${C.lineGold}`, borderRadius: 11, padding: "10px 13px", marginBottom: 14, lineHeight: 1.5 }}>{notice}</div>
             )}
 
-            <button type="submit" className="gold-cta" disabled={loading} style={{
+            {(() => {
+              const blocked = loading || (mode === "signup" && !agreed);
+              return (
+            <button type="submit" className="gold-cta" disabled={blocked} style={{
               ...goldBtn, width: "100%", padding: "15px 0", borderRadius: 14, fontSize: 15,
-              opacity: loading ? 0.6 : 1, cursor: loading ? "default" : "pointer",
+              opacity: blocked ? 0.5 : 1, cursor: blocked ? "default" : "pointer",
             }}>
               {loading ? "処理中…" : mode === "login" ? "ログイン" : "登録して始める"}
             </button>
+              );
+            })()}
           </form>
 
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 11, color: C.textMuted, textAlign: "center", marginTop: 18, lineHeight: 1.6 }}>
@@ -152,8 +225,14 @@ export default function AuthScreen() {
           </div>
         </div>
 
-        <div style={{ textAlign: "center", marginTop: 20, fontSize: 9.5, color: C.textFaint, letterSpacing: 2, textTransform: "uppercase" }}>
-          20歳以上限定 · 会員制ラウンジ
+        <div style={{ textAlign: "center", marginTop: 20 }}>
+          <button type="button" className="press" onClick={() => setShowTerms(true)} style={{
+            background: "none", border: "none", cursor: "pointer",
+            fontSize: 11, color: C.textSec, letterSpacing: 0.6, textDecoration: "underline", textUnderlineOffset: 3,
+          }}>利用規約を読む</button>
+          <div style={{ marginTop: 10, fontSize: 9.5, color: C.textFaint, letterSpacing: 2, textTransform: "uppercase" }}>
+            18歳未満利用禁止 · グループ飲み会マッチング
+          </div>
         </div>
       </div>
     </div>

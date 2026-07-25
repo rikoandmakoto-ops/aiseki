@@ -1,7 +1,16 @@
 -- =====================================================================
---  相席マッチングアプリ  Supabase スキーマ
+--  グループ飲み会マッチングアプリ  Supabase スキーマ
 --  Supabase の SQL Editor に貼り付けてそのまま実行してください。
 --  （再実行しても安全なように IF NOT EXISTS / DROP ... IF EXISTS を使用）
+--
+--  設計方針（インターネット異性紹介事業に該当しないための要件）
+--   ・グループ限定      … ホスト側 2名以上 × 参加側 2名以上。1対1は成立しない。
+--   ・1対1メッセージ禁止 … messages は会（グループ）単位のみ。個人間DMは存在しない。
+--   ・個人情報の非公開   … 個人の名前・写真・年齢・性別は、同じ会に参加承認された
+--                          相手にのみ公開（不特定多数には非公開）。
+--   ・性別による制限なし … 同性グループ同士でも参加できる（性別条件を一切持たない）。
+--
+--  ※ 既存DBへの差分適用は supabase/migration_group_only.sql を使用してください。
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
@@ -47,20 +56,31 @@ create index if not exists points_user_idx on public.points(user_id, created_at 
 --  4. parties … 会（募集）
 -- =====================================================================
 create table if not exists public.parties (
-  id              uuid primary key default gen_random_uuid(),
-  host_id         uuid not null references auth.users(id) on delete cascade,
-  title           text not null,
-  location        text,                   -- 店舗名
-  area            text,                   -- エリア（渋谷 等）
-  max_members     int  not null default 2,
-  current_members int  not null default 1,
-  party_time      text,                   -- 集合時間（'20:00' 等）
-  treat_type      text not null default '割り勘',   -- '奢り' | '割り勘'
-  point_request   int  not null default 0,          -- 1人あたり必要ポイント
-  status          text not null default 'recruiting', -- 'recruiting' | 'matched' | 'completed'
-  created_at      timestamptz not null default now()
+  id               uuid primary key default gen_random_uuid(),
+  host_id          uuid not null references auth.users(id) on delete cascade,
+  title            text not null,
+  location         text,                   -- 店舗名
+  area             text,                   -- エリア（渋谷 等）
+  host_group_size  int  not null default 2, -- ホスト側グループの人数（2名以上）
+  guest_group_size int  not null default 2, -- 募集するグループの人数（2名以上）
+  host_name        text,                    -- ホストのニックネーム（公開してよい範囲のみ）
+  max_members      int  not null default 4,
+  current_members  int  not null default 2,
+  party_time       text,                   -- 集合時間（'20:00' 等）
+  treat_type       text not null default '割り勘',   -- '奢り' | '割り勘'
+  point_request    int  not null default 0,          -- 1人あたり必要ポイント
+  status           text not null default 'recruiting', -- 'recruiting' | 'matched' | 'completed'
+  created_at       timestamptz not null default now()
 );
 create index if not exists parties_status_idx on public.parties(status, created_at desc);
+
+-- 1対1マッチングを DB レベルで禁止する制約
+alter table public.parties drop constraint if exists parties_group_only;
+alter table public.parties add constraint parties_group_only check (
+  host_group_size  >= 2
+  and guest_group_size >= 2
+  and max_members  >= host_group_size + guest_group_size
+);
 
 -- =====================================================================
 --  5. party_members … 会の参加メンバー
@@ -80,12 +100,16 @@ create table if not exists public.party_members (
 --     ・ポイント移動は承認時に accept_join_request() 関数内で実行。
 -- =====================================================================
 create table if not exists public.join_requests (
-  id          uuid primary key default gen_random_uuid(),
-  party_id    uuid not null references public.parties(id) on delete cascade,
-  user_id     uuid not null references public.profiles(id) on delete cascade, -- 参加希望者
-  status      text not null default 'pending',  -- 'pending' | 'accepted' | 'rejected'
-  created_at  timestamptz not null default now()
+  id             uuid primary key default gen_random_uuid(),
+  party_id       uuid not null references public.parties(id) on delete cascade,
+  user_id        uuid not null references public.profiles(id) on delete cascade, -- 申請グループの代表者
+  group_size     int  not null default 2,  -- 参加するグループの人数（2名以上）
+  applicant_name text,                     -- 代表者のニックネーム（承認前に公開されるのはここまで）
+  status         text not null default 'pending',  -- 'pending' | 'accepted' | 'rejected'
+  created_at     timestamptz not null default now()
 );
+alter table public.join_requests drop constraint if exists join_requests_group_only;
+alter table public.join_requests add constraint join_requests_group_only check (group_size >= 2);
 create index if not exists join_party_idx on public.join_requests(party_id);
 create index if not exists join_user_idx  on public.join_requests(user_id);
 -- 同じ会への重複リクエスト（保留中）を防止
@@ -162,6 +186,90 @@ create trigger on_party_created
   for each row execute function public.handle_new_party();
 
 -- =====================================================================
+--  グループ限定の強制（BEFORE INSERT）
+--  人数とニックネームはサーバ側で確定させ、クライアント値を信用しない。
+-- =====================================================================
+create or replace function public.enforce_group_party()
+returns trigger
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if coalesce(new.host_group_size, 0) < 2 then
+    raise exception 'ホスト側は2名以上のグループでのみ会を作成できます';
+  end if;
+  if coalesce(new.guest_group_size, 0) < 2 then
+    raise exception '募集は2名以上のグループ単位でのみ行えます';
+  end if;
+
+  new.max_members     := new.host_group_size + new.guest_group_size;
+  new.current_members := new.host_group_size;
+  new.host_name       := coalesce(
+    (select username from public.profiles where id = new.host_id), 'ホスト'
+  );
+  return new;
+end;
+$$;
+
+drop trigger if exists on_party_group_check on public.parties;
+create trigger on_party_group_check
+  before insert on public.parties
+  for each row execute function public.enforce_group_party();
+
+create or replace function public.enforce_group_join()
+returns trigger
+language plpgsql security definer set search_path = public
+as $$
+declare v_party public.parties;
+begin
+  if coalesce(new.group_size, 0) < 2 then
+    raise exception '参加は2名以上のグループ単位でのみ行えます';
+  end if;
+
+  select * into v_party from public.parties where id = new.party_id;
+  if not found then raise exception '会が見つかりません'; end if;
+  if v_party.current_members + new.group_size > v_party.max_members then
+    raise exception '残りの枠が足りません';
+  end if;
+
+  new.applicant_name := coalesce(
+    (select username from public.profiles where id = new.user_id), 'ゲスト'
+  );
+  return new;
+end;
+$$;
+
+drop trigger if exists on_join_request_group_check on public.join_requests;
+create trigger on_join_request_group_check
+  before insert on public.join_requests
+  for each row execute function public.enforce_group_join();
+
+-- =====================================================================
+--  RLS 用ヘルパー（security definer で再帰を回避）
+-- =====================================================================
+create or replace function public.is_party_member(p_party uuid, p_user uuid)
+returns boolean
+language sql security definer stable set search_path = public
+as $$
+  select exists (
+    select 1 from public.party_members
+    where party_id = p_party and user_id = p_user
+  );
+$$;
+
+-- 2人が同じ会に参加しているか（＝プロフィール公開可否の判定）
+create or replace function public.shares_party(p_a uuid, p_b uuid)
+returns boolean
+language sql security definer stable set search_path = public
+as $$
+  select exists (
+    select 1
+      from public.party_members m1
+      join public.party_members m2 on m1.party_id = m2.party_id
+     where m1.user_id = p_a and m2.user_id = p_b
+  );
+$$;
+
+-- =====================================================================
 --  ポイント関連 RPC（すべて security definer で残高を安全に更新）
 --  ※ point_balances は本人以外の残高を更新できないため、
 --    参加者→ホストのポイント移動は必ずこの関数を経由する。
@@ -223,6 +331,7 @@ declare
   v_req   public.join_requests;
   v_party public.parties;
   v_bal   int;
+  v_cost  int;
 begin
   if auth.uid() is null then raise exception '認証が必要です'; end if;
 
@@ -233,38 +342,43 @@ begin
   select * into v_party from public.parties where id = v_req.party_id for update;
   if not found then raise exception '会が見つかりません'; end if;
   if v_party.host_id <> auth.uid() then raise exception 'この会のホストのみ承認できます'; end if;
-  if v_party.current_members >= v_party.max_members then raise exception '定員に達しています'; end if;
+  if v_req.group_size < 2 then raise exception 'グループ単位の参加のみ承認できます'; end if;
+  if v_party.current_members + v_req.group_size > v_party.max_members then
+    raise exception '残りの枠が足りません';
+  end if;
 
-  -- 参加者の残高チェック
+  -- 参加グループの残高チェック（1人あたり point_request × 人数）
+  v_cost := v_party.point_request * v_req.group_size;
   select balance into v_bal from public.point_balances where user_id = v_req.user_id for update;
-  if coalesce(v_bal, 0) < v_party.point_request then
+  if coalesce(v_bal, 0) < v_cost then
     raise exception '参加者のポイントが不足しています';
   end if;
 
-  -- 参加者が支払う（募集側＝ホストは無料）
-  if v_party.point_request > 0 then
-    update public.point_balances set balance = balance - v_party.point_request
+  -- 参加グループが支払う（募集側＝ホストは無料）
+  if v_cost > 0 then
+    update public.point_balances set balance = balance - v_cost
     where user_id = v_req.user_id;
     insert into public.points (user_id, amount, type, description)
-    values (v_req.user_id, -v_party.point_request, 'spend', '相席参加: ' || v_party.title);
+    values (v_req.user_id, -v_cost, 'spend', 'グループ参加: ' || v_party.title);
 
     -- ホストが受け取る
     insert into public.point_balances (user_id, balance)
-    values (v_party.host_id, v_party.point_request)
+    values (v_party.host_id, v_cost)
     on conflict (user_id) do update
-      set balance = public.point_balances.balance + v_party.point_request;
+      set balance = public.point_balances.balance + v_cost;
     insert into public.points (user_id, amount, type, description)
-    values (v_party.host_id, v_party.point_request, 'earn', '相席報酬: ' || v_party.title);
+    values (v_party.host_id, v_cost, 'earn', 'グループ受入: ' || v_party.title);
   end if;
 
-  -- 参加者をメンバーに追加
+  -- 参加グループの代表者をメンバーに追加
   insert into public.party_members (party_id, user_id, role)
   values (v_req.party_id, v_req.user_id, 'member')
   on conflict do nothing;
 
   update public.parties
-  set current_members = current_members + 1,
-      status = case when current_members + 1 >= max_members then 'matched' else status end
+  set current_members = current_members + v_req.group_size,
+      status = case when current_members + v_req.group_size >= max_members
+                    then 'matched' else status end
   where id = v_req.party_id;
 
   update public.join_requests set status = 'accepted' where id = p_request_id;
@@ -301,9 +415,11 @@ alter table public.party_members  enable row level security;
 alter table public.join_requests  enable row level security;
 alter table public.messages       enable row level security;
 
--- profiles: 全員が閲覧可、本人のみ更新
+-- profiles: 本人 / 同じ会に参加承認された相手のみ閲覧可（不特定多数には非公開）
 drop policy if exists profiles_select on public.profiles;
-create policy profiles_select on public.profiles for select using (true);
+create policy profiles_select on public.profiles for select using (
+  id = auth.uid() or public.shares_party(auth.uid(), id)
+);
 drop policy if exists profiles_upsert on public.profiles;
 create policy profiles_upsert on public.profiles for insert with check (auth.uid() = id);
 drop policy if exists profiles_update on public.profiles;
@@ -319,7 +435,8 @@ create policy points_select on public.points for select using (auth.uid() = user
 drop policy if exists points_insert on public.points;
 create policy points_insert on public.points for insert with check (auth.uid() = user_id);
 
--- parties: 全員閲覧可、作成は本人がホスト、更新/削除はホストのみ
+-- parties: 会の情報（場所・時間・人数・ポイント・ホストのニックネーム）は公開。
+--          個人を特定する情報は parties に保持しない。作成は本人がホスト、更新/削除はホストのみ。
 drop policy if exists parties_select on public.parties;
 create policy parties_select on public.parties for select using (true);
 drop policy if exists parties_insert on public.parties;
@@ -329,9 +446,11 @@ create policy parties_update on public.parties for update using (auth.uid() = ho
 drop policy if exists parties_delete on public.parties;
 create policy parties_delete on public.parties for delete using (auth.uid() = host_id);
 
--- party_members: 全員閲覧可、本人の参加のみ追加/削除
+-- party_members: 参加が承認されたメンバーのみ、その会のメンバー一覧を閲覧可
 drop policy if exists members_select on public.party_members;
-create policy members_select on public.party_members for select using (true);
+create policy members_select on public.party_members for select using (
+  public.is_party_member(party_id, auth.uid())
+);
 drop policy if exists members_insert on public.party_members;
 create policy members_insert on public.party_members for insert with check (auth.uid() = user_id);
 drop policy if exists members_delete on public.party_members;
@@ -351,11 +470,16 @@ create policy join_insert on public.join_requests for insert with check (
 );
 -- 承認/拒否は accept_join_request() / reject_join_request()（security definer）経由で行う。
 
--- messages: 認証ユーザーは閲覧可、投稿は本人のみ
+-- messages: グループチャット限定。個人間DMは存在しない。
+--           参加が承認されたメンバーのみ、その会のチャットを閲覧・投稿できる。
 drop policy if exists messages_select on public.messages;
-create policy messages_select on public.messages for select using (auth.role() = 'authenticated');
+create policy messages_select on public.messages for select using (
+  public.is_party_member(party_id, auth.uid())
+);
 drop policy if exists messages_insert on public.messages;
-create policy messages_insert on public.messages for insert with check (auth.uid() = user_id);
+create policy messages_insert on public.messages for insert with check (
+  auth.uid() = user_id and public.is_party_member(party_id, auth.uid())
+);
 
 -- =====================================================================
 --  Realtime（チャット用）
