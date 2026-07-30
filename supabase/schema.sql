@@ -63,6 +63,7 @@ create table if not exists public.parties (
   area             text,                   -- エリア（渋谷 等）
   host_group_size  int  not null default 2, -- ホスト側グループの人数（2名以上）
   guest_group_size int  not null default 2, -- 募集するグループの人数（2名以上）
+  host_member_names text[] not null default '{}', -- ホスト側同伴者の表示名（代表者を除く）
   host_name        text,                    -- ホストのニックネーム（公開してよい範囲のみ）
   max_members      int  not null default 4,
   current_members  int  not null default 2,
@@ -83,15 +84,35 @@ alter table public.parties add constraint parties_group_only check (
 );
 
 -- =====================================================================
---  5. party_members … 会の参加メンバー
+--  5. party_members … 会の「席」。人数の唯一の真実。
+--     グループの人数分だけ必ず行が存在する（代表者 + 同伴者）。
+--     同伴者の席は user_id = null（アプリ未登録）で作られ、
+--     招待コードで本人のアカウントに引き受けられる（claim_seat）。
+--     ※ user_id は profiles を参照する（PostgREST が profiles を
+--        埋め込んで取得できるようにするため）。
 -- =====================================================================
 create table if not exists public.party_members (
-  party_id  uuid not null references public.parties(id) on delete cascade,
-  user_id   uuid not null references auth.users(id) on delete cascade,
-  role      text not null default 'member',   -- 'host' | 'member'
-  joined_at timestamptz not null default now(),
-  primary key (party_id, user_id)
+  id             uuid primary key default gen_random_uuid(),
+  party_id       uuid not null references public.parties(id) on delete cascade,
+  user_id        uuid references public.profiles(id) on delete cascade, -- null = 未登録の同伴者席
+  group_owner_id uuid,                            -- その席が属するグループの代表者
+  side           text not null default 'guest',   -- 'host'（募集側） | 'guest'（参加側）
+  role           text not null default 'member',  -- 'host' | 'member'
+  display_name   text,                            -- 席の表示名
+  invite_code    text,                            -- 未登録席を引き受けるためのコード
+  joined_at      timestamptz not null default now()
 );
+alter table public.party_members drop constraint if exists party_members_side_check;
+alter table public.party_members add constraint party_members_side_check
+  check (side in ('host', 'guest'));
+
+-- 同じ会に同じユーザーが二重に座らないようにする（未登録席は対象外）
+create unique index if not exists party_members_party_user_unique
+  on public.party_members(party_id, user_id) where user_id is not null;
+create unique index if not exists party_members_invite_code_unique
+  on public.party_members(invite_code) where invite_code is not null;
+create index if not exists party_members_party_idx on public.party_members(party_id);
+create index if not exists party_members_user_idx  on public.party_members(user_id);
 
 -- =====================================================================
 --  6. join_requests … 参加リクエスト（参加者 → ホストの会）
@@ -104,6 +125,7 @@ create table if not exists public.join_requests (
   party_id       uuid not null references public.parties(id) on delete cascade,
   user_id        uuid not null references public.profiles(id) on delete cascade, -- 申請グループの代表者
   group_size     int  not null default 2,  -- 参加するグループの人数（2名以上）
+  member_names   text[] not null default '{}', -- 同伴者の表示名（代表者を除く／承認後にのみ使う）
   applicant_name text,                     -- 代表者のニックネーム（承認前に公開されるのはここまで）
   status         text not null default 'pending',  -- 'pending' | 'accepted' | 'rejected'
   created_at     timestamptz not null default now()
@@ -119,10 +141,12 @@ create unique index if not exists join_requests_pending_unique
 -- =====================================================================
 --  7. messages … チャット
 -- =====================================================================
+-- ※ user_id は profiles を参照する（PostgREST が発言者の profiles を
+--    埋め込んで取得できるようにするため。profiles.id 自体が auth.users を参照）
 create table if not exists public.messages (
   id         uuid primary key default gen_random_uuid(),
   party_id   uuid not null references public.parties(id) on delete cascade,
-  user_id    uuid not null references auth.users(id) on delete cascade,
+  user_id    uuid not null references public.profiles(id) on delete cascade,
   content    text not null,
   created_at timestamptz not null default now()
 );
@@ -165,85 +189,6 @@ create trigger on_auth_user_created
   for each row execute function public.handle_new_user();
 
 -- =====================================================================
---  会作成時にホストを party_members に登録するトリガー
--- =====================================================================
-create or replace function public.handle_new_party()
-returns trigger
-language plpgsql
-security definer set search_path = public
-as $$
-begin
-  insert into public.party_members (party_id, user_id, role)
-  values (new.id, new.host_id, 'host')
-  on conflict do nothing;
-  return new;
-end;
-$$;
-
-drop trigger if exists on_party_created on public.parties;
-create trigger on_party_created
-  after insert on public.parties
-  for each row execute function public.handle_new_party();
-
--- =====================================================================
---  グループ限定の強制（BEFORE INSERT）
---  人数とニックネームはサーバ側で確定させ、クライアント値を信用しない。
--- =====================================================================
-create or replace function public.enforce_group_party()
-returns trigger
-language plpgsql security definer set search_path = public
-as $$
-begin
-  if coalesce(new.host_group_size, 0) < 2 then
-    raise exception 'ホスト側は2名以上のグループでのみ会を作成できます';
-  end if;
-  if coalesce(new.guest_group_size, 0) < 2 then
-    raise exception '募集は2名以上のグループ単位でのみ行えます';
-  end if;
-
-  new.max_members     := new.host_group_size + new.guest_group_size;
-  new.current_members := new.host_group_size;
-  new.host_name       := coalesce(
-    (select username from public.profiles where id = new.host_id), 'ホスト'
-  );
-  return new;
-end;
-$$;
-
-drop trigger if exists on_party_group_check on public.parties;
-create trigger on_party_group_check
-  before insert on public.parties
-  for each row execute function public.enforce_group_party();
-
-create or replace function public.enforce_group_join()
-returns trigger
-language plpgsql security definer set search_path = public
-as $$
-declare v_party public.parties;
-begin
-  if coalesce(new.group_size, 0) < 2 then
-    raise exception '参加は2名以上のグループ単位でのみ行えます';
-  end if;
-
-  select * into v_party from public.parties where id = new.party_id;
-  if not found then raise exception '会が見つかりません'; end if;
-  if v_party.current_members + new.group_size > v_party.max_members then
-    raise exception '残りの枠が足りません';
-  end if;
-
-  new.applicant_name := coalesce(
-    (select username from public.profiles where id = new.user_id), 'ゲスト'
-  );
-  return new;
-end;
-$$;
-
-drop trigger if exists on_join_request_group_check on public.join_requests;
-create trigger on_join_request_group_check
-  before insert on public.join_requests
-  for each row execute function public.enforce_group_join();
-
--- =====================================================================
 --  RLS 用ヘルパー（security definer で再帰を回避）
 -- =====================================================================
 create or replace function public.is_party_member(p_party uuid, p_user uuid)
@@ -267,6 +212,284 @@ as $$
       join public.party_members m2 on m1.party_id = m2.party_id
      where m1.user_id = p_a and m2.user_id = p_b
   );
+$$;
+
+-- =====================================================================
+--  グループの席（party_members）を作る仕組み
+--  ・グループの人数分だけ必ず席を作る（代表者 + 同伴者）
+--  ・parties.current_members は席数から自動で同期する
+-- =====================================================================
+
+-- 招待コード（8桁・重複しないもの）
+create or replace function public.gen_invite_code()
+returns text
+language plpgsql volatile security definer set search_path = public
+as $$
+declare
+  v_code text;
+  v_try  int := 0;
+begin
+  loop
+    v_code := upper(substr(md5(gen_random_uuid()::text), 1, 8));
+    exit when not exists (select 1 from public.party_members where invite_code = v_code);
+    v_try := v_try + 1;
+    if v_try > 20 then raise exception '招待コードの生成に失敗しました'; end if;
+  end loop;
+  return v_code;
+end;
+$$;
+
+-- 同伴者名の正規化（代表者を除く size-1 件に揃える。空欄は既定名で埋める）
+create or replace function public.normalize_member_names(p_names text[], p_size int)
+returns text[]
+language plpgsql immutable set search_path = public
+as $$
+declare
+  v_out text[] := '{}';
+  v     text;
+  i     int;
+begin
+  for i in 1..greatest(coalesce(p_size, 0) - 1, 0) loop
+    v := nullif(btrim(coalesce(p_names[i], '')), '');
+    v_out := v_out || coalesce(left(v, 20), 'メンバー' || (i + 1));
+  end loop;
+  return v_out;
+end;
+$$;
+
+-- グループ人数分の席をまとめて作る（代表者 1席 + 同伴者 size-1席）
+create or replace function public.create_group_seats(
+  p_party uuid,
+  p_owner uuid,
+  p_side  text,
+  p_size  int,
+  p_names text[]
+)
+returns int
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_owner_name text;
+  v_names      text[];
+  i            int;
+begin
+  if p_size is null or p_size < 2 then
+    raise exception 'グループは2名以上で登録してください';
+  end if;
+  if p_side not in ('host', 'guest') then
+    raise exception 'グループの区分が不正です';
+  end if;
+  if public.is_party_member(p_party, p_owner) then
+    raise exception '既にこの会に参加しています';
+  end if;
+
+  select username into v_owner_name from public.profiles where id = p_owner;
+  v_names := public.normalize_member_names(p_names, p_size);
+
+  -- 代表者本人の席
+  insert into public.party_members
+    (party_id, user_id, role, side, group_owner_id, display_name)
+  values (
+    p_party, p_owner,
+    case when p_side = 'host' then 'host' else 'member' end,
+    p_side, p_owner,
+    coalesce(v_owner_name, case when p_side = 'host' then 'ホスト' else 'ゲスト' end)
+  );
+
+  -- 同伴者の席（未登録。招待コードで本人が引き受けられる）
+  for i in 1..(p_size - 1) loop
+    insert into public.party_members
+      (party_id, user_id, role, side, group_owner_id, display_name, invite_code)
+    values (p_party, null, 'member', p_side, p_owner, v_names[i], public.gen_invite_code());
+  end loop;
+
+  return p_size;
+end;
+$$;
+
+-- 席数を parties.current_members に同期する
+create or replace function public.sync_party_member_count()
+returns trigger
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_party uuid;
+  v_count int;
+begin
+  v_party := coalesce(new.party_id, old.party_id);
+
+  select count(*) into v_count from public.party_members where party_id = v_party;
+
+  update public.parties
+     set current_members = v_count,
+         status = case
+                    when status = 'completed' then status
+                    when v_count >= max_members then 'matched'
+                    else 'recruiting'
+                  end
+   where id = v_party;
+
+  return null;
+end;
+$$;
+
+drop trigger if exists on_party_members_change on public.party_members;
+create trigger on_party_members_change
+  after insert or delete on public.party_members
+  for each row execute function public.sync_party_member_count();
+
+-- =====================================================================
+--  グループ限定の強制（BEFORE INSERT）
+--  人数とニックネームはサーバ側で確定させ、クライアント値を信用しない。
+-- =====================================================================
+create or replace function public.enforce_group_party()
+returns trigger
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if coalesce(new.host_group_size, 0) < 2 then
+    raise exception 'ホスト側は2名以上のグループでのみ会を作成できます';
+  end if;
+  if coalesce(new.guest_group_size, 0) < 2 then
+    raise exception '募集は2名以上のグループ単位でのみ行えます';
+  end if;
+
+  new.max_members       := new.host_group_size + new.guest_group_size;
+  new.current_members   := new.host_group_size;  -- 席作成後にトリガーが再計算する
+  new.host_member_names := public.normalize_member_names(new.host_member_names, new.host_group_size);
+  new.host_name         := coalesce(
+    (select username from public.profiles where id = new.host_id), 'ホスト'
+  );
+  return new;
+end;
+$$;
+
+drop trigger if exists on_party_group_check on public.parties;
+create trigger on_party_group_check
+  before insert on public.parties
+  for each row execute function public.enforce_group_party();
+
+-- 会の作成時に、ホスト側グループの席を人数分作る
+create or replace function public.handle_new_party()
+returns trigger
+language plpgsql security definer set search_path = public
+as $$
+begin
+  perform public.create_group_seats(
+    new.id, new.host_id, 'host', new.host_group_size, new.host_member_names
+  );
+  return new;
+end;
+$$;
+
+drop trigger if exists on_party_created on public.parties;
+create trigger on_party_created
+  after insert on public.parties
+  for each row execute function public.handle_new_party();
+
+-- 参加リクエスト（BEFORE INSERT）… 重複申込・重複参加を防ぐ
+create or replace function public.enforce_group_join()
+returns trigger
+language plpgsql security definer set search_path = public
+as $$
+declare v_party public.parties;
+begin
+  if coalesce(new.group_size, 0) < 2 then
+    raise exception '参加は2名以上のグループ単位でのみ行えます';
+  end if;
+
+  select * into v_party from public.parties where id = new.party_id;
+  if not found then raise exception '会が見つかりません'; end if;
+  if v_party.host_id = new.user_id then
+    raise exception '自分がホストの会には参加できません';
+  end if;
+  if v_party.status = 'completed' then
+    raise exception 'この会は終了しています';
+  end if;
+  if public.is_party_member(new.party_id, new.user_id) then
+    raise exception '既にこの会に参加しています';
+  end if;
+  if exists (
+    select 1 from public.join_requests r
+     where r.party_id = new.party_id
+       and r.user_id  = new.user_id
+       and r.status in ('pending', 'accepted')
+  ) then
+    raise exception '既にこの会へ申し込み済みです';
+  end if;
+  if v_party.current_members + new.group_size > v_party.max_members then
+    raise exception '残りの枠が足りません';
+  end if;
+
+  new.member_names   := public.normalize_member_names(new.member_names, new.group_size);
+  new.applicant_name := coalesce(
+    (select username from public.profiles where id = new.user_id), 'ゲスト'
+  );
+  return new;
+end;
+$$;
+
+drop trigger if exists on_join_request_group_check on public.join_requests;
+create trigger on_join_request_group_check
+  before insert on public.join_requests
+  for each row execute function public.enforce_group_join();
+
+-- =====================================================================
+--  招待コードで席を引き受ける
+--  （同伴者が自分のアカウントでグループチャットに参加するための入口）
+-- =====================================================================
+create or replace function public.claim_seat(p_code text)
+returns jsonb
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_seat  public.party_members;
+  v_party public.parties;
+  v_name  text;
+begin
+  if auth.uid() is null then raise exception '認証が必要です'; end if;
+  if p_code is null or btrim(p_code) = '' then
+    raise exception '招待コードを入力してください';
+  end if;
+
+  select * into v_seat from public.party_members
+   where invite_code = upper(btrim(p_code)) for update;
+  if not found then raise exception '招待コードが見つかりません'; end if;
+  if v_seat.user_id is not null then raise exception 'この招待コードは既に使われています'; end if;
+
+  if public.is_party_member(v_seat.party_id, auth.uid()) then
+    raise exception '既にこの会に参加しています';
+  end if;
+
+  select * into v_party from public.parties where id = v_seat.party_id;
+  if not found then raise exception '会が見つかりません'; end if;
+  if v_party.status = 'completed' then raise exception 'この会は終了しています'; end if;
+
+  select username into v_name from public.profiles where id = auth.uid();
+
+  -- 席は既に人数に含まれているので current_members は変わらない
+  update public.party_members
+     set user_id      = auth.uid(),
+         display_name = coalesce(v_name, display_name),
+         invite_code  = null,
+         joined_at    = now()
+   where id = v_seat.id;
+
+  return jsonb_build_object('party_id', v_party.id, 'title', v_party.title);
+end;
+$$;
+
+-- 自分のグループの席（招待コードを含む）だけを返す
+create or replace function public.list_my_seats(p_party uuid)
+returns table (id uuid, display_name text, invite_code text, user_id uuid, side text)
+language sql security definer stable set search_path = public
+as $$
+  select m.id, m.display_name, m.invite_code, m.user_id, m.side
+    from public.party_members m
+   where m.party_id = p_party
+     and m.group_owner_id = auth.uid()
+     and public.is_party_member(p_party, auth.uid())
+   order by m.joined_at, m.id;
 $$;
 
 -- =====================================================================
@@ -332,6 +555,7 @@ declare
   v_party public.parties;
   v_bal   int;
   v_cost  int;
+  v_seats int;
 begin
   if auth.uid() is null then raise exception '認証が必要です'; end if;
 
@@ -343,7 +567,13 @@ begin
   if not found then raise exception '会が見つかりません'; end if;
   if v_party.host_id <> auth.uid() then raise exception 'この会のホストのみ承認できます'; end if;
   if v_req.group_size < 2 then raise exception 'グループ単位の参加のみ承認できます'; end if;
-  if v_party.current_members + v_req.group_size > v_party.max_members then
+  if public.is_party_member(v_req.party_id, v_req.user_id) then
+    raise exception 'この方は既にこの会に参加しています';
+  end if;
+
+  -- 空き枠は「宣言された人数」ではなく実際の席数で判定する
+  select count(*) into v_seats from public.party_members where party_id = v_req.party_id;
+  if v_seats + v_req.group_size > v_party.max_members then
     raise exception '残りの枠が足りません';
   end if;
 
@@ -370,16 +600,10 @@ begin
     values (v_party.host_id, v_cost, 'earn', 'グループ受入: ' || v_party.title);
   end if;
 
-  -- 参加グループの代表者をメンバーに追加
-  insert into public.party_members (party_id, user_id, role)
-  values (v_req.party_id, v_req.user_id, 'member')
-  on conflict do nothing;
-
-  update public.parties
-  set current_members = current_members + v_req.group_size,
-      status = case when current_members + v_req.group_size >= max_members
-                    then 'matched' else status end
-  where id = v_req.party_id;
+  -- 参加グループの席を人数分作る（current_members はトリガーが同期する）
+  perform public.create_group_seats(
+    v_req.party_id, v_req.user_id, 'guest', v_req.group_size, v_req.member_names
+  );
 
   update public.join_requests set status = 'accepted' where id = p_request_id;
 end;
@@ -446,15 +670,15 @@ create policy parties_update on public.parties for update using (auth.uid() = ho
 drop policy if exists parties_delete on public.parties;
 create policy parties_delete on public.parties for delete using (auth.uid() = host_id);
 
--- party_members: 参加が承認されたメンバーのみ、その会のメンバー一覧を閲覧可
+-- party_members: 参加が承認されたメンバーのみ、その会の席一覧を閲覧可。
+-- 席の作成・引き受けは security definer 関数のみが行う（人数がずれるため
+-- クライアントからの直接 INSERT / DELETE は許可しない）。
 drop policy if exists members_select on public.party_members;
 create policy members_select on public.party_members for select using (
   public.is_party_member(party_id, auth.uid())
 );
 drop policy if exists members_insert on public.party_members;
-create policy members_insert on public.party_members for insert with check (auth.uid() = user_id);
 drop policy if exists members_delete on public.party_members;
-create policy members_delete on public.party_members for delete using (auth.uid() = user_id);
 
 -- join_requests: 参加者本人と、対象の会のホストが閲覧可
 drop policy if exists join_select on public.join_requests;
@@ -462,13 +686,39 @@ create policy join_select on public.join_requests for select using (
   user_id = auth.uid()
   or exists (select 1 from public.parties p where p.id = party_id and p.host_id = auth.uid())
 );
--- 送信は本人のリクエストのみ。自分がホストの会には参加リクエスト不可。
+-- 送信は本人のリクエストのみ。自分がホストの会・既に参加中の会には不可。
 drop policy if exists join_insert on public.join_requests;
 create policy join_insert on public.join_requests for insert with check (
   user_id = auth.uid()
   and not exists (select 1 from public.parties p where p.id = party_id and p.host_id = auth.uid())
+  and not public.is_party_member(party_id, auth.uid())
 );
 -- 承認/拒否は accept_join_request() / reject_join_request()（security definer）経由で行う。
+
+-- 列単位の遮断:
+--  ・invite_code は list_my_seats() 経由でのみ取得できる（自分のグループの席だけ）
+--  ・member_names は承認前にホストへ渡らないようにする
+revoke select on public.party_members from anon, authenticated;
+grant  select (id, party_id, user_id, role, side, group_owner_id, display_name, joined_at)
+  on public.party_members to anon, authenticated;
+
+revoke select on public.join_requests from anon, authenticated;
+grant  select (id, party_id, user_id, group_size, applicant_name, status, created_at)
+  on public.join_requests to anon, authenticated;
+grant  insert on public.join_requests to authenticated;
+
+-- 内部用の security definer 関数は RPC として公開しない。
+-- （公開されていると、ポイントを払わずに任意の会へ席を追加できてしまう）
+revoke all on function public.create_group_seats(uuid, uuid, text, int, text[])
+  from public, anon, authenticated;
+revoke all on function public.gen_invite_code()            from public, anon, authenticated;
+revoke all on function public.normalize_member_names(text[], int) from public, anon, authenticated;
+revoke all on function public.is_party_member(uuid, uuid)  from public, anon, authenticated;
+revoke all on function public.shares_party(uuid, uuid)     from public, anon, authenticated;
+
+-- クライアントから呼ぶ RPC はこれだけ
+grant execute on function public.claim_seat(text)      to authenticated;
+grant execute on function public.list_my_seats(uuid)   to authenticated;
 
 -- messages: グループチャット限定。個人間DMは存在しない。
 --           参加が承認されたメンバーのみ、その会のチャットを閲覧・投稿できる。

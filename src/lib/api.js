@@ -7,9 +7,15 @@ import { supabase } from "./supabase";
    ===================================================================== */
 export const MIN_GROUP_SIZE = 2;
 
-// マイグレーション未適用（新カラムが無い）場合に分かりやすいエラーへ変換する
+// マイグレーション未適用（新カラム・新RPCが無い）場合に分かりやすいエラーへ変換する
 function wrapSchemaError(error) {
   const msg = error?.message || "";
+  if (/host_member_names|member_names|group_owner_id|display_name|invite_code|claim_seat|list_my_seats|side/.test(msg)) {
+    return new Error(
+      "データベースがグループメンバー登録の仕様に更新されていません。" +
+      "Supabase の SQL Editor で supabase/migration_group_members.sql を実行してください。"
+    );
+  }
   if (/group_size|host_group_size|guest_group_size|applicant_name|host_name/.test(msg)) {
     return new Error(
       "データベースがグループ限定仕様に更新されていません。" +
@@ -17,6 +23,17 @@ function wrapSchemaError(error) {
     );
   }
   return error;
+}
+
+/* 同伴者の表示名を「代表者を除く size-1 件」に整える。
+   空欄は既定名で埋める（サーバ側でも同じ正規化を行う）。 */
+export function normalizeMemberNames(names, groupSize) {
+  const out = [];
+  for (let i = 0; i < Math.max(Number(groupSize) - 1, 0); i++) {
+    const v = String(names?.[i] ?? "").trim();
+    out.push(v ? v.slice(0, 20) : `メンバー${i + 2}`);
+  }
+  return out;
 }
 
 /* ============================ Auth ============================ */
@@ -137,34 +154,55 @@ export async function getParty(id) {
   return data;
 }
 
-// 参加メンバーの詳細。RLS により、その会に参加承認された本人のみ取得できる
+// 参加メンバーの「席」一覧。RLS により、その会に参加承認された本人のみ取得できる
 //（未承認・非参加者には空配列が返る）。
+// グループの人数分だけ席が存在し、まだアプリに登録していない同伴者の席は
+// user_id が null（＝profiles も null）で返る。
 export async function getPartyMembers(partyId) {
   const { data, error } = await supabase
     .from("party_members")
-    .select("role, joined_at, user_id, profiles(username, avatar_url, age)")
+    .select("id, role, side, group_owner_id, display_name, joined_at, user_id, profiles(username, avatar_url, age)")
     .eq("party_id", partyId)
-    .order("joined_at", { ascending: true });
-  if (error) throw error;
+    .order("joined_at", { ascending: true })
+    .order("id", { ascending: true });
+  if (error) throw wrapSchemaError(error);
   return data ?? [];
 }
 
+// 自分のグループの席だけを招待コード付きで取得する（他グループのコードは見えない）。
+export async function listMySeats(partyId) {
+  const { data, error } = await supabase.rpc("list_my_seats", { p_party: partyId });
+  if (error) throw wrapSchemaError(error);
+  return data ?? [];
+}
+
+// 招待コードで同伴者の席を自分のアカウントに引き受ける。
+// 席は既に人数に含まれているため、会の人数は変わらない。
+export async function claimSeat(code) {
+  const { data, error } = await supabase.rpc("claim_seat", { p_code: String(code || "").trim() });
+  if (error) throw wrapSchemaError(error);
+  return data; // { party_id, title }
+}
+
 // 会の作成。ホスト側・参加側ともに2名以上のグループが必須（1対1は作成不可）。
-// 実際の人数・定員はサーバ側トリガー enforce_group_party() が確定させる。
+// 同伴者の席はサーバ側（handle_new_party → create_group_seats）で人数分作られる。
+// 実際の人数・定員はサーバ側トリガーが確定させる。
 export async function createParty(hostId, fields) {
   const hostGroup = Number(fields.host_group_size);
   const guestGroup = Number(fields.guest_group_size);
   if (!(hostGroup >= MIN_GROUP_SIZE) || !(guestGroup >= MIN_GROUP_SIZE)) {
     throw new Error(`会は${MIN_GROUP_SIZE}名以上のグループ同士でのみ作成できます。`);
   }
+  const { host_member_names, ...rest } = fields;
   const { data, error } = await supabase
     .from("parties")
     .insert({
       host_id: hostId,
       status: "recruiting",
-      ...fields,
+      ...rest,
       host_group_size: hostGroup,
       guest_group_size: guestGroup,
+      host_member_names: normalizeMemberNames(host_member_names, hostGroup),
       max_members: hostGroup + guestGroup,
       current_members: hostGroup,
     })
@@ -186,15 +224,22 @@ export async function listMyParties(userId) {
 
 /* ====================== Join requests ======================== */
 // グループ単位の参加リクエスト（募集側＝ホストは無料。ポイントは承認時に移動）
-export async function sendJoinRequest(userId, partyId, groupSize) {
+// 同伴者の表示名も一緒に送るが、承認されるまでホストには渡らない（列単位で遮断）。
+export async function sendJoinRequest(userId, partyId, groupSize, memberNames) {
   const size = Number(groupSize);
   if (!(size >= MIN_GROUP_SIZE)) {
     throw new Error(`参加は${MIN_GROUP_SIZE}名以上のグループ単位でのみ申し込めます。`);
   }
   const { data, error } = await supabase
     .from("join_requests")
-    .insert({ user_id: userId, party_id: partyId, group_size: size, status: "pending" })
-    .select()
+    .insert({
+      user_id: userId,
+      party_id: partyId,
+      group_size: size,
+      member_names: normalizeMemberNames(memberNames, size),
+      status: "pending",
+    })
+    .select("id, status, group_size")
     .single();
   if (error) throw wrapSchemaError(error);
   return data;

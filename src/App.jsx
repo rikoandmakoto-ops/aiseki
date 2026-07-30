@@ -3,6 +3,7 @@ import {
   Home, MessageCircle, Plus, Gem, User, MapPin, Clock, Users, Bell,
   Crown, ChevronLeft, Send, ArrowRight, Check, Sparkles, Settings,
   Mail, LogOut, Wine, Repeat, History, Wallet, ShieldCheck, Lock, FileText, UsersRound,
+  Ticket, Copy,
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
 import * as api from "./lib/api";
@@ -96,6 +97,103 @@ const MetaLine = ({ icon: Icon, children }) => (
     <Icon size={13.5} strokeWidth={1.8} style={{ opacity: 0.85 }} />{children}
   </span>
 );
+
+/* ════════════════════════════════════════════ 同伴者の登録フィールド
+   グループの人数分だけ「席」を作るため、代表者を除く同伴者の
+   ニックネームをここで登録する。空欄でも既定名で席は作られる。 */
+const MemberNamesField = ({ size, names, onChange, label, hint }) => {
+  const count = Math.max(Number(size) - 1, 0);
+  if (count === 0) return null;
+  return (
+    <div style={{ marginBottom: 17 }}>
+      <label style={labelStyle}>{label}</label>
+      <div style={{ display: "grid", gap: 8 }}>
+        {Array.from({ length: count }, (_, i) => (
+          <input
+            key={i}
+            value={names[i] ?? ""}
+            maxLength={20}
+            onChange={(e) => {
+              const next = [...names];
+              next[i] = e.target.value;
+              onChange(next);
+            }}
+            placeholder={`${i + 2}人目のニックネーム`}
+            style={fieldStyle}
+          />
+        ))}
+      </div>
+      {hint && (
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 6, marginTop: 9, fontSize: 10.5, color: C.textMuted, lineHeight: 1.65 }}>
+          <UsersRound size={12} strokeWidth={1.9} color={C.gold} style={{ flexShrink: 0, marginTop: 1 }} />
+          {hint}
+        </div>
+      )}
+    </div>
+  );
+};
+
+/* ═══════════════════════════════════════════ 招待コードで席を引き受ける
+   代表者が登録した同伴者の席を、同伴者本人のアカウントに紐づける。
+   これでグループチャットとメンバー一覧が見えるようになる。 */
+const InviteCodeCard = ({ onJoined }) => {
+  const [open, setOpen] = useState(false);
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    if (!code.trim()) { alert("招待コードを入力してください。"); return; }
+    setBusy(true);
+    try {
+      const r = await api.claimSeat(code);
+      setCode("");
+      setOpen(false);
+      alert(`「${r?.title ?? "会"}」に参加しました。`);
+      onJoined?.(r?.party_id);
+    } catch (e) {
+      alert("参加できませんでした: " + e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ ...glass, padding: open ? 16 : "12px 16px", marginTop: 12 }}>
+      <button className="press" onClick={() => setOpen((v) => !v)} style={{
+        width: "100%", background: "none", border: "none", padding: 0, cursor: "pointer",
+        display: "flex", alignItems: "center", gap: 9, color: C.text, textAlign: "left",
+      }}>
+        <span style={{
+          flexShrink: 0, width: 28, height: 28, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center",
+          background: "rgba(216,189,130,0.1)", border: `1px solid ${C.lineGold}`, color: C.gold,
+        }}><Ticket size={14} strokeWidth={1.9} /></span>
+        <span style={{ flex: 1, fontSize: 12.5, fontWeight: 700, letterSpacing: 0.3 }}>招待コードで参加する</span>
+        <span style={{ fontSize: 11, color: C.textMuted }}>{open ? "閉じる" : "同伴者の方はこちら"}</span>
+      </button>
+
+      {open && (
+        <div style={{ marginTop: 13 }}>
+          <div style={{ display: "flex", gap: 9 }}>
+            <input
+              value={code}
+              onChange={(e) => setCode(e.target.value.toUpperCase())}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); } }}
+              placeholder="例: A1B2C3D4"
+              maxLength={8}
+              style={{ ...fieldStyle, letterSpacing: 2, fontFamily: FONT_DISPLAY, fontWeight: 700 }}
+            />
+            <button className="gold-cta" onClick={submit} disabled={busy} style={{ ...goldBtn, padding: "0 18px", borderRadius: 12, fontSize: 13.5, flexShrink: 0, opacity: busy ? 0.6 : 1 }}>
+              {busy ? "…" : "参加"}
+            </button>
+          </div>
+          <div style={{ fontSize: 10.5, color: C.textMuted, marginTop: 9, lineHeight: 1.65 }}>
+            グループの代表者から受け取った8桁のコードを入力すると、その会のグループチャットに参加できます。
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 /* ═══════════════════════════════════════════ Featured (hero) card */
 const FeaturedCard = ({ p, onTap }) => (
@@ -233,6 +331,9 @@ const HomeScreen = ({ user, onDetail }) => {
         }}>
           <UsersRound size={12} strokeWidth={2} /> {MIN_GROUP}名以上のグループ同士 · 同性グループもOK
         </div>
+
+        {/* 代表者から招待コードを受け取った同伴者の入口 */}
+        <InviteCodeCard onJoined={(id) => { if (id) onDetail(id); else load(); }} />
       </div>
 
       {/* area filter */}
@@ -325,43 +426,62 @@ const HomeScreen = ({ user, onDetail }) => {
 const DetailScreen = ({ user, partyId, onBack, onGoPoints }) => {
   const [party, setParty] = useState(null);
   const [members, setMembers] = useState([]);
+  const [mySeats, setMySeats] = useState([]);     // 自分のグループの席（招待コード付き）
   const [balance, setBalance] = useState(null);
   const [reqStatus, setReqStatus] = useState(null); // null | 'pending' | 'accepted' | 'rejected'
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [groupSize, setGroupSize] = useState(MIN_GROUP); // 申し込むグループの人数（2名以上）
+  const [guestNames, setGuestNames] = useState([]);      // 同伴者のニックネーム
+
+  const load = useCallback(async () => {
+    const [p, ms, bal, req] = await Promise.all([
+      api.getParty(partyId),
+      api.getPartyMembers(partyId),
+      api.getBalance(user.id),
+      api.getMyJoinRequest(user.id, partyId),
+    ]);
+    setParty(p);
+    setMembers(ms);
+    setBalance(bal);
+    setReqStatus(req?.status ?? null);
+    // 自分がこの会のメンバーのときだけ、自分のグループの招待コードを取得する
+    if (ms.some((m) => m.user_id === user.id)) {
+      try { setMySeats(await api.listMySeats(partyId)); }
+      catch (e) { console.error(e); setMySeats([]); }
+    } else {
+      setMySeats([]);
+    }
+  }, [partyId, user.id]);
 
   useEffect(() => {
     let alive = true;
     (async () => {
       setLoading(true);
-      try {
-        const [p, ms, bal, req] = await Promise.all([
-          api.getParty(partyId),
-          api.getPartyMembers(partyId),
-          api.getBalance(user.id),
-          api.getMyJoinRequest(user.id, partyId),
-        ]);
-        if (!alive) return;
-        setParty(p);
-        setMembers(ms);
-        setBalance(bal);
-        setReqStatus(req?.status ?? null);
-      } catch (e) { console.error(e); }
+      try { await load(); } catch (e) { if (alive) console.error(e); }
       finally { if (alive) setLoading(false); }
     })();
     return () => { alive = false; };
-  }, [partyId, user.id]);
+  }, [load]);
 
   const sendRequest = async () => {
     setSending(true);
     try {
-      await api.sendJoinRequest(user.id, party.id, groupSize);
+      await api.sendJoinRequest(user.id, party.id, groupSize, guestNames);
       setReqStatus("pending");
     } catch (e) {
       alert("リクエスト送信に失敗しました: " + e.message);
     } finally {
       setSending(false);
+    }
+  };
+
+  const copyCode = async (code) => {
+    try {
+      await navigator.clipboard.writeText(code);
+      alert(`招待コード ${code} をコピーしました。`);
+    } catch {
+      alert(`招待コード: ${code}`);
     }
   };
 
@@ -434,17 +554,31 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints }) => {
 
           {canSeeMembers && members.length > 0 && (
             <div style={{ marginBottom: 24 }}>
-              <Eyebrow style={{ marginBottom: 14 }}>参加メンバー</Eyebrow>
+              <Eyebrow style={{ marginBottom: 14 }}>
+                参加メンバー（{members.length}名）
+              </Eyebrow>
               <div style={{ display: "flex", gap: 14, overflowX: "auto", paddingBottom: 4 }}>
-                {members.map((m, i) => {
+                {members.map((m) => {
                   const prof = m.profiles || {};
+                  // user_id が null の席 = まだアプリに登録していない同伴者
+                  const claimed = !!m.user_id;
+                  const name = prof.username || m.display_name || "メンバー";
                   return (
-                    <div key={i} style={{ textAlign: "center", flexShrink: 0, width: 74 }}>
-                      <div style={{ position: "relative", width: 68, height: 68, margin: "0 auto", borderRadius: 34, padding: 2, background: C.goldGrad, boxShadow: "0 6px 16px rgba(0,0,0,0.5)" }}>
-                        {prof.avatar_url ? (
-                          <img src={prof.avatar_url} alt={prof.username} loading="lazy" style={{ width: "100%", height: "100%", borderRadius: 32, objectFit: "cover", display: "block", background: "#1a1620" }} />
+                    <div key={m.id} style={{ textAlign: "center", flexShrink: 0, width: 74 }}>
+                      <div style={{
+                        position: "relative", width: 68, height: 68, margin: "0 auto", borderRadius: 34, padding: 2,
+                        background: claimed ? C.goldGrad : "rgba(255,255,255,0.09)",
+                        boxShadow: claimed ? "0 6px 16px rgba(0,0,0,0.5)" : "none",
+                        opacity: claimed ? 1 : 0.72,
+                      }}>
+                        {claimed && prof.avatar_url ? (
+                          <img src={prof.avatar_url} alt={name} loading="lazy" style={{ width: "100%", height: "100%", borderRadius: 32, objectFit: "cover", display: "block", background: "#1a1620" }} />
                         ) : (
-                          <div style={{ width: "100%", height: "100%", borderRadius: 32, display: "flex", alignItems: "center", justifyContent: "center", background: "#181318", color: C.gold }}>
+                          <div style={{
+                            width: "100%", height: "100%", borderRadius: 32, display: "flex", alignItems: "center", justifyContent: "center",
+                            background: "#181318", color: claimed ? C.gold : C.textMuted,
+                            border: claimed ? "none" : `1px dashed ${C.lineSoft}`,
+                          }}>
                             {m.role === "host" ? <Crown size={24} strokeWidth={1.7} /> : <User size={24} strokeWidth={1.7} />}
                           </div>
                         )}
@@ -454,12 +588,36 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints }) => {
                           </div>
                         )}
                       </div>
-                      <div style={{ fontSize: 12.5, fontWeight: 600, color: C.text, marginTop: 8 }}>{prof.username || "ゲスト"}</div>
-                      <div style={{ fontSize: 10.5, color: C.textMuted }}>{prof.age ? `${prof.age}歳` : (m.role === "host" ? "ホスト" : "")}</div>
+                      <div style={{ fontSize: 12.5, fontWeight: 600, color: claimed ? C.text : C.textSec, marginTop: 8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
+                      <div style={{ fontSize: 10.5, color: C.textMuted }}>
+                        {!claimed ? "招待中" : prof.age ? `${prof.age}歳` : (m.role === "host" ? "ホスト" : "")}
+                      </div>
                     </div>
                   );
                 })}
               </div>
+            </div>
+          )}
+
+          {/* 自分のグループの未登録席 … 同伴者に渡す招待コード */}
+          {canSeeMembers && mySeats.some((s) => s.invite_code) && (
+            <div style={{ marginBottom: 24, borderRadius: 16, padding: "15px 16px", background: "rgba(216,189,130,0.06)", border: `1px solid ${C.lineGold}` }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 4 }}>
+                <Ticket size={14} strokeWidth={1.9} color={C.gold} />
+                <span style={{ fontSize: 12.5, fontWeight: 700, color: C.text, letterSpacing: 0.3 }}>同伴者を招待する</span>
+              </div>
+              <div style={{ fontSize: 11, color: C.textSec, lineHeight: 1.7, marginBottom: 12 }}>
+                同伴者にコードを渡すと、その方のアカウントでグループチャットに参加できます。人数は既に確保されているため、渡しても会の人数は変わりません。
+              </div>
+              {mySeats.filter((s) => s.invite_code).map((s) => (
+                <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 9, padding: "9px 0", borderTop: `1px solid ${C.lineSoft}` }}>
+                  <span style={{ flex: 1, fontSize: 12.5, color: C.textSec, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.display_name}</span>
+                  <span style={{ fontFamily: FONT_DISPLAY, fontSize: 16, fontWeight: 700, letterSpacing: 2.5, ...goldText }}>{s.invite_code}</span>
+                  <button className="press" onClick={() => copyCode(s.invite_code)} aria-label="コードをコピー" style={{
+                    ...ghostBtn, padding: "6px 9px", borderRadius: 9, display: "inline-flex", alignItems: "center", flexShrink: 0,
+                  }}><Copy size={13} strokeWidth={2} /></button>
+                </div>
+              ))}
             </div>
           )}
 
@@ -494,6 +652,15 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints }) => {
                   1対1でのマッチングは行っていません。残り{seatsLeft}名分の枠があります。
                 </div>
               </div>
+
+              {/* 同伴者を登録して、人数分の席を確保する */}
+              <MemberNamesField
+                size={groupSize}
+                names={guestNames}
+                onChange={setGuestNames}
+                label="一緒に参加する同伴者（あなた以外）"
+                hint="承認されると、この人数分の席がグループに確保されます。同伴者はあとで招待コードを使って自分のアカウントでグループチャットに参加できます。"
+              />
 
               <div style={{
                 borderRadius: 16, padding: 18, marginBottom: 18, position: "relative", overflow: "hidden",
@@ -558,6 +725,7 @@ const CreateScreen = ({ user, onCreated }) => {
   const [location, setLocation] = useState("");
   const [area, setArea] = useState("");
   const [hostGroup, setHostGroup] = useState(MIN_GROUP);   // ホスト側グループの人数（2名以上）
+  const [hostNames, setHostNames] = useState([]);          // ホスト側同伴者のニックネーム
   const [guestGroup, setGuestGroup] = useState(MIN_GROUP); // 募集するグループの人数（2名以上）
   const [time, setTime] = useState("20:00");
   const [treat, setTreat] = useState("奢り");
@@ -578,6 +746,7 @@ const CreateScreen = ({ user, onCreated }) => {
         location: location.trim() || null,
         area: area.trim() || null,
         host_group_size: hostGroup,
+        host_member_names: hostNames,
         guest_group_size: guestGroup,
         party_time: time,
         treat_type: treat,
@@ -656,6 +825,15 @@ const CreateScreen = ({ user, onCreated }) => {
           <label style={labelStyle}>ホスト側のグループ人数（あなたを含む · {MIN_GROUP}名以上）</label>
           <GroupPicker value={hostGroup} onChange={setHostGroup} />
         </div>
+
+        {/* 同伴者を登録して、人数分の席を確保する */}
+        <MemberNamesField
+          size={hostGroup}
+          names={hostNames}
+          onChange={setHostNames}
+          label="一緒に参加する同伴者（あなた以外）"
+          hint="会を作成すると、この人数分の席がグループに確保されます。作成後に表示される招待コードを渡すと、同伴者も自分のアカウントでグループチャットに参加できます。"
+        />
 
         <div style={{ marginBottom: 17 }}>
           <label style={labelStyle}>募集するグループの人数（{MIN_GROUP}名以上）</label>
