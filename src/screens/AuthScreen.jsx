@@ -241,9 +241,20 @@ export default function AuthScreen() {
 
 function translateError(msg) {
   const m = msg.toLowerCase();
+  // ネットワーク／バックエンド不通。ブラウザごとに文言が違うのでまとめて拾う。
+  // （Chrome: Failed to fetch / Safari: Load failed / Firefox: NetworkError）
+  if (
+    m.includes("failed to fetch") || m.includes("load failed") ||
+    m.includes("networkerror") || m.includes("network error") ||
+    m.includes("err_name_not_resolved") || m.includes("fetch failed")
+  ) {
+    return "サーバーに接続できませんでした。通信環境をご確認のうえ、しばらく経ってから再度お試しください。";
+  }
   if (m.includes("invalid login")) return "メールアドレスまたはパスワードが正しくありません。";
   if (m.includes("already registered") || m.includes("already exists")) return "このメールアドレスは既に登録されています。";
   if (m.includes("email not confirmed")) return "メールアドレスが未確認です。確認メールのリンクを開いてください。";
   if (m.includes("password should be")) return "パスワードは6文字以上で入力してください。";
+  if (m.includes("rate limit") || m.includes("too many requests")) return "試行回数が上限に達しました。しばらく時間をおいてからお試しください。";
+  if (m.includes("signups not allowed") || m.includes("signup is disabled")) return "現在、新規登録を受け付けていません。";
   return msg;
 }

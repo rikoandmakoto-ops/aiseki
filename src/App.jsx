@@ -5,7 +5,7 @@ import {
   Mail, LogOut, Wine, Repeat, History, Wallet, ShieldCheck, Lock, FileText, UsersRound,
   Ticket, Copy,
 } from "lucide-react";
-import { supabase } from "./lib/supabase";
+import { supabase, configError } from "./lib/supabase";
 import * as api from "./lib/api";
 import {
   C, FONT_LOGO, FONT_DISPLAY, FONT_SERIF_JP, FONT_BODY,
@@ -1347,6 +1347,18 @@ const BackButton = ({ onBack }) => (
   </button>
 );
 
+/* 接続情報が未設定のときに出す画面（真っ白／無限ローディングを防ぐ） */
+const ConfigErrorScreen = ({ message }) => (
+  <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, padding: 34, textAlign: "center" }}>
+    <span style={{ fontFamily: FONT_LOGO, fontSize: 30, fontWeight: 700, letterSpacing: 4, ...goldText }}>AISEKI</span>
+    <div style={{ fontFamily: FONT_SERIF_JP, fontSize: 15, color: C.text, letterSpacing: 0.5 }}>ただいまご利用いただけません</div>
+    <div style={{ fontSize: 12, color: C.textSec, lineHeight: 1.8 }}>
+      サーバーへの接続設定に問題があります。<br />お手数ですが、しばらく経ってから再度お試しください。
+    </div>
+    <div style={{ fontSize: 10.5, color: C.textFaint, marginTop: 6, lineHeight: 1.6 }}>{message}</div>
+  </div>
+);
+
 /* ═══════════════════════════════════════════════════════ Root App */
 export default function App() {
   const [session, setSession] = useState(null);
@@ -1357,10 +1369,13 @@ export default function App() {
   const [showTerms, setShowTerms] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setAuthReady(true);
-    });
+    if (configError) { setAuthReady(true); return; }
+    // getSession() は保存済みトークンの更新でネットワークに出るため失敗しうる。
+    // catch を付けないと authReady が立たず「起動中…」で永久に止まる。
+    supabase.auth.getSession()
+      .then(({ data }) => setSession(data?.session ?? null))
+      .catch((err) => console.error("[aiseki] getSession 失敗:", err))
+      .finally(() => setAuthReady(true));
     const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
       setSession(s);
       if (!s) { setTab("home"); setDetailId(null); setChatRoom(null); setShowTerms(false); }
@@ -1382,6 +1397,7 @@ export default function App() {
     }}>{children}</div>
   );
 
+  if (configError) return shell(<ConfigErrorScreen message={configError} />);
   if (!authReady) return shell(<div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}><Spinner label="起動中…" /></div>);
   if (!session) return <AuthScreen />;
 

@@ -4,3 +4,7 @@ dist
 .DS_Store
 *.local
 .env
+
+# 事業計画書などのバイナリ資料（リポジトリでは管理しない）
+*.docx
+*.pptx

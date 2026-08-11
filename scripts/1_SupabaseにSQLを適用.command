@@ -13,7 +13,11 @@
 cd "$(dirname "$0")/.." || exit 1
 
 SQL_FILE="supabase/migration_group_members.sql"
-PROJECT_REF="tvydtsqirogdxglkoicz"
+# 接続先は .env から読む（プロジェクトを作り直しても書き換え不要にするため）
+PROJECT_REF=""
+if [ -f ".env" ]; then
+  PROJECT_REF=$(grep -E '^VITE_SUPABASE_URL=' .env | head -1 | sed -E 's#.*https://([a-z0-9]+)\.supabase\.co.*#\1#')
+fi
 
 if [ ! -f "$SQL_FILE" ]; then
   echo "❌ $SQL_FILE が見つかりません。"
@@ -36,7 +40,12 @@ echo "   ※ 何度実行しても安全な内容です（冪等）。"
 echo ""
 
 sleep 2
-open "https://supabase.com/dashboard/project/${PROJECT_REF}/sql/new"
-
-echo "ブラウザを開きました。"
+if [ -n "$PROJECT_REF" ]; then
+  open "https://supabase.com/dashboard/project/${PROJECT_REF}/sql/new"
+  echo "ブラウザを開きました（プロジェクト: ${PROJECT_REF}）。"
+else
+  open "https://supabase.com/dashboard/projects"
+  echo "⚠️  .env から プロジェクトID を読み取れませんでした。"
+  echo "   ダッシュボードから対象プロジェクトを選び、SQL Editor を開いてください。"
+fi
 read -n 1 -s -r -p "何かキーを押すと、このウィンドウを閉じます..."
