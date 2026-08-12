@@ -288,7 +288,7 @@ const MyPageScreen = () => (
     <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 20 }}>
       <div style={{ width: 56, height: 56, borderRadius: 28, background: COLORS.primaryLight, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}>👤</div>
       <div>
-        <div style={{ fontWeight: 600, fontSize: 18, color: COLORS.text }}>ザキ</div>
+        <div style={{ fontWeight: 600, fontSize: 18, color: COLORS.text }}>山田太郎</div>
         <div style={{ fontSize: 13, color: COLORS.textSec }}>東京 · 28歳</div>
       </div>
     </div>

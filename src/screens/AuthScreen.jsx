@@ -145,7 +145,7 @@ export default function AuthScreen() {
             {mode === "signup" && (
               <div style={{ marginBottom: 16 }}>
                 <label style={labelStyle}>ニックネーム</label>
-                <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="例: ザキ" style={fieldStyle} />
+                <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="例: 山田太郎" style={fieldStyle} />
               </div>
             )}
 
