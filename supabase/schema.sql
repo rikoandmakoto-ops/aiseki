@@ -20,10 +20,16 @@
 --   ※ 必要な許認可は「飲食店営業許可（保健所）」と
 --     「深夜における酒類提供飲食店営業の届出（所轄警察署）」の2つのみ。
 --
+--  設計方針C（ポイントの健全性）
+--   ・ポイントが増えるのは Stripe の支払いが確認できたときだけ。
+--     purchase_points() は service_role 専用で、アプリからは呼べない。
+--     付与は /api/stripe/webhook → grant_purchased_points() の経路のみ。
+--
 --  ※ 既存DBへの差分適用は次の順に実行してください。
 --     supabase/migration_group_only.sql
 --     supabase/migration_group_members.sql
 --     supabase/migration_age20_open_space.sql
+--     supabase/migration_stripe_payments.sql
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
@@ -145,6 +151,26 @@ create table if not exists public.points (
   created_at  timestamptz not null default now()
 );
 create index if not exists points_user_idx on public.points(user_id, created_at desc);
+
+-- =====================================================================
+--  3-b. point_purchases … Stripe 決済の記録
+--     ポイントが増えるのは「支払いが確認できたとき」だけにする。
+--     stripe_session_id を一意キーにして、Webhook が再送されても
+--     二重に付与されないようにしている（grant_purchased_points）。
+--     書き込めるのはサーバ（service_role）のみ。
+-- =====================================================================
+create table if not exists public.point_purchases (
+  id                    uuid primary key default gen_random_uuid(),
+  user_id               uuid not null references public.profiles(id) on delete cascade,
+  stripe_session_id     text not null unique,
+  stripe_payment_intent text,
+  pack_id               text not null default 'unknown',
+  points                int  not null check (points > 0),
+  amount_jpy            int  not null default 0 check (amount_jpy >= 0),
+  created_at            timestamptz not null default now()
+);
+create index if not exists point_purchases_user_idx
+  on public.point_purchases(user_id, created_at desc);
 
 -- =====================================================================
 --  4. parties … 会（募集）
@@ -637,26 +663,80 @@ $$;
 --    参加者→ホストのポイント移動は必ずこの関数を経由する。
 -- =====================================================================
 
--- 購入：自分の残高に加算
-create or replace function public.purchase_points(p_amount int, p_description text default null)
+-- 購入：指定ユーザーの残高に加算（service_role 専用）
+-- 認証済みユーザーから直接呼べると、支払わずにポイントを増やせてしまうため、
+-- 呼び出せるのはサーバ（/api/stripe/webhook）の service_role だけにしている。
+-- 旧シグネチャ purchase_points(int, text) は廃止。
+drop function if exists public.purchase_points(int, text);
+
+create or replace function public.purchase_points(
+  p_user        uuid,
+  p_amount      int,
+  p_description text default null
+)
 returns int
 language plpgsql security definer set search_path = public
 as $$
 declare v_balance int;
 begin
-  if auth.uid() is null then raise exception '認証が必要です'; end if;
-  if p_amount is null or p_amount <= 0 then raise exception '金額が不正です'; end if;
+  if p_user is null then raise exception 'ユーザーが指定されていません'; end if;
+  if p_amount is null or p_amount <= 0 then raise exception 'ポイント数が不正です'; end if;
 
   insert into public.point_balances (user_id, balance)
-  values (auth.uid(), p_amount)
+  values (p_user, p_amount)
   on conflict (user_id) do update
     set balance = public.point_balances.balance + p_amount
   returning balance into v_balance;
 
   insert into public.points (user_id, amount, type, description)
-  values (auth.uid(), p_amount, 'purchase', p_description);
+  values (p_user, p_amount, 'purchase', p_description);
 
   return v_balance;
+end;
+$$;
+
+-- Stripe の支払い完了（Webhook）で呼ばれる唯一のポイント付与口。
+-- 同じ Checkout セッションでは二度目以降なにもしない（Stripe は再送するため）。
+-- 戻り値: { "granted": true/false, "balance": 残高 }
+create or replace function public.grant_purchased_points(
+  p_user           uuid,
+  p_points         int,
+  p_session        text,
+  p_pack           text default null,
+  p_amount_jpy     int  default 0,
+  p_payment_intent text default null
+)
+returns jsonb
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_balance int;
+  v_new     boolean;
+begin
+  if p_user is null then raise exception 'ユーザーが指定されていません'; end if;
+  if p_points is null or p_points <= 0 then raise exception 'ポイント数が不正です'; end if;
+  if p_session is null or btrim(p_session) = '' then raise exception '決済セッションIDが必要です'; end if;
+
+  insert into public.point_purchases
+    (user_id, stripe_session_id, stripe_payment_intent, pack_id, points, amount_jpy)
+  values
+    (p_user, p_session, p_payment_intent, coalesce(p_pack, 'unknown'), p_points, coalesce(p_amount_jpy, 0))
+  on conflict (stripe_session_id) do nothing
+  returning true into v_new;
+
+  if not found then
+    select coalesce(balance, 0) into v_balance
+    from public.point_balances where user_id = p_user;
+    return jsonb_build_object('granted', false, 'balance', coalesce(v_balance, 0));
+  end if;
+
+  v_balance := public.purchase_points(
+    p_user,
+    p_points,
+    'ポイント購入（¥' || coalesce(p_amount_jpy, 0)::text || '）'
+  );
+
+  return jsonb_build_object('granted', true, 'balance', v_balance);
 end;
 $$;
 
@@ -770,9 +850,10 @@ $$;
 -- =====================================================================
 --  Row Level Security
 -- =====================================================================
-alter table public.profiles       enable row level security;
-alter table public.point_balances enable row level security;
-alter table public.points         enable row level security;
+alter table public.profiles        enable row level security;
+alter table public.point_balances  enable row level security;
+alter table public.points          enable row level security;
+alter table public.point_purchases enable row level security;
 alter table public.parties        enable row level security;
 alter table public.party_members  enable row level security;
 alter table public.join_requests  enable row level security;
@@ -814,6 +895,14 @@ drop policy if exists points_select on public.points;
 create policy points_select on public.points for select using (auth.uid() = user_id);
 drop policy if exists points_insert on public.points;
 create policy points_insert on public.points for insert with check (auth.uid() = user_id);
+
+-- point_purchases: 本人のみ閲覧。書き込みポリシーは作らない
+-- （RLS を迂回できる service_role = Stripe Webhook だけが記録できる）
+drop policy if exists point_purchases_select on public.point_purchases;
+create policy point_purchases_select on public.point_purchases
+  for select using (auth.uid() = user_id);
+revoke insert, update, delete on public.point_purchases from anon, authenticated;
+grant  select on public.point_purchases to authenticated;
 
 -- parties: 会の情報（場所・時間・人数・ポイント・ホストのニックネーム）は公開。
 --          個人を特定する情報は parties に保持しない。作成は本人がホスト、更新/削除はホストのみ。
@@ -875,9 +964,21 @@ revoke all on function public.shares_party(uuid, uuid)     from public, anon, au
 revoke all on function public.is_legal_age(uuid)           from public, anon, authenticated;
 revoke all on function public.assert_legal_age(uuid)       from public, anon, authenticated;
 
+-- ポイントを「増やせる」関数はアプリから一切呼べないようにする。
+-- （呼べると、支払わずにポイントを無限に増やせてしまう）
+-- 実際に呼ぶのはサーバの /api/stripe/webhook（service_role）だけ。
+revoke all on function public.purchase_points(uuid, int, text)
+  from public, anon, authenticated;
+grant execute on function public.purchase_points(uuid, int, text) to service_role;
+revoke all on function public.grant_purchased_points(uuid, int, text, text, int, text)
+  from public, anon, authenticated;
+grant execute on function public.grant_purchased_points(uuid, int, text, text, int, text)
+  to service_role;
+
 -- クライアントから呼ぶ RPC はこれだけ
 grant execute on function public.claim_seat(text)      to authenticated;
 grant execute on function public.list_my_seats(uuid)   to authenticated;
+grant execute on function public.convert_points(int, text) to authenticated;
 
 -- messages: グループチャット限定。個人間DMは存在しない。
 --           参加が承認されたメンバーのみ、その会のチャットを閲覧・投稿できる。

@@ -195,14 +195,32 @@ export async function getPointHistory(userId) {
   return data ?? [];
 }
 
-// ポイント購入（自分の残高に加算）。残高更新は security definer RPC 経由。
-export async function purchasePoints(amount, description) {
-  const { data, error } = await supabase.rpc("purchase_points", {
-    p_amount: amount,
-    p_description: description,
+/* ポイント購入 … Stripe Checkout のページを作り、その URL を返す。
+
+   ポイントを増やす RPC（purchase_points）は service_role 専用にしてあり、
+   アプリからは呼べない。付与は支払い完了の通知を受けた
+   /api/stripe/webhook だけが行う（ポイントの無限増殖を防ぐため）。 */
+export async function createCheckoutSession(packId) {
+  const { data } = await supabase.auth.getSession();
+  const token = data?.session?.access_token;
+  if (!token) throw new Error("ログインが必要です。");
+
+  const res = await fetch("/api/stripe/checkout", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+    body: JSON.stringify({ packId }),
   });
-  if (error) throw error;
-  return data; // 新しい残高
+
+  // vite dev（npm run dev）には /api が無く、HTML が返ってくる。
+  // JSON でない時点で「決済APIに届いていない」と分かる。
+  if (!res.headers.get("content-type")?.includes("application/json")) {
+    throw new Error(
+      "決済APIに接続できませんでした。ローカルでは `vercel dev` で起動してください。"
+    );
+  }
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || !body?.url) throw new Error(body?.error || "決済ページを開けませんでした。");
+  return body.url;
 }
 
 // ポイント変換（自分の残高から減算）。

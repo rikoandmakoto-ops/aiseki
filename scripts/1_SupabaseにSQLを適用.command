@@ -1,10 +1,10 @@
 #!/bin/bash
 # =====================================================================
-#  最新のマイグレーション（20歳以上限定＋個室相席の禁止）を
+#  最新のマイグレーション（Stripe決済によるポイント購入）を
 #  aiseki の Supabase に適用する
 #
 #  このファイルをダブルクリックすると
-#   1) マイグレーションSQL（supabase/migration_age20_open_space.sql）を
+#   1) マイグレーションSQL（supabase/migration_stripe_payments.sql）を
 #      クリップボードにコピーし
 #   2) Supabase の SQL Editor をブラウザで開きます。
 #
@@ -13,7 +13,7 @@
 
 cd "$(dirname "$0")/.." || exit 1
 
-SQL_FILE="supabase/migration_age20_open_space.sql"
+SQL_FILE="supabase/migration_stripe_payments.sql"
 # 接続先は .env から読む（プロジェクトを作り直しても書き換え不要にするため）
 PROJECT_REF=""
 if [ -f ".env" ]; then

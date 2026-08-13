@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ChevronLeft, ShieldCheck, Users, MessageCircle, Ban, Lock, ScrollText, DoorClosed, Wine } from "lucide-react";
 import {
-  C, FONT_SERIF_JP, FONT_LOGO, goldText, glass, Eyebrow,
+  C, FONT_HEAD, FONT_LOGO, brandText, card, Eyebrow,
 } from "../lib/theme.jsx";
 import {
   TERMS, TERMS_INTRO, PRIVACY, PRIVACY_INTRO, LEGAL_UPDATED, LEGAL_VERSION,
@@ -35,13 +35,13 @@ const HIGHLIGHTS = [
 const Article = ({ s }) => (
   <div style={{ paddingTop: 18 }}>
     <div style={{
-      fontFamily: FONT_SERIF_JP, fontSize: 14, fontWeight: 700, letterSpacing: 0.4,
-      color: s.hot ? C.goldBright : C.text, marginBottom: 8,
+      fontFamily: FONT_HEAD, fontSize: 14, fontWeight: 700, letterSpacing: 0.4,
+      color: s.hot ? C.primaryDeep : C.text, marginBottom: 8,
       display: "flex", alignItems: "center", gap: 7, lineHeight: 1.5,
     }}>
       <span style={{
         width: 3, height: 14, borderRadius: 2, flexShrink: 0,
-        background: s.hot ? C.goldGrad : C.lineGold,
+        background: s.hot ? C.primaryGrad : C.linePrimary,
       }} />
       {s.t}
     </div>
@@ -60,8 +60,8 @@ const Article = ({ s }) => (
             <span style={{
               flexShrink: 0, minWidth: 19, height: 19, borderRadius: 10, marginTop: 2,
               display: "inline-flex", alignItems: "center", justifyContent: "center",
-              fontSize: 9.5, fontWeight: 700, color: C.gold,
-              background: "rgba(216,189,130,0.09)", border: `1px solid ${C.line}`,
+              fontSize: 9.5, fontWeight: 700, color: C.primaryDeep,
+              background: "rgba(79,195,247,0.12)", border: `1px solid ${C.line}`,
             }}>{i + 1}</span>
             <span>{item}</span>
           </li>
@@ -91,14 +91,14 @@ export const TermsBody = () => {
     <div>
       {/* サービスの性質（出会い系ではないこと）を最初に明示 */}
       <div className="fade" style={{
-        ...glass, padding: 20, marginBottom: 14, position: "relative", overflow: "hidden",
-        border: `1px solid ${C.lineGold}`,
+        ...card, padding: 20, marginBottom: 14, position: "relative", overflow: "hidden",
+        border: `1px solid ${C.linePrimary}`,
       }}>
-        <div style={{ position: "absolute", inset: 0, background: "radial-gradient(120% 90% at 88% -20%, rgba(216,189,130,0.12), transparent 58%)", pointerEvents: "none" }} />
+        <div style={{ position: "absolute", inset: 0, background: "radial-gradient(120% 90% at 88% -20%, rgba(79,195,247,0.16), transparent 58%)", pointerEvents: "none" }} />
         <div style={{ position: "relative" }}>
-          <Eyebrow style={{ marginBottom: 8 }}>◆ 本サービスについて</Eyebrow>
-          <div style={{ fontFamily: FONT_SERIF_JP, fontSize: 15.5, fontWeight: 600, color: C.text, lineHeight: 1.7, letterSpacing: 0.3 }}>
-            AISEKIは、<span style={{ ...goldText, fontWeight: 700 }}>グループでの飲み会・食事会</span>の
+          <Eyebrow style={{ marginBottom: 8 }}>💡 本サービスについて</Eyebrow>
+          <div style={{ fontFamily: FONT_HEAD, fontSize: 15.5, fontWeight: 600, color: C.text, lineHeight: 1.7, letterSpacing: 0.3 }}>
+            AISEKIは、<span style={{ ...brandText, fontWeight: 700 }}>グループでの飲み会・食事会</span>の
             マッチングサービスです。
           </div>
           <div style={{ fontSize: 12.5, color: C.textSec, lineHeight: 1.8, marginTop: 10 }}>
@@ -109,15 +109,15 @@ export const TermsBody = () => {
       </div>
 
       {/* 営業形態と許認可（風営法上の風俗営業に該当しないことの明示） */}
-      <div className="fade" style={{ ...glass, padding: 20, marginBottom: 14 }}>
-        <Eyebrow style={{ marginBottom: 10 }}>◆ 営業形態と許認可</Eyebrow>
+      <div className="fade" style={{ ...card, padding: 20, marginBottom: 14 }}>
+        <Eyebrow style={{ marginBottom: 10 }}>🏢 営業形態と許認可</Eyebrow>
         {COMPLIANCE_NOTES.map((n, i) => (
           <div key={n.t} style={{
             paddingTop: i === 0 ? 0 : 12, marginTop: i === 0 ? 0 : 12,
             borderTop: i === 0 ? "none" : `1px solid ${C.lineSoft}`,
           }}>
             <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5 }}>
-              <ShieldCheck size={13} strokeWidth={2} color={C.gold} style={{ flexShrink: 0 }} />
+              <ShieldCheck size={13} strokeWidth={2} color={C.primary} style={{ flexShrink: 0 }} />
               <span style={{ fontSize: 12.5, fontWeight: 700, color: C.text, letterSpacing: 0.3 }}>{n.t}</span>
             </div>
             <div style={{ fontSize: 11.5, color: C.textSec, lineHeight: 1.85 }}>{n.b}</div>
@@ -130,12 +130,12 @@ export const TermsBody = () => {
         {HIGHLIGHTS.map((h) => (
           <div key={h.title} style={{
             display: "flex", gap: 12, alignItems: "flex-start",
-            background: "rgba(255,255,255,0.028)", border: `1px solid ${C.lineSoft}`,
+            background: "rgba(79,195,247,0.08)", border: `1px solid ${C.lineSoft}`,
             borderRadius: 14, padding: "13px 15px",
           }}>
             <span style={{
               flexShrink: 0, width: 32, height: 32, borderRadius: 16, display: "flex", alignItems: "center", justifyContent: "center",
-              background: "rgba(216,189,130,0.09)", border: `1px solid ${C.lineGold}`, color: C.gold,
+              background: "rgba(79,195,247,0.12)", border: `1px solid ${C.linePrimary}`, color: C.primaryDeep,
             }}><h.icon size={15} strokeWidth={1.9} /></span>
             <div style={{ minWidth: 0 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: C.text, letterSpacing: 0.3 }}>{h.title}</div>
@@ -147,7 +147,7 @@ export const TermsBody = () => {
 
       {/* 利用規約 / プライバシーポリシー 切替 */}
       <div style={{
-        display: "flex", gap: 6, marginBottom: 14, background: "rgba(255,255,255,0.028)",
+        display: "flex", gap: 6, marginBottom: 14, background: "rgba(79,195,247,0.08)",
         padding: 4, borderRadius: 13, border: `1px solid ${C.lineSoft}`,
       }}>
         {TABS.map((t) => {
@@ -158,7 +158,7 @@ export const TermsBody = () => {
               cursor: "pointer", border: "none",
               display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
               ...(on
-                ? { background: C.goldGrad, color: "#241704", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.5)" }
+                ? { background: C.primaryGrad, color: "#ffffff", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.5)" }
                 : { background: "transparent", color: C.textSec }),
             }}>
               <t.icon size={14} strokeWidth={2} />{t.label}
@@ -168,7 +168,7 @@ export const TermsBody = () => {
       </div>
 
       {/* 条文 */}
-      <div className="fade" style={{ ...glass, padding: "6px 20px 20px" }}>
+      <div className="fade" style={{ ...card, padding: "6px 20px 20px" }}>
         <p style={{
           fontSize: 11.5, color: C.textMuted, lineHeight: 1.9, letterSpacing: 0.2,
           margin: "18px 0 0", paddingBottom: 16, borderBottom: `1px solid ${C.lineSoft}`,
@@ -178,9 +178,9 @@ export const TermsBody = () => {
 
         <div style={{ marginTop: 22, paddingTop: 16, borderTop: `1px solid ${C.lineSoft}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
           <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, color: C.textMuted }}>
-            <ShieldCheck size={13} strokeWidth={1.8} color={C.gold} /> 最終改定: {LEGAL_UPDATED}（v{LEGAL_VERSION}）
+            <ShieldCheck size={13} strokeWidth={1.8} color={C.primary} /> 最終改定: {LEGAL_UPDATED}（v{LEGAL_VERSION}）
           </span>
-          <span style={{ fontFamily: FONT_LOGO, fontSize: 13, letterSpacing: 2.5, ...goldText }}>AISEKI</span>
+          <span style={{ fontFamily: FONT_LOGO, fontSize: 13, letterSpacing: 2.5, ...brandText }}>AISEKI</span>
         </div>
       </div>
 
@@ -198,14 +198,14 @@ export default function TermsScreen({ onBack }) {
       {onBack && (
         <button className="press" onClick={onBack} style={{
           display: "inline-flex", alignItems: "center", gap: 4, background: "none", border: "none",
-          fontSize: 13.5, color: C.gold, cursor: "pointer", padding: "14px 0", fontWeight: 600, letterSpacing: 0.4,
+          fontSize: 13.5, color: C.primaryDeep, cursor: "pointer", padding: "14px 0", fontWeight: 600, letterSpacing: 0.4,
         }}>
           <ChevronLeft size={18} strokeWidth={2} /> 戻る
         </button>
       )}
       <div style={{ marginBottom: 16 }}>
         <Eyebrow style={{ marginBottom: 4 }}>Terms & Privacy</Eyebrow>
-        <div style={{ fontFamily: FONT_SERIF_JP, fontSize: 23, fontWeight: 600, letterSpacing: 0.5, color: C.text }}>利用規約</div>
+        <div style={{ fontFamily: FONT_HEAD, fontSize: 23, fontWeight: 600, letterSpacing: 0.5, color: C.text }}>利用規約</div>
       </div>
       <TermsBody />
     </div>
