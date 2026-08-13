@@ -1,17 +1,20 @@
 import { useState } from "react";
-import { ChevronLeft, ShieldCheck, Users, MessageCircle, Ban, Lock, ScrollText } from "lucide-react";
+import { ChevronLeft, ShieldCheck, Users, MessageCircle, Ban, Lock, ScrollText, DoorClosed, Wine } from "lucide-react";
 import {
   C, FONT_SERIF_JP, FONT_LOGO, goldText, glass, Eyebrow,
 } from "../lib/theme.jsx";
 import {
   TERMS, TERMS_INTRO, PRIVACY, PRIVACY_INTRO, LEGAL_UPDATED, LEGAL_VERSION,
+  LEGAL_MIN_AGE, COMPLIANCE_NOTES, FOOTER_NOTICE,
 } from "../lib/legal.js";
 
 /* ══════════════════════════════════════════════════════════════
    利用規約 / プライバシーポリシー
-   ・本サービスはグループでの飲み会・食事会のマッチングサービス
+   ・本サービスはグループでの飲み会・食事会（相席）のマッチングサービス
    ・異性交際を目的とした利用の禁止
-   ・18歳未満の利用の禁止
+   ・20歳未満の利用の禁止（飲酒を伴うため）
+   ・個室での相席の禁止（オープンスペースのみ）
+   ・接待をしない／サクラを置かない（風営法上の風俗営業に該当しない）
    ・1対1の出会いを目的とした利用は規約違反
    条文の本文は src/lib/legal.js が単一の出典（改定はそちらを編集）。
    ══════════════════════════════════════════════════════════════ */
@@ -20,6 +23,9 @@ export const TERMS_UPDATED = LEGAL_UPDATED;
 
 const HIGHLIGHTS = [
   { icon: Users, title: "グループ限定", body: "2名以上のグループ同士でのみ会が成立します。1対1のマッチングは行えません。" },
+  { icon: Wine, title: `${LEGAL_MIN_AGE}歳以上限定`, body: `飲酒を伴うため、${LEGAL_MIN_AGE}歳未満の方はご利用いただけません。登録時に生年月日で年齢を確認します。` },
+  { icon: DoorClosed, title: "個室での相席なし", body: "相席は、店内を見渡せるオープンスペースでのみ行います。個室・半個室での相席は提供しません。" },
+  { icon: ShieldCheck, title: "接待なし・サクラなし", body: "店側は接待を行わず、客同士を同席させるのみです。報酬を受けて客の相手をするサクラは一切在籍していません。" },
   { icon: MessageCircle, title: "グループチャットのみ", body: "会に参加したメンバー全員のチャットのみを提供します。個人間のダイレクトメッセージ機能はありません。" },
   { icon: Lock, title: "プロフィール非公開", body: "参加者の氏名・写真などは、会への参加が承認されたメンバーだけが閲覧できます。" },
   { icon: Ban, title: "出会い目的の禁止", body: "異性交際・1対1の出会いを目的とした利用は禁止です。" },
@@ -97,8 +103,26 @@ export const TermsBody = () => {
           </div>
           <div style={{ fontSize: 12.5, color: C.textSec, lineHeight: 1.8, marginTop: 10 }}>
             異性交際を目的としたサービスではありません。1対1の出会いを目的とした利用は、規約違反として対応します。
+            相席はオープンスペースのみで行い、{LEGAL_MIN_AGE}歳以上の方のみご利用いただけます。
           </div>
         </div>
+      </div>
+
+      {/* 営業形態と許認可（風営法上の風俗営業に該当しないことの明示） */}
+      <div className="fade" style={{ ...glass, padding: 20, marginBottom: 14 }}>
+        <Eyebrow style={{ marginBottom: 10 }}>◆ 営業形態と許認可</Eyebrow>
+        {COMPLIANCE_NOTES.map((n, i) => (
+          <div key={n.t} style={{
+            paddingTop: i === 0 ? 0 : 12, marginTop: i === 0 ? 0 : 12,
+            borderTop: i === 0 ? "none" : `1px solid ${C.lineSoft}`,
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5 }}>
+              <ShieldCheck size={13} strokeWidth={2} color={C.gold} style={{ flexShrink: 0 }} />
+              <span style={{ fontSize: 12.5, fontWeight: 700, color: C.text, letterSpacing: 0.3 }}>{n.t}</span>
+            </div>
+            <div style={{ fontSize: 11.5, color: C.textSec, lineHeight: 1.85 }}>{n.b}</div>
+          </div>
+        ))}
       </div>
 
       {/* 要点 */}
@@ -160,8 +184,8 @@ export const TermsBody = () => {
         </div>
       </div>
 
-      <div style={{ textAlign: "center", marginTop: 20, fontSize: 9.5, color: C.textFaint, letterSpacing: 2, textTransform: "uppercase" }}>
-        18歳未満利用禁止 · Group Dining Matching
+      <div style={{ textAlign: "center", marginTop: 20, fontSize: 9.5, color: C.textFaint, letterSpacing: 0.8, lineHeight: 1.9 }}>
+        {FOOTER_NOTICE.map((line) => <div key={line}>{line}</div>)}
       </div>
     </div>
   );

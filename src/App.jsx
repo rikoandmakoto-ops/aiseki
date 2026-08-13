@@ -3,10 +3,11 @@ import {
   Home, MessageCircle, Plus, Gem, User, MapPin, Clock, Users, Bell,
   Crown, ChevronLeft, Send, ArrowRight, Check, Sparkles, Settings,
   Mail, LogOut, Wine, Repeat, History, Wallet, ShieldCheck, Lock, FileText, UsersRound,
-  Ticket, Copy,
+  Ticket, Copy, DoorClosed, Ban,
 } from "lucide-react";
 import { supabase, configError } from "./lib/supabase";
 import * as api from "./lib/api";
+import { FOOTER_NOTICE } from "./lib/legal.js";
 import {
   C, FONT_LOGO, FONT_DISPLAY, FONT_SERIF_JP, FONT_BODY,
   goldText, glass, goldBtn, ghostBtn, fieldStyle, labelStyle, Eyebrow,
@@ -19,12 +20,16 @@ import TermsScreen from "./screens/TermsScreen.jsx";
 const AREAS = ["渋谷", "恵比寿", "中目黒", "六本木", "西麻布", "銀座", "新宿"];
 
 /* ══════════════════════════════════════════════════════════════
-   グループ飲み会マッチングの前提
+   相席（グループ飲み会）の前提
    ・1つの会は「ホスト側2名以上」×「参加側2名以上」でのみ成立（1対1は不可）
+   ・相席はオープンスペースのみ。個室は選択できない
+   ・20歳以上限定（飲酒を伴うため）
+   ・店側は接待をしない／サクラを置かない（風営法上の風俗営業に該当しない）
    ・参加者の個人プロフィールは、参加が承認されたメンバーにのみ表示
    ・性別による制限なし（同性グループ同士でも参加可）
    ══════════════════════════════════════════════════════════════ */
 const MIN_GROUP = api.MIN_GROUP_SIZE;
+const MIN_AGE = api.MIN_AGE;
 const GROUP_OPTIONS = [2, 3, 4, 5, 6];
 
 /* 会のグループ構成（ホスト側 / 募集側）。旧データにも安全にフォールバック */
@@ -329,7 +334,7 @@ const HomeScreen = ({ user, onDetail }) => {
           padding: "5px 12px", borderRadius: 20, fontSize: 10.5, fontWeight: 700, letterSpacing: 0.4,
           color: C.goldBright, background: "rgba(216,189,130,0.08)", border: `1px solid ${C.lineGold}`,
         }}>
-          <UsersRound size={12} strokeWidth={2} /> {MIN_GROUP}名以上のグループ同士 · 同性グループもOK
+          <UsersRound size={12} strokeWidth={2} /> {MIN_GROUP}名以上のグループ同士 · オープンスペースのみ · {MIN_AGE}歳以上
         </div>
 
         {/* 代表者から招待コードを受け取った同伴者の入口 */}
@@ -503,6 +508,9 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints }) => {
     { label: "時間", value: party.party_time || "未定", icon: Clock },
     { label: "参加人数", value: `${party.current_members}/${party.max_members}名`, icon: Users },
     { label: "グループ構成", value: `ホスト${hostGroup}名 × 募集${guestGroup}名`, icon: UsersRound },
+    // 席は常にオープンスペース（個室での相席は提供しない）
+    { label: "席", value: "オープンスペース", icon: DoorClosed },
+    { label: "年齢", value: `${MIN_AGE}歳以上限定`, icon: ShieldCheck },
   ];
 
   return (
@@ -532,6 +540,8 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints }) => {
           <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 22 }}>
             <Tag>グループ飲み会</Tag>
             <Tag>同性グループもOK</Tag>
+            <Tag>オープンスペース</Tag>
+            <Tag>{MIN_AGE}歳以上</Tag>
           </div>
 
           {!canSeeMembers && (
@@ -650,6 +660,7 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints }) => {
                 </div>
                 <div style={{ fontSize: 10.5, color: C.textMuted, marginTop: 8, lineHeight: 1.6 }}>
                   1対1でのマッチングは行っていません。残り{seatsLeft}名分の枠があります。
+                  <br />同伴者を含め、参加者は全員{MIN_AGE}歳以上である必要があります。
                 </div>
               </div>
 
@@ -659,7 +670,7 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints }) => {
                 names={guestNames}
                 onChange={setGuestNames}
                 label="一緒に参加する同伴者（あなた以外）"
-                hint="承認されると、この人数分の席がグループに確保されます。同伴者はあとで招待コードを使って自分のアカウントでグループチャットに参加できます。"
+                hint={`承認されると、この人数分の席がグループに確保されます。同伴者はあとで招待コードを使って自分のアカウントでグループチャットに参加できます。同伴者が${MIN_AGE}歳以上であることをご確認のうえ登録してください。`}
               />
 
               <div style={{
@@ -731,12 +742,19 @@ const CreateScreen = ({ user, onCreated }) => {
   const [treat, setTreat] = useState("奢り");
   const [points, setPoints] = useState(300);
   const [saving, setSaving] = useState(false);
+  // 席の種別は「オープンスペース」固定。個室は選択できない（変更不可）。
+  const roomType = api.ROOM_TYPE_OPEN;
 
   const submit = async () => {
     if (!title.trim()) { alert("会の名前を入力してください。"); return; }
     // グループ限定：1対1のマッチングは作成できない
     if (hostGroup < MIN_GROUP || guestGroup < MIN_GROUP) {
-      alert(`グループ飲み会マッチングのため、ホスト側・募集側ともに${MIN_GROUP}名以上で設定してください。`);
+      alert(`相席は${MIN_GROUP}名以上のグループ同士のみのため、ホスト側・募集側ともに${MIN_GROUP}名以上で設定してください。`);
+      return;
+    }
+    // 個室での相席は提供しない（オープンスペース以外は作成できない）
+    if (roomType !== api.ROOM_TYPE_OPEN) {
+      alert("相席はオープンスペースのみです。個室での会は作成できません。");
       return;
     }
     setSaving(true);
@@ -750,6 +768,7 @@ const CreateScreen = ({ user, onCreated }) => {
         guest_group_size: guestGroup,
         party_time: time,
         treat_type: treat,
+        room_type: roomType,
         point_request: Number(points) || 0,
       });
       onCreated(p.id);
@@ -778,7 +797,7 @@ const CreateScreen = ({ user, onCreated }) => {
     <div style={{ padding: "16px 20px 24px" }}>
       <SectionTitle sub="Host a group dinner">グループ飲み会を作成</SectionTitle>
 
-      {/* グループ限定であることを作成画面でも明示 */}
+      {/* グループ限定・オープンスペース限定・20歳以上限定であることを作成画面でも明示 */}
       <div className="fade" style={{
         display: "flex", gap: 11, alignItems: "flex-start", marginBottom: 14,
         borderRadius: 16, padding: "14px 16px",
@@ -790,9 +809,10 @@ const CreateScreen = ({ user, onCreated }) => {
           background: "rgba(216,189,130,0.1)", border: `1px solid ${C.lineGold}`, color: C.gold,
         }}><UsersRound size={15} strokeWidth={1.9} /></span>
         <div>
-          <div style={{ fontSize: 12.5, fontWeight: 700, color: C.text, letterSpacing: 0.3 }}>{MIN_GROUP}名以上のグループ同士でのみ開催できます</div>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: C.text, letterSpacing: 0.3 }}>{MIN_GROUP}名以上のグループ同士 · オープンスペースのみ</div>
           <div style={{ fontSize: 11.5, color: C.textSec, lineHeight: 1.75, marginTop: 3 }}>
-            1対1のマッチングは行えません。性別による制限はなく、同性グループ同士でも開催できます。
+            1対1のマッチングは行えません。相席はフロア席・カウンター等のオープンスペースに限られ、個室での相席は作成できません。
+            参加はご本人・同伴者ともに{MIN_AGE}歳以上に限られます。性別による制限はなく、同性グループ同士でも開催できます。
           </div>
         </div>
       </div>
@@ -821,6 +841,50 @@ const CreateScreen = ({ user, onCreated }) => {
           </div>
         </div>
 
+        {/* 席の種別 … オープンスペース固定。個室は選択不可（押せない）。 */}
+        <div style={{ marginBottom: 17 }}>
+          <label style={labelStyle}>席の種別</label>
+          <div style={{ display: "grid", gap: 8 }}>
+            {api.ROOM_TYPES.map((r) => {
+              const on = r.allowed && roomType === r.key;
+              return (
+                <button
+                  key={r.key}
+                  type="button"
+                  // 選択できない項目も押せるようにして、理由を伝える（状態は変わらない）
+                  aria-disabled={!r.allowed}
+                  onClick={() => {
+                    if (!r.allowed) alert("個室での相席は提供していません。相席はオープンスペースのみです。");
+                  }}
+                  style={{
+                    display: "flex", alignItems: "flex-start", gap: 10, textAlign: "left",
+                    padding: "12px 14px", borderRadius: 12, cursor: r.allowed ? "default" : "not-allowed",
+                    ...(on
+                      ? { ...goldBtn, borderRadius: 12 }
+                      : { ...ghostBtn, borderRadius: 12, opacity: 0.5 }),
+                  }}
+                >
+                  <span style={{ flexShrink: 0, marginTop: 1, display: "flex" }}>
+                    {r.allowed ? <Check size={15} strokeWidth={2.6} /> : <Ban size={15} strokeWidth={2.2} />}
+                  </span>
+                  <span style={{ minWidth: 0 }}>
+                    <span style={{ display: "block", fontSize: 13.5, fontWeight: 700 }}>
+                      {r.label}{r.allowed ? "" : "（選択できません）"}
+                    </span>
+                    <span style={{ display: "block", fontSize: 10.5, fontWeight: 500, lineHeight: 1.6, marginTop: 2, opacity: 0.85 }}>
+                      {r.note}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 6, marginTop: 9, fontSize: 10.5, color: C.textMuted, lineHeight: 1.65 }}>
+            <DoorClosed size={12} strokeWidth={1.9} color={C.gold} style={{ flexShrink: 0, marginTop: 1 }} />
+            相席は、店内を見渡せるオープンスペースでのみ行います。個室・半個室での相席は提供しません。
+          </div>
+        </div>
+
         <div style={{ marginBottom: 17 }}>
           <label style={labelStyle}>ホスト側のグループ人数（あなたを含む · {MIN_GROUP}名以上）</label>
           <GroupPicker value={hostGroup} onChange={setHostGroup} />
@@ -832,7 +896,7 @@ const CreateScreen = ({ user, onCreated }) => {
           names={hostNames}
           onChange={setHostNames}
           label="一緒に参加する同伴者（あなた以外）"
-          hint="会を作成すると、この人数分の席がグループに確保されます。作成後に表示される招待コードを渡すと、同伴者も自分のアカウントでグループチャットに参加できます。"
+          hint={`会を作成すると、この人数分の席がグループに確保されます。作成後に表示される招待コードを渡すと、同伴者も自分のアカウントでグループチャットに参加できます。同伴者が${MIN_AGE}歳以上であることをご確認のうえ登録してください。`}
         />
 
         <div style={{ marginBottom: 17 }}>
@@ -1243,8 +1307,12 @@ const MyPageScreen = ({ user, onTerms }) => {
             <input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} style={fieldStyle} />
           </div>
           <div style={{ marginBottom: 16 }}>
-            <label style={labelStyle}>年齢（18歳以上）</label>
-            <input type="number" min={18} max={99} value={form.age} onChange={(e) => setForm({ ...form, age: e.target.value })} style={fieldStyle} />
+            <label style={labelStyle}>年齢（{MIN_AGE}歳以上）</label>
+            <input type="number" min={MIN_AGE} max={99} value={form.age} onChange={(e) => setForm({ ...form, age: e.target.value })} style={fieldStyle} />
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 6, marginTop: 8, fontSize: 10.5, color: C.textMuted, lineHeight: 1.65 }}>
+              <ShieldCheck size={12} strokeWidth={1.9} color={C.gold} style={{ flexShrink: 0, marginTop: 1 }} />
+              本サービスは飲酒を伴うため{MIN_AGE}歳以上限定です。登録時の生年月日で年齢を確認しています。
+            </div>
           </div>
           <div style={{ marginBottom: 16 }}>
             <label style={labelStyle}>顔写真URL</label>
@@ -1319,7 +1387,8 @@ const MyPageScreen = ({ user, onTerms }) => {
 };
 
 /* ══════════════════════════════════════════════════════════════ Footer
-   どの画面からでも利用規約・プライバシーポリシーに到達できるようにする。 */
+   どの画面からでも利用規約・プライバシーポリシーに到達できるようにする。
+   あわせて、業態上の法的表示（許認可・年齢制限・接待/個室/サクラなし）を常時掲示する。 */
 const AppFooter = ({ onTerms }) => (
   <div style={{
     margin: "10px 20px 0", padding: "16px 0 20px",
@@ -1332,8 +1401,26 @@ const AppFooter = ({ onTerms }) => (
     }}>
       <FileText size={12.5} strokeWidth={2} /> 利用規約・プライバシーポリシー
     </button>
-    <div style={{ fontSize: 9.5, color: C.textFaint, letterSpacing: 1.6, marginTop: 9, lineHeight: 1.8 }}>
-      18歳未満利用禁止 · グループ飲み会マッチング
+
+    {/* 法的表示 */}
+    <div style={{
+      marginTop: 12, padding: "12px 14px", borderRadius: 12,
+      background: "rgba(255,255,255,0.022)", border: `1px solid ${C.lineSoft}`,
+      textAlign: "left",
+    }}>
+      {FOOTER_NOTICE.map((line, i) => (
+        <div key={line} style={{
+          display: "flex", gap: 7, alignItems: "flex-start",
+          fontSize: 10, color: C.textMuted, lineHeight: 1.75, marginTop: i === 0 ? 0 : 6,
+        }}>
+          <ShieldCheck size={11} strokeWidth={1.9} color={C.gold} style={{ flexShrink: 0, marginTop: 2 }} />
+          <span>{line}</span>
+        </div>
+      ))}
+    </div>
+
+    <div style={{ fontSize: 9.5, color: C.textFaint, letterSpacing: 1.6, marginTop: 11, lineHeight: 1.8 }}>
+      グループ飲み会・相席マッチング
       <br />
       © 2026 AISEKI
     </div>

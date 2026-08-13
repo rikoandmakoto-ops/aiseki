@@ -1,16 +1,29 @@
 -- =====================================================================
---  グループ飲み会マッチングアプリ  Supabase スキーマ
+--  グループ飲み会（相席）マッチングアプリ  Supabase スキーマ
 --  Supabase の SQL Editor に貼り付けてそのまま実行してください。
 --  （再実行しても安全なように IF NOT EXISTS / DROP ... IF EXISTS を使用）
 --
---  設計方針（インターネット異性紹介事業に該当しないための要件）
+--  設計方針A（インターネット異性紹介事業に該当しないための要件）
 --   ・グループ限定      … ホスト側 2名以上 × 参加側 2名以上。1対1は成立しない。
 --   ・1対1メッセージ禁止 … messages は会（グループ）単位のみ。個人間DMは存在しない。
 --   ・個人情報の非公開   … 個人の名前・写真・年齢・性別は、同じ会に参加承認された
 --                          相手にのみ公開（不特定多数には非公開）。
 --   ・性別による制限なし … 同性グループ同士でも参加できる（性別条件を一切持たない）。
 --
---  ※ 既存DBへの差分適用は supabase/migration_group_only.sql を使用してください。
+--  設計方針B（風俗営業許可を要しない業態にするための要件）
+--   ・20歳以上限定      … 飲酒を伴うため。生年月日で年齢確認し、20歳未満は登録不可。
+--                          会の作成・参加・席の引き受けも 20歳未満は拒否する。
+--   ・個室での相席禁止  … parties.room_type は 'open'（オープンスペース）のみ。
+--                          個室相席は出会い系喫茶に該当するリスクがあるため提供しない。
+--   ・接待をしない      … 店側は客同士を同席させるだけ。従業員が席に着く運用は行わない。
+--   ・サクラ禁止        … 店が雇った人間に客対応をさせない（風営法1号営業に該当するため）。
+--   ※ 必要な許認可は「飲食店営業許可（保健所）」と
+--     「深夜における酒類提供飲食店営業の届出（所轄警察署）」の2つのみ。
+--
+--  ※ 既存DBへの差分適用は次の順に実行してください。
+--     supabase/migration_group_only.sql
+--     supabase/migration_group_members.sql
+--     supabase/migration_age20_open_space.sql
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
@@ -19,17 +32,98 @@
 create extension if not exists "pgcrypto";
 
 -- =====================================================================
+--  0. サービス共通の定数
+--     ・利用可能年齢（飲酒を伴うため 20歳以上）
+--     ・相席の席種別（オープンスペースのみ。個室は提供しない）
+-- =====================================================================
+create or replace function public.min_age()
+returns int language sql immutable set search_path = public as $$ select 20 $$;
+
+create or replace function public.allowed_room_type()
+returns text language sql immutable set search_path = public as $$ select 'open'::text $$;
+
+-- =====================================================================
 --  1. profiles  … ユーザープロフィール（auth.users と 1:1）
+--     birth_date … 年齢確認（20歳以上）の根拠。他のユーザーには一切公開しない。
 -- =====================================================================
 create table if not exists public.profiles (
-  id          uuid primary key references auth.users(id) on delete cascade,
-  username    text,
-  avatar_url  text,
-  gender      text,                       -- '男性' / '女性' / 'その他'
-  age         int,
-  bio         text,
-  created_at  timestamptz not null default now()
+  id              uuid primary key references auth.users(id) on delete cascade,
+  username        text,
+  avatar_url      text,
+  gender          text,                   -- '男性' / '女性' / 'その他'
+  age             int,
+  birth_date      date,                   -- 年齢確認用（本人以外に公開しない）
+  age_verified_at timestamptz,            -- 20歳以上であることを確認した日時
+  bio             text,
+  created_at      timestamptz not null default now()
 );
+
+-- 既存DBにも列を追加（再実行しても安全）
+alter table public.profiles add column if not exists birth_date      date;
+alter table public.profiles add column if not exists age_verified_at timestamptz;
+
+-- 20歳未満を保存できないようにする。
+-- 既存行に 20歳未満が残っている可能性があるため NOT VALID で追加し、
+-- 問題なければ検証する（検証に失敗しても新規行・更新行には制約が効く）。
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'profiles_min_age' and conrelid = 'public.profiles'::regclass
+  ) then
+    alter table public.profiles
+      add constraint profiles_min_age check (age is null or age >= 20) not valid;
+  end if;
+  begin
+    alter table public.profiles validate constraint profiles_min_age;
+  exception when check_violation then
+    raise notice '20歳未満の既存プロフィールが存在するため profiles_min_age は未検証のままです。該当アカウントを確認してください。';
+  end;
+end $$;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'profiles_birth_date_sane' and conrelid = 'public.profiles'::regclass
+  ) then
+    alter table public.profiles
+      add constraint profiles_birth_date_sane
+      check (birth_date is null or birth_date > date '1900-01-01') not valid;
+  end if;
+end $$;
+
+-- 生年月日から満年齢を求める
+create or replace function public.age_from_birth_date(p_birth date)
+returns int
+language sql stable set search_path = public   -- current_date を参照するため stable
+as $$
+  select case when p_birth is null then null
+              else date_part('year', age(current_date, p_birth))::int end;
+$$;
+
+-- そのユーザーが利用可能年齢（20歳以上）かどうか。
+-- 生年月日があればそれを優先し、無い場合は登録時の年齢を見る。
+create or replace function public.is_legal_age(p_user uuid)
+returns boolean
+language sql security definer stable set search_path = public
+as $$
+  select coalesce(
+    (select coalesce(public.age_from_birth_date(p.birth_date), p.age)
+       from public.profiles p where p.id = p_user),
+    -1
+  ) >= public.min_age();
+$$;
+
+-- 年齢未確認・20歳未満なら例外を投げる（会の作成／参加／席の引き受けで使用）
+create or replace function public.assert_legal_age(p_user uuid)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if not public.is_legal_age(p_user) then
+    raise exception '本サービスは%歳未満の方はご利用いただけません（年齢確認が必要です）', public.min_age();
+  end if;
+end;
+$$;
 
 -- =====================================================================
 --  2. point_balances … ポイント残高（ユーザー 1:1）
@@ -69,11 +163,15 @@ create table if not exists public.parties (
   current_members  int  not null default 2,
   party_time       text,                   -- 集合時間（'20:00' 等）
   treat_type       text not null default '割り勘',   -- '奢り' | '割り勘'
+  room_type        text not null default 'open',     -- 'open' のみ（個室相席は提供しない）
   point_request    int  not null default 0,          -- 1人あたり必要ポイント
   status           text not null default 'recruiting', -- 'recruiting' | 'matched' | 'completed'
   created_at       timestamptz not null default now()
 );
 create index if not exists parties_status_idx on public.parties(status, created_at desc);
+
+-- 既存DBにも列を追加（既存の会はすべてオープンスペース扱いになる）
+alter table public.parties add column if not exists room_type text not null default 'open';
 
 -- 1対1マッチングを DB レベルで禁止する制約
 alter table public.parties drop constraint if exists parties_group_only;
@@ -82,6 +180,12 @@ alter table public.parties add constraint parties_group_only check (
   and guest_group_size >= 2
   and max_members  >= host_group_size + guest_group_size
 );
+
+-- 個室での相席を DB レベルで禁止する制約
+-- （出会い系喫茶に該当するリスクを避けるため、オープンスペース以外は保存できない）
+update public.parties set room_type = 'open' where room_type is distinct from 'open';
+alter table public.parties drop constraint if exists parties_open_space_only;
+alter table public.parties add constraint parties_open_space_only check (room_type = 'open');
 
 -- =====================================================================
 --  5. party_members … 会の「席」。人数の唯一の真実。
@@ -155,19 +259,39 @@ create index if not exists messages_party_idx on public.messages(party_id, creat
 -- =====================================================================
 --  新規ユーザー登録時に profile / 残高を自動作成するトリガー
 --  （初回登録ボーナスとして 1,000pt 付与）
+--  ここで年齢確認（20歳以上）を強制する。生年月日が無い、または
+--  20歳未満の場合は登録自体を失敗させる。
 -- =====================================================================
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
 security definer set search_path = public
 as $$
+declare
+  v_birth date;
+  v_age   int;
 begin
-  insert into public.profiles (id, username, gender, age)
+  v_birth := nullif(new.raw_user_meta_data->>'birth_date', '')::date;
+  v_age   := coalesce(
+    public.age_from_birth_date(v_birth),
+    nullif(new.raw_user_meta_data->>'age', '')::int
+  );
+
+  if v_age is null then
+    raise exception '年齢確認のため生年月日の登録が必要です';
+  end if;
+  if v_age < public.min_age() then
+    raise exception '本サービスは%歳未満の方はご利用いただけません', public.min_age();
+  end if;
+
+  insert into public.profiles (id, username, gender, age, birth_date, age_verified_at)
   values (
     new.id,
     coalesce(new.raw_user_meta_data->>'username', split_part(new.email, '@', 1)),
     new.raw_user_meta_data->>'gender',
-    nullif(new.raw_user_meta_data->>'age', '')::int
+    v_age,
+    v_birth,
+    now()
   )
   on conflict (id) do nothing;
 
@@ -279,6 +403,8 @@ begin
   if p_side not in ('host', 'guest') then
     raise exception 'グループの区分が不正です';
   end if;
+  -- グループの代表者は20歳以上であること
+  perform public.assert_legal_age(p_owner);
   if public.is_party_member(p_party, p_owner) then
     raise exception '既にこの会に参加しています';
   end if;
@@ -347,12 +473,20 @@ returns trigger
 language plpgsql security definer set search_path = public
 as $$
 begin
+  -- 20歳未満は会を作成できない（飲酒を伴うため）
+  perform public.assert_legal_age(new.host_id);
+
   if coalesce(new.host_group_size, 0) < 2 then
     raise exception 'ホスト側は2名以上のグループでのみ会を作成できます';
   end if;
   if coalesce(new.guest_group_size, 0) < 2 then
     raise exception '募集は2名以上のグループ単位でのみ行えます';
   end if;
+  -- 個室での相席は提供しない。クライアントが何を送っても open に固定する。
+  if coalesce(new.room_type, public.allowed_room_type()) <> public.allowed_room_type() then
+    raise exception '相席はオープンスペースのみです。個室での会は作成できません';
+  end if;
+  new.room_type := public.allowed_room_type();
 
   new.max_members       := new.host_group_size + new.guest_group_size;
   new.current_members   := new.host_group_size;  -- 席作成後にトリガーが再計算する
@@ -394,6 +528,9 @@ language plpgsql security definer set search_path = public
 as $$
 declare v_party public.parties;
 begin
+  -- 20歳未満は参加を申し込めない（飲酒を伴うため）
+  perform public.assert_legal_age(new.user_id);
+
   if coalesce(new.group_size, 0) < 2 then
     raise exception '参加は2名以上のグループ単位でのみ行えます';
   end if;
@@ -448,6 +585,8 @@ declare
   v_name  text;
 begin
   if auth.uid() is null then raise exception '認証が必要です'; end if;
+  -- 同伴者本人も20歳以上でなければ席を引き受けられない
+  perform public.assert_legal_age(auth.uid());
   if p_code is null or btrim(p_code) = '' then
     raise exception '招待コードを入力してください';
   end if;
@@ -649,6 +788,23 @@ create policy profiles_upsert on public.profiles for insert with check (auth.uid
 drop policy if exists profiles_update on public.profiles;
 create policy profiles_update on public.profiles for update using (auth.uid() = id);
 
+-- 列単位の遮断:
+--  ・birth_date / age_verified_at は年齢確認の根拠であり、誰にも見せない
+--    （本人にも返さない。年齢は age 列で足りる）
+--  ・birth_date / age_verified_at はクライアントから更新できない
+--    （更新できると年齢確認を後から書き換えられてしまう）
+revoke select on public.profiles from anon, authenticated;
+grant  select (id, username, avatar_url, gender, age, bio, created_at)
+  on public.profiles to anon, authenticated;
+revoke update on public.profiles from anon, authenticated;
+grant  update (username, avatar_url, gender, age, bio)
+  on public.profiles to authenticated;
+-- profiles 行の作成は handle_new_user()（security definer）が行う。
+-- 万一クライアントから作られても、年齢確認の列は自己申告できないようにする。
+revoke insert on public.profiles from anon, authenticated;
+grant  insert (id, username, avatar_url, gender, age, bio)
+  on public.profiles to authenticated;
+
 -- point_balances: 本人のみ閲覧
 drop policy if exists balances_select on public.point_balances;
 create policy balances_select on public.point_balances for select using (auth.uid() = user_id);
@@ -715,6 +871,9 @@ revoke all on function public.gen_invite_code()            from public, anon, au
 revoke all on function public.normalize_member_names(text[], int) from public, anon, authenticated;
 revoke all on function public.is_party_member(uuid, uuid)  from public, anon, authenticated;
 revoke all on function public.shares_party(uuid, uuid)     from public, anon, authenticated;
+-- 年齢判定は内部専用（他人の年齢を総当たりで調べられないようにする）
+revoke all on function public.is_legal_age(uuid)           from public, anon, authenticated;
+revoke all on function public.assert_legal_age(uuid)       from public, anon, authenticated;
 
 -- クライアントから呼ぶ RPC はこれだけ
 grant execute on function public.claim_seat(text)      to authenticated;

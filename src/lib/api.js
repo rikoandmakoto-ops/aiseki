@@ -1,11 +1,32 @@
 import { supabase } from "./supabase";
 
 /* =====================================================================
-   グループ限定マッチングの共通ルール
+   相席（グループ飲み会）の共通ルール
    ・1つの会は「ホスト側2名以上」×「参加側2名以上」でのみ成立する（1対1は不可）
+   ・相席はオープンスペースのみ。個室での相席は提供しない
+     （出会い系喫茶に該当するリスクを避けるため）
+   ・20歳以上限定（飲酒を伴うため）
    ・個人プロフィールは同じ会に参加承認された相手にのみ公開（RLSで担保）
+   ※ いずれも DB 側（制約・トリガー）でも二重に強制している。
    ===================================================================== */
 export const MIN_GROUP_SIZE = 2;
+
+/* 席の種別。個室は業態上そもそも選択できない（オープンスペースのみ）。 */
+export const ROOM_TYPE_OPEN = "open";
+export const ROOM_TYPES = [
+  {
+    key: ROOM_TYPE_OPEN,
+    label: "オープンスペース",
+    note: "フロア席・カウンター等、店内を見渡せる席",
+    allowed: true,
+  },
+  {
+    key: "private",
+    label: "個室・半個室",
+    note: "出会い系喫茶に該当するおそれがあるため提供しません",
+    allowed: false,
+  },
+];
 
 // マイグレーション未適用（新カラム・新RPCが無い）場合に分かりやすいエラーへ変換する
 function wrapSchemaError(error) {
@@ -14,6 +35,12 @@ function wrapSchemaError(error) {
     return new Error(
       "データベースがグループメンバー登録の仕様に更新されていません。" +
       "Supabase の SQL Editor で supabase/migration_group_members.sql を実行してください。"
+    );
+  }
+  if (/room_type|birth_date|age_verified_at/.test(msg)) {
+    return new Error(
+      "データベースが年齢確認・個室禁止の仕様に更新されていません。" +
+      "Supabase の SQL Editor で supabase/migration_age20_open_space.sql を実行してください。"
     );
   }
   if (/group_size|host_group_size|guest_group_size|applicant_name|host_name/.test(msg)) {
@@ -37,17 +64,66 @@ export function normalizeMemberNames(names, groupSize) {
 }
 
 /* ============================ Auth ============================ */
-// 18歳未満は利用禁止。性別は登録時に一切収集しない（性別による制限を設けないため）。
-export const MIN_AGE = 18;
+/* 20歳未満は利用禁止（飲酒を伴う業態のため）。
+   性別は登録時に一切収集しない（性別による制限を設けないため）。 */
+export const MIN_AGE = 20;
 
-export async function signUp({ email, password, username, age }) {
-  if (!(Number(age) >= MIN_AGE)) {
+/* 生年月日（YYYY-MM-DD）から満年齢を計算する。不正な値なら null。 */
+export function ageFromBirthDate(birthDate) {
+  if (!birthDate) return null;
+  const d = new Date(`${birthDate}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  const now = new Date();
+  if (d > now) return null;
+  let age = now.getFullYear() - d.getFullYear();
+  const before =
+    now.getMonth() < d.getMonth() ||
+    (now.getMonth() === d.getMonth() && now.getDate() < d.getDate());
+  if (before) age -= 1;
+  return age;
+}
+
+/* 20歳以上かどうか（年齢確認の判定はここに集約する） */
+export function isLegalAge(birthDate) {
+  const age = ageFromBirthDate(birthDate);
+  return age !== null && age >= MIN_AGE;
+}
+
+/* 生年月日の入力欄で選択できる上限日（今日からちょうど MIN_AGE 年前）。
+   toISOString() は UTC に変換されて1日ずれることがあるため、
+   ローカル日付から組み立てる（今日が誕生日の方をちょうど選べるようにする）。 */
+export function maxBirthDate() {
+  const d = new Date();
+  d.setFullYear(d.getFullYear() - MIN_AGE);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/* 新規登録。生年月日による年齢確認（20歳以上）と、
+   規約・年齢の同意チェックを通過しないと登録できない。
+   年齢は生年月日から算出した値のみを保存する（自己申告の数値は受け取らない）。 */
+export async function signUp({ email, password, username, birthDate, ageConfirmed }) {
+  if (!ageConfirmed) {
+    throw new Error(`${MIN_AGE}歳以上であることの確認と、利用規約への同意が必要です。`);
+  }
+  const age = ageFromBirthDate(birthDate);
+  if (age === null) {
+    throw new Error("生年月日を正しく入力してください。");
+  }
+  if (age < MIN_AGE) {
     throw new Error(`本サービスは${MIN_AGE}歳未満の方はご利用いただけません。`);
   }
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
-    options: { data: { username, age: String(age) } },
+    options: {
+      data: {
+        username,
+        birth_date: birthDate,
+        age: String(age),
+        age_confirmed: true,
+      },
+    },
   });
   if (error) throw error;
   return data;
@@ -64,25 +140,36 @@ export async function signOut() {
   if (error) throw error;
 }
 
-/* ========================== Profile ========================== */
+/* ========================== Profile ==========================
+   生年月日（birth_date）と年齢確認日時（age_verified_at）は、
+   本人にも返さない（DB 側で列単位に SELECT を遮断している）。
+   そのため列は明示的に指定する（"*" は権限エラーになる）。 */
+const PROFILE_COLUMNS = "id, username, avatar_url, age, bio, created_at";
+
 export async function getProfile(userId) {
   const { data, error } = await supabase
     .from("profiles")
-    .select("*")
+    .select(PROFILE_COLUMNS)
     .eq("id", userId)
     .maybeSingle();
   if (error) throw error;
   return data;
 }
 
+// プロフィール更新。年齢は 20歳未満に書き換えられない（DB 側の制約でも拒否される）。
+// 生年月日は年齢確認の根拠のため、ここからは変更できない。
 export async function updateProfile(userId, fields) {
+  const { birth_date, ...rest } = fields;
+  if (rest.age != null && rest.age !== "" && Number(rest.age) < MIN_AGE) {
+    throw new Error(`本サービスは${MIN_AGE}歳未満の方はご利用いただけません。`);
+  }
   const { data, error } = await supabase
     .from("profiles")
-    .update(fields)
+    .update(rest)
     .eq("id", userId)
-    .select()
+    .select(PROFILE_COLUMNS)
     .single();
-  if (error) throw error;
+  if (error) throw wrapSchemaError(error);
   return data;
 }
 
@@ -184,16 +271,21 @@ export async function claimSeat(code) {
   return data; // { party_id, title }
 }
 
-// 会の作成。ホスト側・参加側ともに2名以上のグループが必須（1対1は作成不可）。
+// 会の作成。
+//  ・ホスト側・参加側ともに2名以上のグループが必須（1対1は作成不可）
+//  ・席の種別はオープンスペース固定（個室での相席は作成できない）
 // 同伴者の席はサーバ側（handle_new_party → create_group_seats）で人数分作られる。
-// 実際の人数・定員はサーバ側トリガーが確定させる。
+// 実際の人数・定員・席の種別はサーバ側トリガー／制約が確定させる。
 export async function createParty(hostId, fields) {
   const hostGroup = Number(fields.host_group_size);
   const guestGroup = Number(fields.guest_group_size);
   if (!(hostGroup >= MIN_GROUP_SIZE) || !(guestGroup >= MIN_GROUP_SIZE)) {
     throw new Error(`会は${MIN_GROUP_SIZE}名以上のグループ同士でのみ作成できます。`);
   }
-  const { host_member_names, ...rest } = fields;
+  if (fields.room_type != null && fields.room_type !== ROOM_TYPE_OPEN) {
+    throw new Error("相席はオープンスペースのみです。個室での会は作成できません。");
+  }
+  const { host_member_names, room_type, ...rest } = fields;
   const { data, error } = await supabase
     .from("parties")
     .insert({
@@ -205,6 +297,7 @@ export async function createParty(hostId, fields) {
       host_member_names: normalizeMemberNames(host_member_names, hostGroup),
       max_members: hostGroup + guestGroup,
       current_members: hostGroup,
+      room_type: ROOM_TYPE_OPEN,
     })
     .select()
     .single();

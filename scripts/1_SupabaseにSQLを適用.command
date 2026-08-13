@@ -1,9 +1,10 @@
 #!/bin/bash
 # =====================================================================
-#  グループメンバー登録の修正を Supabase に適用する
+#  最新のマイグレーション（20歳以上限定＋個室相席の禁止）を
+#  aiseki の Supabase に適用する
 #
 #  このファイルをダブルクリックすると
-#   1) マイグレーションSQL（supabase/migration_group_members.sql）を
+#   1) マイグレーションSQL（supabase/migration_age20_open_space.sql）を
 #      クリップボードにコピーし
 #   2) Supabase の SQL Editor をブラウザで開きます。
 #
@@ -12,7 +13,7 @@
 
 cd "$(dirname "$0")/.." || exit 1
 
-SQL_FILE="supabase/migration_group_members.sql"
+SQL_FILE="supabase/migration_age20_open_space.sql"
 # 接続先は .env から読む（プロジェクトを作り直しても書き換え不要にするため）
 PROJECT_REF=""
 if [ -f ".env" ]; then
@@ -37,6 +38,7 @@ echo "   2. 右下の Run（または ⌘Enter）を押す"
 echo "   3. 「Success」と表示されたら完了です"
 echo ""
 echo "   ※ 何度実行しても安全な内容です（冪等）。"
+echo "   ※ 適用先が aiseki のプロジェクトであることを必ず確認してください。"
 echo ""
 
 sleep 2

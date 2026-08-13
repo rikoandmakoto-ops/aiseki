@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { Sparkles, Users, ChevronLeft, Check } from "lucide-react";
+import { Sparkles, Users, ChevronLeft, Check, ShieldCheck } from "lucide-react";
 import {
   C, FONT_LOGO, FONT_SERIF_JP, FONT_BODY, goldText, glass, goldBtn, ghostBtn, fieldStyle, labelStyle,
 } from "../lib/theme.jsx";
-import { signIn, signUp, MIN_AGE } from "../lib/api";
+import { signIn, signUp, MIN_AGE, MIN_GROUP_SIZE, ageFromBirthDate, maxBirthDate } from "../lib/api";
+import { FOOTER_NOTICE } from "../lib/legal.js";
 import { TermsBody } from "./TermsScreen.jsx";
 
 const shellStyle = {
@@ -24,12 +25,15 @@ export default function AuthScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [username, setUsername] = useState("");
-  const [age, setAge] = useState("");
+  const [birthDate, setBirthDate] = useState("");   // 年齢確認（20歳以上）の根拠
   const [agreed, setAgreed] = useState(false);
   const [showTerms, setShowTerms] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+
+  const age = ageFromBirthDate(birthDate);          // 入力済みなら満年齢、未入力・不正なら null
+  const adult = age !== null && age >= MIN_AGE;
 
   const submit = async (e) => {
     e.preventDefault();
@@ -37,12 +41,20 @@ export default function AuthScreen() {
     setNotice("");
 
     if (mode === "signup") {
-      if (!agreed) {
-        setError("利用規約への同意と、18歳以上であることの確認が必要です。");
+      if (!birthDate) {
+        setError("年齢確認のため、生年月日を入力してください。");
         return;
       }
-      if (!(Number(age) >= MIN_AGE)) {
-        setError(`本サービスは${MIN_AGE}歳未満の方はご利用いただけません。`);
+      if (age === null) {
+        setError("生年月日を正しく入力してください。");
+        return;
+      }
+      if (!adult) {
+        setError(`本サービスは${MIN_AGE}歳未満の方はご利用いただけません（飲酒を伴うため）。`);
+        return;
+      }
+      if (!agreed) {
+        setError(`利用規約への同意と、${MIN_AGE}歳以上であることの確認が必要です。`);
         return;
       }
     }
@@ -53,7 +65,7 @@ export default function AuthScreen() {
         await signIn({ email, password });
         // 成功後は App の onAuthStateChange が画面を切り替える
       } else {
-        const data = await signUp({ email, password, username, age: Number(age) });
+        const data = await signUp({ email, password, username, birthDate, ageConfirmed: agreed });
         if (!data.session) {
           // メール確認が有効な場合
           setNotice("確認メールを送信しました。メール内のリンクを開いてから、ログインしてください。");
@@ -109,10 +121,10 @@ export default function AuthScreen() {
             padding: "5px 14px", borderRadius: 20, fontSize: 11, fontWeight: 700, letterSpacing: 0.6,
             color: C.goldBright, background: "rgba(216,189,130,0.09)", border: `1px solid ${C.lineGold}`,
           }}>
-            <Users size={13} strokeWidth={2} /> 2名以上のグループ同士でマッチング
+            <Users size={13} strokeWidth={2} /> {MIN_GROUP_SIZE}名以上のグループ同士 · {MIN_AGE}歳以上限定
           </div>
           <div style={{ fontFamily: FONT_SERIF_JP, fontSize: 13.5, color: C.textSec, letterSpacing: 0.8, marginTop: 16, lineHeight: 1.7 }}>
-            夜の街で、「グループ」と「グループ」が卓を囲む。<br />大人のための、上質な飲み会マッチング。
+            夜の街で、「グループ」と「グループ」が卓を囲む。<br />大人のための、上質な相席。
           </div>
         </div>
       </div>
@@ -161,12 +173,30 @@ export default function AuthScreen() {
 
             {mode === "signup" && (
               <>
+                {/* 年齢確認 … 生年月日から満年齢を算出し、20歳未満は登録できない */}
                 <div style={{ marginBottom: 16 }}>
-                  <label style={labelStyle}>年齢（18歳以上）</label>
-                  <input type="number" required min={18} max={99} value={age} onChange={(e) => setAge(e.target.value)} placeholder="28" style={fieldStyle} />
+                  <label style={labelStyle}>生年月日（{MIN_AGE}歳以上のみ登録できます）</label>
+                  <input
+                    type="date"
+                    required
+                    value={birthDate}
+                    max={maxBirthDate()}
+                    onChange={(e) => setBirthDate(e.target.value)}
+                    style={{ ...fieldStyle, colorScheme: "dark" }}
+                  />
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 6, marginTop: 8, fontSize: 10.5, lineHeight: 1.65, color: birthDate && !adult ? C.redSoft : C.textMuted }}>
+                    <ShieldCheck size={12} strokeWidth={1.9} color={birthDate && !adult ? C.red : C.gold} style={{ flexShrink: 0, marginTop: 1 }} />
+                    {birthDate
+                      ? age === null
+                        ? "生年月日を正しく入力してください。"
+                        : adult
+                          ? `満${age}歳 — ご利用いただけます。生年月日が他のユーザーに表示されることはありません。`
+                          : `満${age}歳 — 飲酒を伴うため、${MIN_AGE}歳未満の方はご利用いただけません。`
+                      : `本サービスは飲酒を伴うため、${MIN_AGE}歳未満の方はご利用いただけません。生年月日で年齢を確認します。`}
+                  </div>
                 </div>
 
-                {/* 年齢確認 & 規約同意（インターネット異性紹介事業に該当しないための必須要件） */}
+                {/* 年齢確認 & 規約同意（風営法上の風俗営業に該当しない運用のための必須要件） */}
                 <div
                   onClick={() => setAgreed((v) => !v)}
                   style={{
@@ -187,12 +217,13 @@ export default function AuthScreen() {
                     {agreed && <Check size={13} strokeWidth={3} color="#241704" />}
                   </span>
                   <span style={{ fontSize: 11.5, color: C.textSec, lineHeight: 1.75 }}>
-                    私は<b style={{ color: C.text, fontWeight: 700 }}>18歳以上</b>であり、
+                    私は<b style={{ color: C.text, fontWeight: 700 }}>{MIN_AGE}歳以上</b>であり、
                     <button type="button" onClick={(e) => { e.stopPropagation(); setShowTerms(true); }} style={{
                       background: "none", border: "none", padding: 0, cursor: "pointer",
                       color: C.gold, fontWeight: 700, fontSize: 11.5, textDecoration: "underline", textUnderlineOffset: 3,
                     }}>利用規約</button>
-                    に同意します。本サービスはグループでの飲み会・食事会のマッチングサービスであり、異性交際・1対1の出会いを目的とした利用が禁止されていることを理解しました。
+                    に同意します。本サービスは{MIN_GROUP_SIZE}名以上のグループ同士で飲食店のオープンスペースを共にする相席サービスであり、
+                    異性交際・1対1の出会いを目的とした利用と、個室での相席が禁止されていることを理解しました。
                   </span>
                 </div>
               </>
@@ -206,7 +237,8 @@ export default function AuthScreen() {
             )}
 
             {(() => {
-              const blocked = loading || (mode === "signup" && !agreed);
+              // 20歳未満・年齢未確認・規約未同意では登録ボタンを押せない
+              const blocked = loading || (mode === "signup" && (!agreed || !adult));
               return (
             <button type="submit" className="gold-cta" disabled={blocked} style={{
               ...goldBtn, width: "100%", padding: "15px 0", borderRadius: 14, fontSize: 15,
@@ -230,8 +262,9 @@ export default function AuthScreen() {
             background: "none", border: "none", cursor: "pointer",
             fontSize: 11, color: C.textSec, letterSpacing: 0.6, textDecoration: "underline", textUnderlineOffset: 3,
           }}>利用規約を読む</button>
-          <div style={{ marginTop: 10, fontSize: 9.5, color: C.textFaint, letterSpacing: 2, textTransform: "uppercase" }}>
-            18歳未満利用禁止 · グループ飲み会マッチング
+          {/* 法的表示（許認可・年齢制限・接待/個室/サクラなし） */}
+          <div style={{ marginTop: 12, fontSize: 9.5, color: C.textFaint, letterSpacing: 0.8, lineHeight: 1.9 }}>
+            {FOOTER_NOTICE.map((line) => <div key={line}>{line}</div>)}
           </div>
         </div>
       </div>
