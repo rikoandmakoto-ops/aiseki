@@ -960,6 +960,10 @@ revoke all on function public.gen_invite_code()            from public, anon, au
 revoke all on function public.normalize_member_names(text[], int) from public, anon, authenticated;
 revoke all on function public.is_party_member(uuid, uuid)  from public, anon, authenticated;
 revoke all on function public.shares_party(uuid, uuid)     from public, anon, authenticated;
+-- ただし shares_party() は profiles_select ポリシー本体から呼ばれる。
+-- RLS ポリシーは呼び出し元ロールの権限で評価されるため、EXECUTE を戻さないと
+-- profiles の SELECT が「permission denied for function shares_party」で必ず失敗する。
+grant execute on function public.shares_party(uuid, uuid) to authenticated;
 -- 年齢判定は内部専用（他人の年齢を総当たりで調べられないようにする）
 revoke all on function public.is_legal_age(uuid)           from public, anon, authenticated;
 revoke all on function public.assert_legal_age(uuid)       from public, anon, authenticated;
