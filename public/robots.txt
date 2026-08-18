@@ -1,0 +1,10 @@
+# AISEKI — 大人のグループ相席マッチング
+# サービス紹介（ランディングページ）は案内したい。
+# アプリ内の画面は認証が必要でクロールしても中身が無いため、
+# 収集しても価値のないパスだけを明示的に外す。
+
+User-agent: *
+Allow: /
+Disallow: /api/
+
+Sitemap: https://aiseki-xi.vercel.app/sitemap.xml

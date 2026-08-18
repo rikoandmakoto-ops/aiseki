@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  AISEKI のサイトマップ。
+  本サービスはシングルページのアプリで、検索エンジンに拾ってほしいのは
+  未ログインで見られるサービス紹介ページ（ルート）のみ。
+  アプリ内の画面は認証が必要なため掲載しない。
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://aiseki-xi.vercel.app/</loc>
+    <lastmod>2026-08-18</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>

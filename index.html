@@ -4,8 +4,78 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#0b1020" />
+    <meta name="color-scheme" content="dark" />
+
     <title>AISEKI — 大人のグループ相席マッチング</title>
-    <meta name="description" content="上質な夜を、グループでともに。2名以上のグループ同士で食事会・飲み会をマッチングする大人の相席サービス。1対1のマッチングは行いません。相席はオープンスペースのみ（個室での相席は行いません）。20歳未満の方はご利用いただけません。" />
+    <meta
+      name="description"
+      content="上質な夜を、グループでともに。2名以上のグループ同士で食事会・飲み会をマッチングする大人の相席サービス。1対1のマッチングは行いません。相席はオープンスペースのみ（個室での相席は行いません）。20歳未満の方はご利用いただけません。"
+    />
+    <meta
+      name="keywords"
+      content="相席,グループ相席,飲み会,マッチング,渋谷,恵比寿,中目黒,六本木,銀座,新宿,相席居酒屋"
+    />
+    <link rel="canonical" href="https://aiseki-xi.vercel.app/" />
+
+    <!-- ── アイコン ── -->
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="mask-icon" href="/favicon.svg" color="#dfbc6c" />
+
+    <!-- ── PWA（ホーム画面に追加してアプリのように使う） ── -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="application-name" content="AISEKI" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="AISEKI" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="mobile-web-app-capable" content="yes" />
+
+    <!-- ── OGP（SNS でリンクを共有したときの見え方） ── -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="AISEKI" />
+    <meta property="og:locale" content="ja_JP" />
+    <meta property="og:url" content="https://aiseki-xi.vercel.app/" />
+    <meta property="og:title" content="AISEKI — 大人のグループ相席マッチング" />
+    <meta
+      property="og:description"
+      content="上質な夜を、グループでともに。2名以上のグループ同士でつながる相席サービス。1対1のマッチングは行わず、相席はオープンスペースのみ。20歳以上限定。"
+    />
+    <meta property="og:image" content="https://aiseki-xi.vercel.app/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="AISEKI — 上質な夜を、グループでともに。" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="AISEKI — 大人のグループ相席マッチング" />
+    <meta
+      name="twitter:description"
+      content="上質な夜を、グループでともに。2名以上のグループ同士でつながる相席サービス。20歳以上限定。"
+    />
+    <meta name="twitter:image" content="https://aiseki-xi.vercel.app/og.png" />
+
+    <!-- ── 検索エンジン向けの構造化データ ── -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "AISEKI",
+        "alternateName": "アイセキ",
+        "url": "https://aiseki-xi.vercel.app/",
+        "description": "2名以上のグループ同士で食事会・飲み会をマッチングする相席サービス。1対1のマッチングは行わず、相席はオープンスペースのみ。20歳以上限定。",
+        "applicationCategory": "LifestyleApplication",
+        "operatingSystem": "Web",
+        "inLanguage": "ja",
+        "isFamilyFriendly": false,
+        "typicalAgeRange": "20-",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "JPY",
+          "description": "登録は無料。会への参加はポイント制です。"
+        }
+      }
+    </script>
+
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -15,6 +85,11 @@
   </head>
   <body>
     <div id="root"></div>
+    <noscript>
+      <div style="padding: 40px 24px; text-align: center; color: #f4efe3; font-family: sans-serif">
+        AISEKI のご利用には JavaScript が必要です。ブラウザの設定で JavaScript を有効にしてください。
+      </div>
+    </noscript>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

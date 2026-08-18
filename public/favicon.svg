@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="AISEKI">
+  <defs>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f7e6b0"/>
+      <stop offset="48%" stop-color="#dfbc6c"/>
+      <stop offset="100%" stop-color="#b08a3c"/>
+    </linearGradient>
+    <linearGradient id="navy" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#101830"/>
+      <stop offset="100%" stop-color="#05080f"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="64" height="64" rx="14" fill="url(#navy)"/>
+  <circle cx="32" cy="30" r="21" fill="none" stroke="url(#gold)" stroke-width="1.4"/>
+
+  <!-- モノグラム A（セリフ体を模した形） -->
+  <path d="M32 15 L43 42 L38.6 42 L35.9 34.6 L27.6 34.6 L25 42 L20.9 42 Z M28.8 31.2 L34.7 31.2 L31.8 22.9 Z"
+        fill="url(#gold)"/>
+  <path d="M22.5 42.6 h7.4 M34.4 42.6 h7.4" stroke="url(#gold)" stroke-width="1.2" stroke-linecap="round"/>
+
+  <!-- ◆ のモチーフ -->
+  <path d="M32 47.2 l2.1 2.1 l-2.1 2.1 l-2.1 -2.1 Z" fill="#dfbc6c"/>
+</svg>
