@@ -60,7 +60,7 @@ const NAV = [
 const TabBar = ({ active, onTab }) => (
   <div style={{
     display: "flex", alignItems: "flex-end", padding: "9px 10px 12px",
-    background: "linear-gradient(180deg, rgba(255,255,255,0.92), #ffffff)",
+    background: "linear-gradient(180deg, rgba(255,255,255,0.86), #ffffff)",
     borderTop: `1.5px solid ${C.line}`,
     backdropFilter: "blur(22px)", WebkitBackdropFilter: "blur(22px)",
   }}>
@@ -74,8 +74,8 @@ const TabBar = ({ active, onTab }) => (
             <button className="press" onClick={() => onTab(t.key)} aria-label={t.label} style={{
               marginTop: -26, width: 54, height: 54, borderRadius: 27, border: "none", cursor: "pointer",
               display: "flex", alignItems: "center", justifyContent: "center",
-              background: C.primaryGrad, color: C.text,
-              boxShadow: "0 10px 24px rgba(109,164,35,0.32), inset 0 1px 0 rgba(255,255,255,0.7), 0 0 0 5px #ffffff",
+              background: C.primaryGrad, color: "#ffffff",
+              boxShadow: "0 10px 24px rgba(41,182,246,0.5), inset 0 1px 0 rgba(255,255,255,0.7), 0 0 0 5px #ffffff",
             }}>
               <Plus size={24} strokeWidth={2.4} />
             </button>
@@ -211,9 +211,9 @@ const FeaturedCard = ({ p, onTap }) => (
     <div style={{
       position: "relative", height: 128, overflow: "hidden",
       background:
-        "radial-gradient(100% 140% at 92% -20%, rgba(190,244,91,0.40), transparent 56%)," +
-        "radial-gradient(110% 130% at 8% 120%, rgba(255,107,95,0.22), transparent 62%)," +
-        "linear-gradient(135deg, #172a2d, #0c1719)",
+        "radial-gradient(120% 130% at 82% -10%, rgba(255,95,158,0.5), transparent 58%)," +
+        "radial-gradient(120% 130% at 12% 120%, rgba(79,195,247,0.34), transparent 60%)," +
+        "linear-gradient(135deg, #7ee0ff, #29b6f6)",
     }}>
       <div style={{ position: "absolute", top: 14, left: 16 }}>
         <Eyebrow style={{ color: "#ffffff", letterSpacing: 1.2, textShadow: "0 1px 3px rgba(2,90,135,0.35)" }}>✨ 今夜のおすすめグループ</Eyebrow>
@@ -328,7 +328,7 @@ const HomeScreen = ({ user, onDetail }) => {
       <div style={{ padding: "16px 20px 2px" }}>
         <Eyebrow style={{ color: C.textMuted }}>{greeting()}</Eyebrow>
         <div style={{ fontFamily: FONT_HEAD, fontSize: 21, fontWeight: 600, color: C.text, letterSpacing: 0.4, marginTop: 3 }}>
-          今夜を、もっといい時間に。
+          今夜は、どのグループと。
         </div>
         <div style={{
           display: "inline-flex", alignItems: "center", gap: 6, marginTop: 10,
@@ -404,7 +404,7 @@ const HomeScreen = ({ user, onDetail }) => {
       {/* feed */}
       <div style={{ padding: "12px 20px 24px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 14 }}>
-          <Eyebrow style={{ color: C.textMuted }}>DISCOVER TONIGHT</Eyebrow>
+          <Eyebrow style={{ color: C.textMuted }}>募集中のグループ飲み会</Eyebrow>
           <span style={{ fontSize: 11.5, color: C.textFaint, fontFamily: FONT_DISPLAY, fontWeight: 600, letterSpacing: 0.5 }}>{loading ? "…" : `${parties.length} groups`}</span>
         </div>
         {loading ? <Spinner /> : parties.length === 0 ? (
@@ -1082,7 +1082,7 @@ const PointsScreen = ({ user, checkoutResult, onCheckoutHandled }) => {
             <button key={t.key} className="press" onClick={() => setTab(t.key)} style={{
               flex: 1, padding: "9px 0", borderRadius: 10, fontSize: 12.5, fontWeight: 700, cursor: "pointer", border: "none",
               display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
-              ...(on ? { background: C.primaryGrad, color: C.text, boxShadow: "inset 0 1px 0 rgba(255,255,255,0.5)" } : { background: "transparent", color: C.textSec }),
+              ...(on ? { background: C.primaryGrad, color: "#ffffff", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.5)" } : { background: "transparent", color: C.textSec }),
             }}><t.icon size={14} strokeWidth={2} />{t.label}</button>
           );
         })}
@@ -1098,7 +1098,7 @@ const PointsScreen = ({ user, checkoutResult, onCheckoutHandled }) => {
                 <div style={{ display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap" }}>
                   <span style={{ fontSize: 17, fontWeight: 700, fontFamily: FONT_DISPLAY, color: C.text }}>{p.points.toLocaleString()}<span style={{ fontSize: 11, fontFamily: FONT_BODY, fontWeight: 600 }}> pt</span></span>
                   {bonus > 0 && <Tag>+{bonus.toLocaleString()} ボーナス</Tag>}
-                  {p.popular && <span style={{ fontSize: 10, fontWeight: 700, color: C.text, background: C.primaryGrad, padding: "2px 9px", borderRadius: 20, boxShadow: "inset 0 1px 0 rgba(255,255,255,0.5)" }}>人気</span>}
+                  {p.popular && <span style={{ fontSize: 10, fontWeight: 700, color: "#ffffff", background: C.primaryGrad, padding: "2px 9px", borderRadius: 20, boxShadow: "inset 0 1px 0 rgba(255,255,255,0.5)" }}>人気</span>}
                 </div>
                 <button className="pop-cta" onClick={() => buy(p)} disabled={busy} style={{ ...popBtn, padding: "9px 17px", borderRadius: 999, fontSize: 13, opacity: busy ? 0.6 : 1 }}>¥{p.price.toLocaleString()}</button>
               </div>
@@ -1285,7 +1285,7 @@ const ChatRoom = ({ user, party, onBack }) => {
                 <div style={{
                   padding: "10px 14px", borderRadius: 16, fontSize: 13.5, lineHeight: 1.55, wordBreak: "break-word",
                   ...(mine
-                    ? { background: C.primaryGrad, color: C.text, borderBottomRightRadius: 5, boxShadow: "inset 0 1px 0 rgba(255,255,255,0.4), 0 4px 12px rgba(74,110,24,0.20)" }
+                    ? { background: C.primaryGrad, color: "#ffffff", borderBottomRightRadius: 5, boxShadow: "inset 0 1px 0 rgba(255,255,255,0.4), 0 4px 12px rgba(41,182,246,0.25)" }
                     : { background: "rgba(79,195,247,0.12)", color: C.text, border: `1px solid ${C.lineSoft}`, borderBottomLeftRadius: 5 }),
                 }}>{m.content}</div>
               </div>
@@ -1545,12 +1545,13 @@ export default function App() {
   const shell = (children) => (
     <div style={{
       maxWidth: 400, width: "100%", margin: "0 auto", minHeight: 720, height: 720, display: "flex", flexDirection: "column", overflow: "hidden",
-      borderRadius: 28,
+      borderRadius: 34,
       background:
-        "radial-gradient(100% 48% at 100% 0%, rgba(165,230,74,0.12), transparent 56%)," +
-        "linear-gradient(180deg, #ffffff 0%, #f4f5f1 100%)",
-      border: `1px solid ${C.line}`,
-      boxShadow: "0 32px 80px rgba(0,0,0,0.28)",
+        "radial-gradient(120% 70% at 88% -4%, rgba(255,138,172,0.18), transparent 56%)," +
+        "radial-gradient(100% 52% at 0% 4%, rgba(79,195,247,0.20), transparent 54%)," +
+        "linear-gradient(180deg, #ffffff 0%, #f2fbff 100%)",
+      border: `2px solid ${C.line}`,
+      boxShadow: "0 30px 70px rgba(41,182,246,0.28)",
       fontFamily: FONT_BODY,
       color: C.text,
     }}>{children}</div>
@@ -1589,11 +1590,11 @@ export default function App() {
     <>
       <div style={{
         padding: "15px 20px 14px", display: "flex", justifyContent: "space-between", alignItems: "center",
-        borderBottom: `1px solid ${C.line}`, background: "rgba(255,255,255,0.88)", backdropFilter: "blur(18px)",
+        borderBottom: `1.5px solid ${C.line}`, background: "linear-gradient(180deg, rgba(79,195,247,0.14), transparent)",
       }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-          <span style={{ fontFamily: FONT_LOGO, fontSize: 24, fontWeight: 800, letterSpacing: 3, color: C.text }}>AISEKI<span style={{ color: C.primaryDeep }}>.</span></span>
-          <span style={{ fontFamily: FONT_HEAD, fontSize: 10, color: C.textMuted, letterSpacing: 0.8, fontWeight: 600 }}>MEET · EAT · CONNECT</span>
+          <span style={{ fontFamily: FONT_LOGO, fontSize: 26, fontWeight: 800, letterSpacing: 2, ...brandText }}>AISEKI</span>
+          <span style={{ fontFamily: FONT_HEAD, fontSize: 11, color: C.textMuted, letterSpacing: 0.4, fontWeight: 700 }}>グループ飲み会マッチング</span>
         </div>
         <button className="press" aria-label="お知らせ" style={{ background: "#ffffff", border: `1.5px solid ${C.line}`, borderRadius: 20, width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.primaryDeep, position: "relative", boxShadow: C.shadowSoft }}>
           <Bell size={16} strokeWidth={1.8} />

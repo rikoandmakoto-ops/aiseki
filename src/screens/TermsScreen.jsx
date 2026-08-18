@@ -158,7 +158,7 @@ export const TermsBody = () => {
               cursor: "pointer", border: "none",
               display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
               ...(on
-                ? { background: C.primaryGrad, color: C.text, boxShadow: "inset 0 1px 0 rgba(255,255,255,0.5)" }
+                ? { background: C.primaryGrad, color: "#ffffff", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.5)" }
                 : { background: "transparent", color: C.textSec }),
             }}>
               <t.icon size={14} strokeWidth={2} />{t.label}

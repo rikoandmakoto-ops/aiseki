@@ -10,12 +10,13 @@ import { TermsBody } from "./TermsScreen.jsx";
 const shellStyle = {
   maxWidth: 400, width: "100%", margin: "0 auto", minHeight: 720,
   display: "flex", flexDirection: "column",
-  borderRadius: 28, overflow: "hidden",
+  borderRadius: 34, overflow: "hidden",
   background:
-    "radial-gradient(110% 58% at 90% -8%, rgba(165,230,74,0.16), transparent 58%)," +
-    "linear-gradient(180deg, #ffffff 0%, #f4f5f1 100%)",
-  border: `1px solid ${C.line}`,
-  boxShadow: "0 32px 80px rgba(0,0,0,0.28)",
+    "radial-gradient(110% 60% at 88% -6%, rgba(255,164,110,0.16), transparent 58%)," +
+    "radial-gradient(110% 58% at 0% 2%, rgba(79,195,247,0.24), transparent 56%)," +
+    "linear-gradient(180deg, #ffffff 0%, #f2fbff 100%)",
+  border: `2px solid ${C.line}`,
+  boxShadow: "0 30px 70px rgba(41,182,246,0.28)",
   fontFamily: FONT_BODY,
   color: C.text,
 };
@@ -108,11 +109,13 @@ export default function AuthScreen() {
           background: "radial-gradient(circle, rgba(79,195,247,0.20), transparent 66%)", animation: "floatGlow 7s ease-in-out infinite", pointerEvents: "none" }} />
 
         <div style={{ position: "relative" }}>
-          <div style={{ fontSize: 10, letterSpacing: 2.8, color: C.textMuted, fontWeight: 700, textTransform: "uppercase", marginBottom: 12 }}>Meet · Eat · Connect</div>
+          <div style={{ fontSize: 10, letterSpacing: 2.4, color: C.primaryDeep, fontWeight: 800, textTransform: "uppercase", marginBottom: 12 }}>Group Dining Matching</div>
           <div style={{ display: "flex", alignItems: "center", gap: 12, justifyContent: "center" }}>
-            <span style={{ fontFamily: FONT_LOGO, fontSize: 46, fontWeight: 800, letterSpacing: 5, color: C.text, lineHeight: 1 }}>AISEKI<span style={{ color: C.primaryDeep }}>.</span></span>
+            <span style={{ fontSize: 24 }}>🍻</span>
+            <span style={{ fontFamily: FONT_LOGO, fontSize: 50, fontWeight: 800, letterSpacing: 1.5, ...brandText, lineHeight: 1 }}>AISEKI</span>
+            <span style={{ fontSize: 24 }}>✨</span>
           </div>
-          <div style={{ fontFamily: FONT_HEAD, fontSize: 15, color: C.text, fontWeight: 700, letterSpacing: 0.8, marginTop: 12 }}>いい夜は、いい仲間から。</div>
+          <div style={{ fontFamily: FONT_HEAD, fontSize: 15, color: C.text, fontWeight: 700, letterSpacing: 1.5, marginTop: 10 }}>グループ飲み会</div>
           <div style={{
             display: "inline-flex", alignItems: "center", gap: 6, marginTop: 14,
             padding: "7px 15px", borderRadius: 999, fontSize: 11, fontWeight: 800, letterSpacing: 0.3,
@@ -121,7 +124,7 @@ export default function AuthScreen() {
             <Users size={13} strokeWidth={2.4} /> {MIN_GROUP_SIZE}名以上のグループ同士 · {MIN_AGE}歳以上限定
           </div>
           <div style={{ fontFamily: FONT_HEAD, fontSize: 13.5, color: C.textSec, fontWeight: 500, letterSpacing: 0.3, marginTop: 16, lineHeight: 1.85 }}>
-            気の合う仲間と、気になる街へ。<br />今夜の予定を、ここから見つけよう。
+            グループ同士で、気軽に乾杯。<br />はじめましてを、楽しい夜に。
           </div>
         </div>
       </div>
@@ -129,10 +132,10 @@ export default function AuthScreen() {
       <div style={{ flex: 1, padding: "0 24px 30px" }}>
         <div style={{ ...card, padding: 24 }}>
           <div style={{ fontFamily: FONT_HEAD, fontSize: 17, fontWeight: 600, color: C.text, letterSpacing: 0.5, marginBottom: 4 }}>
-            {mode === "login" ? "おかえりなさい" : "AISEKIをはじめよう"}
+            {mode === "login" ? "おかえりなさい" : "ようこそ"}
           </div>
           <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 20, letterSpacing: 0.3 }}>
-            {mode === "login" ? "続きを楽しむためにログイン" : "今夜の選択肢を、もっと自由に"}
+            {mode === "login" ? "アカウントにログインしてください" : "アカウントを作成して始めましょう"}
           </div>
 
           {/* タブ切替 */}
@@ -143,7 +146,7 @@ export default function AuthScreen() {
                 <button key={t.k} type="button" className="press" onClick={() => { setMode(t.k); setError(""); setNotice(""); }} style={{
                   flex: 1, padding: "10px 0", borderRadius: 10, fontSize: 13.5, fontWeight: 700, cursor: "pointer", border: "none",
                   ...(on
-                    ? { background: C.primaryGrad, color: C.text, boxShadow: "inset 0 1px 0 rgba(255,255,255,0.5)" }
+                    ? { background: C.primaryGrad, color: "#ffffff", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.5)" }
                     : { background: "transparent", color: C.textSec }),
                 }}>{t.l}</button>
               );

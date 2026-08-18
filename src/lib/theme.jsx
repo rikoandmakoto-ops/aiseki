@@ -1,61 +1,61 @@
 /* ══════════════════════════════════════════════════════════════
    AISEKI — Design tokens & primitives
-   Midnight · Lime · Social
-   夜の街と待ち合わせを想起させる、落ち着いたネイビー基調のテーマ。
-   ・背景は深いネイビー、アプリ面は温かみのあるオフホワイト
-   ・主役の色はライム、注意や温度感はコーラルで表現
-   ・書体は Manrope / Noto Sans JP の現代的なサンセリフ
+   Sky Blue · Pop · Friendly
+   水色ベースの明るいポップなテーマ。
+   ・背景は白〜薄い水色、面は白いカード（角丸大きめ・影は軽め）
+   ・主役の色は水色のグラデーション、差し色はピンク／オレンジ
+   ・書体は丸ゴシック（M PLUS Rounded 1c / Zen Maru Gothic）
    ══════════════════════════════════════════════════════════════ */
 export const C = {
   /* surfaces */
-  bg: "#f4f5f1",
-  bgDeep: "#e8ebe4",
+  bg: "#f2fbff",
+  bgDeep: "#e2f4fe",
   card: "#ffffff",
-  panel: "linear-gradient(160deg, #ffffff 0%, #fafbf8 100%)",
-  panelSoft: "linear-gradient(160deg, #ffffff 0%, #f4f6f0 100%)",
+  panel: "linear-gradient(160deg, #ffffff 0%, #f6fcff 100%)",
+  panelSoft: "linear-gradient(160deg, #fbfeff 0%, #f1faff 100%)",
 
-  /* 控えめな色面（入力欄・行の下地など） */
-  tint: "rgba(180, 244, 86, 0.12)",
-  tintSoft: "rgba(12, 24, 27, 0.035)",
-  tintStrong: "rgba(180, 244, 86, 0.24)",
+  /* 薄い水色の面（入力欄・行の下地など） */
+  tint: "rgba(79,195,247,0.09)",
+  tintSoft: "rgba(79,195,247,0.05)",
+  tintStrong: "rgba(79,195,247,0.16)",
 
-  /* lime — メインカラー */
-  primary: "#a5e64a",
-  primaryLight: "#d9ff99",
-  primaryDeep: "#355e08",
-  primaryDark: "#162e05",
-  primaryGrad: "linear-gradient(135deg, #c8fa74 0%, #a5e64a 52%, #86ce2e 100%)",
-  primaryGradSoft: "linear-gradient(135deg, #efffd4 0%, #ddf9b3 100%)",
+  /* sky blue — メインカラー */
+  primary: "#29b6f6",
+  primaryLight: "#81d4fa",
+  primaryDeep: "#0288d1",     // 白地の上で読ませる濃いめの水色
+  primaryDark: "#01669b",
+  primaryGrad: "linear-gradient(135deg, #7ee0ff 0%, #4fc3f7 48%, #29b6f6 100%)",
+  primaryGradSoft: "linear-gradient(135deg, #d6f3ff 0%, #b3e5fc 100%)",
 
   /* 差し色（ピンク〜オレンジの暖色） */
-  accent: "#ff6b5f",
-  accentSoft: "#ff9b91",
-  accentDeep: "#c53e35",
-  accentGrad: "linear-gradient(135deg, #ffad66 0%, #ff806f 55%, #ff6258 100%)",
-  warm: "#ff9f43",
+  accent: "#ff5f9e",
+  accentSoft: "#ff8fbb",
+  accentDeep: "#e63c7f",
+  accentGrad: "linear-gradient(135deg, #ffb45f 0%, #ff7aa8 55%, #ff5f9e 100%)",
+  warm: "#ffa04d",
 
   /* ink */
-  text: "#101d20",
-  textSec: "rgba(16,29,32,0.68)",
-  textMuted: "rgba(16,29,32,0.48)",
-  textFaint: "rgba(16,29,32,0.30)",
+  text: "#123541", // 深い青みグレー（黒より柔らかい）
+  textSec: "rgba(18,53,65,0.66)",
+  textMuted: "rgba(18,53,65,0.46)",
+  textFaint: "rgba(18,53,65,0.30)",
 
   /* strokes */
-  line: "rgba(16,29,32,0.12)",
-  linePrimary: "rgba(118,179,36,0.48)",
-  lineSoft: "rgba(16,29,32,0.08)",
+  line: "rgba(79,195,247,0.26)",
+  linePrimary: "rgba(79,195,247,0.55)",
+  lineSoft: "rgba(18,53,65,0.09)",
 
   /* shadows（軽め・水色寄り） */
-  shadow: "0 10px 30px rgba(10,24,27,0.08)",
-  shadowSoft: "0 5px 16px rgba(10,24,27,0.07)",
-  shadowLift: "0 18px 44px rgba(10,24,27,0.14)",
+  shadow: "0 8px 22px rgba(41,182,246,0.16)",
+  shadowSoft: "0 4px 14px rgba(41,182,246,0.12)",
+  shadowLift: "0 16px 34px rgba(41,182,246,0.24)",
 };
 
 /* Type families … 丸ゴシック系でやわらかい印象に */
-export const FONT_LOGO = "'Manrope', 'Noto Sans JP', sans-serif";
-export const FONT_DISPLAY = "'Manrope', 'Noto Sans JP', sans-serif";
-export const FONT_HEAD = "'Manrope', 'Noto Sans JP', sans-serif";
-export const FONT_BODY = "'Noto Sans JP', 'Manrope', -apple-system, BlinkMacSystemFont, sans-serif";
+export const FONT_LOGO = "'Baloo 2', 'M PLUS Rounded 1c', sans-serif";
+export const FONT_DISPLAY = "'Baloo 2', 'M PLUS Rounded 1c', sans-serif";
+export const FONT_HEAD = "'Zen Maru Gothic', 'M PLUS Rounded 1c', sans-serif";
+export const FONT_BODY = "'M PLUS Rounded 1c', 'Zen Maru Gothic', -apple-system, BlinkMacSystemFont, sans-serif";
 
 /* ブランドカラーの文字（水色グラデーション） */
 export const brandText = {
@@ -69,22 +69,22 @@ export const brandText = {
 export const card = {
   background: C.panel,
   border: `1.5px solid ${C.line}`,
-  borderRadius: 20,
+  borderRadius: 24,
   boxShadow: C.shadow,
 };
 
 /* 主ボタン（水色グラデーション・丸み強め） */
 export const popBtn = {
   background: C.primaryGrad,
-  color: "#142006",
+  color: "#ffffff",
   border: "none",
   cursor: "pointer",
   fontWeight: 800,
   letterSpacing: 0.4,
   fontFamily: FONT_BODY,
   borderRadius: 999,
-  textShadow: "none",
-  boxShadow: "0 8px 20px rgba(123,181,43,0.28), inset 0 1px 0 rgba(255,255,255,0.6)",
+  textShadow: "0 1px 1px rgba(2,90,135,0.25)",
+  boxShadow: "0 8px 18px rgba(41,182,246,0.42), inset 0 2px 0 rgba(255,255,255,0.5)",
 };
 
 /* 副ボタン（白地＋水色の枠） */
@@ -99,7 +99,7 @@ export const ghostBtn = {
 };
 
 export const fieldStyle = {
-  width: "100%", padding: "13px 15px", borderRadius: 12, fontSize: 14, outline: "none", boxSizing: "border-box",
+  width: "100%", padding: "13px 16px", borderRadius: 16, fontSize: 14, outline: "none", boxSizing: "border-box",
   background: C.tintSoft, border: `1.5px solid ${C.line}`, color: C.text, fontWeight: 500,
   transition: "border-color .2s ease, box-shadow .2s ease, background .2s ease",
 };
