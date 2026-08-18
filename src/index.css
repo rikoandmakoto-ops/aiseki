@@ -4,12 +4,14 @@
   box-sizing: border-box;
 }
 
+html {
+  /* iOS Safari のアドレスバー伸縮で 100vh がずれるため、dvh を基準にする */
+  height: 100%;
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
-  min-height: 100vh;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 28px 0;
+  min-height: 100dvh;
   background:
     radial-gradient(88% 56% at 50% -8%, rgba(168, 32, 58, 0.24), transparent 62%),
     radial-gradient(70% 48% at 50% 108%, rgba(232, 201, 135, 0.13), transparent 62%),
@@ -19,11 +21,119 @@ body {
   font-family: "Zen Kaku Gothic New", -apple-system, BlinkMacSystemFont, sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  /* 横スクロールは常に禁止（要素側で overflow-x:auto を持たせる） */
+  overflow-x: hidden;
 }
 
 ::-webkit-scrollbar {
   width: 0;
   height: 0;
+}
+
+/* ─────────────────── アプリ本体のシェル（端末見立て） ───────────────────
+   デスクトップでは中央に浮かせた端末風の枠、
+   スマートフォンでは画面いっぱいに広げる。
+   高さは dvh 基準にして、iOS のアドレスバーで下部が隠れないようにする。 */
+.app-shell-outer {
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 0;
+}
+
+.app-shell {
+  width: 100%;
+  max-width: 420px;
+  height: min(880px, calc(100dvh - 48px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  border-radius: 34px;
+  background:
+    radial-gradient(120% 70% at 88% -4%, rgba(168, 32, 58, 0.24), transparent 58%),
+    radial-gradient(100% 52% at 0% 4%, rgba(232, 201, 135, 0.13), transparent 56%),
+    linear-gradient(180deg, #101830 0%, #070b16 100%);
+  border: 1px solid rgba(232, 201, 135, 0.2);
+  box-shadow: 0 34px 80px rgba(0, 0, 0, 0.7);
+}
+
+/* スクロールする本文。慣性スクロールと下端の余白（ホームバー）を確保する */
+.app-body {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+}
+
+/* 下部タブバー … iPhone のホームインジケータ分を足す */
+.app-tabbar {
+  padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+}
+
+@media (max-width: 560px) {
+  .app-shell-outer {
+    padding: 0;
+  }
+  .app-shell {
+    max-width: none;
+    height: 100dvh;
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
+  }
+  body {
+    background:
+      radial-gradient(92% 36% at 50% 0%, rgba(168, 32, 58, 0.24), transparent 62%),
+      linear-gradient(180deg, #0d1224 0%, #05080f 100%);
+  }
+}
+
+/* 端末上部のノッチ（ステータスバー）を避ける */
+.app-topbar {
+  padding-top: calc(15px + env(safe-area-inset-top, 0px));
+}
+
+/* ─────────────────── ランディングページ ─────────────────── */
+.lp-grid-3 {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.lp-grid-2 {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.lp-burger {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .lp-grid-3 {
+    grid-template-columns: 1fr;
+  }
+  .lp-nav {
+    display: none !important;
+  }
+  .lp-burger {
+    display: flex;
+  }
+}
+
+@media (max-width: 680px) {
+  .lp-grid-2 {
+    grid-template-columns: 1fr;
+  }
+  .lp-tagline {
+    display: none;
+  }
+  .lp-login {
+    display: none;
+  }
 }
 
 /* ─────────────────────────── Keyframes ─────────────────────────── */
@@ -57,9 +167,27 @@ body {
   50% { opacity: 0.35; }
 }
 
+/* 読み込み中の骨組み（スケルトン）の光沢 */
+@keyframes shimmer {
+  0% { background-position: -320px 0; }
+  100% { background-position: 320px 0; }
+}
+
 /* Staggered entrance for list items — 落ち着いた立ち上がり */
 .rise { animation: riseIn 0.6s cubic-bezier(0.22, 0.9, 0.32, 1) both; }
 .fade { animation: fadeIn 0.6s ease both; }
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.04) 0%,
+    rgba(232, 201, 135, 0.12) 50%,
+    rgba(255, 255, 255, 0.04) 100%
+  );
+  background-size: 320px 100%;
+  animation: shimmer 1.4s linear infinite;
+  border-radius: 10px;
+}
 
 /* ───────────────────── Microinteractions ───────────────────── */
 
@@ -107,12 +235,30 @@ body {
 .lux-row { transition: background 0.22s ease; }
 .lux-row:hover { background: rgba(232, 201, 135, 0.07); }
 
+/* 横スクロールする帯（エリア絞り込み等）はスクロールバーを隠す */
+.scroll-x {
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.scroll-x::-webkit-scrollbar { display: none; }
+
 /* ───────────────────────── Forms ───────────────────────── */
 input,
 select,
-textarea {
+textarea,
+button {
   font-family: inherit;
   font-weight: 400;
+}
+
+/* iOS で入力欄にフォーカスすると画面が拡大されるのを防ぐ（16px 未満だと起きる） */
+@media (max-width: 560px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
 }
 
 input::placeholder,
@@ -128,14 +274,24 @@ select:focus {
   box-shadow: 0 0 0 3px rgba(232, 201, 135, 0.14);
 }
 
+/* キーボード操作でのフォーカスが見えるようにする（アクセシビリティ） */
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid rgba(232, 201, 135, 0.75);
+  outline-offset: 2px;
+}
+
 /* Range slider */
 input[type="range"] { accent-color: #d9b877; }
 
-@media (max-width: 430px) {
-  body {
-    padding: 0;
-    background:
-      radial-gradient(92% 36% at 50% 0%, rgba(168, 32, 58, 0.24), transparent 62%),
-      linear-gradient(180deg, #0d1224 0%, #05080f 100%);
+/* 動きを減らす設定の端末では、アニメーションを止める */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
   }
 }

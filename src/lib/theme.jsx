@@ -118,8 +118,6 @@ export const Eyebrow = ({ children, color = C.primaryDeep, style }) => (
   }}>{children}</div>
 );
 
-export const img = (gender, n) => `https://randomuser.me/api/portraits/${gender}/${n}.jpg`;
-
 /* Deterministic emoji avatar for host-made parties (no photo). */
 export const partyEmoji = (seed = "") => {
   const set = ["🥂", "🍷", "🍸", "🥃", "🍾", "✨", "🕯️", "🎴", "🍶", "◆"];
@@ -180,7 +178,39 @@ export const Spinner = ({ label = "読み込み中…" }) => (
   </div>
 );
 
-export const EmptyState = ({ children, icon }) => (
+/* 読み込み中の骨組み。回転するだけのスピナーより、
+   これから何が出るかが伝わるぶん体感が軽くなる。 */
+export const Skeleton = ({ w = "100%", h = 12, r = 8, style }) => (
+  <div className="skeleton" style={{ width: w, height: h, borderRadius: r, ...style }} />
+);
+
+export const SkeletonCard = () => (
+  <div style={{ ...card, padding: 15, marginBottom: 12 }}>
+    <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+      <Skeleton w={48} h={48} r={24} />
+      <div style={{ flex: 1 }}>
+        <Skeleton w="72%" h={13} />
+        <Skeleton w="46%" h={10} style={{ marginTop: 8 }} />
+      </div>
+    </div>
+    <div style={{ display: "flex", gap: 7, marginTop: 13 }}>
+      <Skeleton w={88} h={22} r={999} />
+      <Skeleton w={104} h={22} r={999} />
+    </div>
+    <div style={{ display: "flex", justifyContent: "space-between", marginTop: 13, paddingTop: 11, borderTop: `1px solid ${C.lineSoft}` }}>
+      <Skeleton w={110} h={11} />
+      <Skeleton w={48} h={13} />
+    </div>
+  </div>
+);
+
+export const SkeletonList = ({ count = 3 }) => (
+  <div aria-busy="true" aria-label="読み込み中">
+    {Array.from({ length: count }, (_, i) => <SkeletonCard key={i} />)}
+  </div>
+);
+
+export const EmptyState = ({ children, icon, action }) => (
   <div style={{ padding: "44px 24px", textAlign: "center", color: C.textMuted, fontSize: 13, letterSpacing: 0.4, lineHeight: 1.9, fontWeight: 400 }}>
     {icon && (
       <div style={{
@@ -190,5 +220,6 @@ export const EmptyState = ({ children, icon }) => (
       }}>{icon}</div>
     )}
     {children}
+    {action && <div style={{ marginTop: 20 }}>{action}</div>}
   </div>
 );

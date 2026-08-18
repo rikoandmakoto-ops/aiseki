@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react";
 import {
   Home, MessageCircle, Plus, Gem, User, MapPin, Clock, Users, Bell,
   Crown, ChevronLeft, Send, ArrowRight, Check, Sparkles, Settings,
   Mail, LogOut, Wine, Repeat, History, Wallet, ShieldCheck, Lock, FileText, UsersRound,
-  Ticket, Copy, DoorClosed, Ban, CreditCard,
+  Ticket, Copy, DoorClosed, Ban, CreditCard, Camera, Trash2, LifeBuoy, ShieldAlert, XCircle,
 } from "lucide-react";
 import { supabase, configError } from "./lib/supabase";
 import * as api from "./lib/api";
@@ -13,9 +13,27 @@ import {
   C, FONT_LOGO, FONT_DISPLAY, FONT_HEAD, FONT_BODY,
   brandText, card, popBtn, ghostBtn, fieldStyle, labelStyle, Eyebrow,
   partyEmoji, TreatBadge, Tag, AvatarBubble, SectionTitle, Spinner, EmptyState,
+  Skeleton, SkeletonList,
 } from "./lib/theme.jsx";
-import AuthScreen from "./screens/AuthScreen.jsx";
-import TermsScreen from "./screens/TermsScreen.jsx";
+import { ToastProvider, useToast } from "./lib/toast.jsx";
+import InstallCard from "./screens/InstallCard.jsx";
+
+/* 初回表示に要らない画面は、開いたときに読み込む。
+   規約の全文（legal.js）とランディングページは分量が大きく、
+   最初のJSに含めると起動が重くなる。 */
+const TermsScreen = lazy(() => import("./screens/TermsScreen.jsx"));
+const LandingScreen = lazy(() => import("./screens/LandingScreen.jsx"));
+const AuthScreen = lazy(() => import("./screens/AuthScreen.jsx"));
+const NotificationsScreen = lazy(() => import("./screens/NotificationsScreen.jsx"));
+const SupportScreen = lazy(() => import("./screens/SupportScreen.jsx"));
+const ResetPasswordScreen = lazy(() => import("./screens/ResetPasswordScreen.jsx"));
+
+/* 分割した画面を読み込んでいる間のつなぎ */
+const Loading = ({ label }) => (
+  <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", minHeight: 240 }}>
+    <Spinner label={label} />
+  </div>
+);
 
 /* Real Tokyo nightlife districts */
 const AREAS = ["渋谷", "恵比寿", "中目黒", "六本木", "西麻布", "銀座", "新宿"];
@@ -58,8 +76,8 @@ const NAV = [
 ];
 
 const TabBar = ({ active, onTab }) => (
-  <div style={{
-    display: "flex", alignItems: "flex-end", padding: "9px 10px 12px",
+  <div className="app-tabbar" style={{
+    display: "flex", alignItems: "flex-end", padding: "9px 10px 12px", flexShrink: 0,
     background: "linear-gradient(180deg, rgba(11,16,32,0.55), rgba(5,8,15,0.94))",
     borderTop: `1px solid ${C.line}`,
     backdropFilter: "blur(22px)", WebkitBackdropFilter: "blur(22px)",
@@ -143,21 +161,22 @@ const MemberNamesField = ({ size, names, onChange, label, hint }) => {
    代表者が登録した同伴者の席を、同伴者本人のアカウントに紐づける。
    これでグループチャットとメンバー一覧が見えるようになる。 */
 const InviteCodeCard = ({ onJoined }) => {
+  const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
 
   const submit = async () => {
-    if (!code.trim()) { alert("招待コードを入力してください。"); return; }
+    if (!code.trim()) { toast.error("招待コードを入力してください。"); return; }
     setBusy(true);
     try {
       const r = await api.claimSeat(code);
       setCode("");
       setOpen(false);
-      alert(`「${r?.title ?? "会"}」に参加しました。`);
+      toast.success(`「${r?.title ?? "会"}」に参加しました。`);
       onJoined?.(r?.party_id);
     } catch (e) {
-      alert("参加できませんでした: " + e.message);
+      toast.error("参加できませんでした: " + e.message);
     } finally {
       setBusy(false);
     }
@@ -289,14 +308,18 @@ const PartyCard = ({ p, onTap }) => {
 };
 
 /* ═══════════════════════════════════════════════════════ Home */
-const HomeScreen = ({ user, onDetail }) => {
+const HomeScreen = ({ user, onDetail, onCreate }) => {
+  const { toast, confirm } = useToast();
   const [area, setArea] = useState(null);
   const [parties, setParties] = useState([]);
   const [incoming, setIncoming] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [busyReq, setBusyReq] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError("");
     try {
       const [ps, reqs] = await Promise.all([
         api.listParties(area),
@@ -306,6 +329,11 @@ const HomeScreen = ({ user, onDetail }) => {
       setIncoming(reqs);
     } catch (e) {
       console.error(e);
+      setLoadError(
+        /failed to fetch|load failed|networkerror/i.test(e.message || "")
+          ? "通信できませんでした。電波の良い場所でもう一度お試しください。"
+          : "会の一覧を読み込めませんでした。"
+      );
     } finally {
       setLoading(false);
     }
@@ -314,10 +342,25 @@ const HomeScreen = ({ user, onDetail }) => {
   useEffect(() => { load(); }, [load]);
 
   const respond = async (id, status) => {
+    if (status === "rejected") {
+      const ok = await confirm({
+        title: "このリクエストを見送りますか？",
+        message: "見送ると、申し込んだグループには「見送り」として通知されます。取り消しはできません。",
+        confirmLabel: "見送る",
+        danger: true,
+      });
+      if (!ok) return;
+    }
+    setBusyReq(id);
     try {
       await api.respondJoinRequest(id, status);
-      load();
-    } catch (e) { alert("処理に失敗しました: " + e.message); }
+      toast.success(status === "accepted" ? "参加を承認しました。グループチャットが始まります。" : "リクエストを見送りました。");
+      await load();
+    } catch (e) {
+      toast.error("処理に失敗しました: " + e.message);
+    } finally {
+      setBusyReq(null);
+    }
   };
 
   const [featured, ...rest] = parties;
@@ -390,10 +433,10 @@ const HomeScreen = ({ user, onDetail }) => {
                   メンバーのプロフィールは、承認後に会の画面で確認できます。
                 </div>
                 <div style={{ display: "flex", gap: 9 }}>
-                  <button className="lux-cta" onClick={() => respond(r.id, "accepted")} style={{ ...popBtn, flex: 1, padding: "11px 0", borderRadius: 999, fontSize: 13, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-                    <Check size={15} strokeWidth={2.5} /> 承認する
+                  <button className="lux-cta" disabled={busyReq === r.id} onClick={() => respond(r.id, "accepted")} style={{ ...popBtn, flex: 1, padding: "11px 0", borderRadius: 999, fontSize: 13, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, opacity: busyReq === r.id ? 0.6 : 1 }}>
+                    {busyReq === r.id ? "処理中…" : <><Check size={15} strokeWidth={2.5} /> 承認する</>}
                   </button>
-                  <button className="press" onClick={() => respond(r.id, "rejected")} style={{ ...ghostBtn, flex: 1, padding: "11px 0", borderRadius: 999, fontSize: 13 }}>見送る</button>
+                  <button className="press" disabled={busyReq === r.id} onClick={() => respond(r.id, "rejected")} style={{ ...ghostBtn, flex: 1, padding: "11px 0", borderRadius: 999, fontSize: 13, opacity: busyReq === r.id ? 0.6 : 1 }}>見送る</button>
                 </div>
               </div>
             );
@@ -407,9 +450,31 @@ const HomeScreen = ({ user, onDetail }) => {
           <Eyebrow style={{ color: C.textMuted }}>本日の募集中の会</Eyebrow>
           <span style={{ fontSize: 11.5, color: C.textFaint, fontFamily: FONT_DISPLAY, fontWeight: 600, letterSpacing: 0.5 }}>{loading ? "…" : `${parties.length} groups`}</span>
         </div>
-        {loading ? <Spinner /> : parties.length === 0 ? (
-          <EmptyState icon={<Wine size={24} strokeWidth={1.6} />}>
-            この条件で募集中の会はまだありません。<br />「＋」から、あなたの会を主催してみませんか。
+        {loading ? <SkeletonList count={3} /> : loadError ? (
+          <EmptyState
+            icon={<XCircle size={24} strokeWidth={1.6} />}
+            action={
+              <button className="press" onClick={load} style={{ ...ghostBtn, padding: "11px 26px", fontSize: 13 }}>
+                もう一度読み込む
+              </button>
+            }
+          >
+            {loadError}
+          </EmptyState>
+        ) : parties.length === 0 ? (
+          <EmptyState
+            icon={<Wine size={24} strokeWidth={1.6} />}
+            action={
+              <button className="lux-cta" onClick={onCreate} style={{
+                ...popBtn, padding: "12px 26px", fontSize: 13.5,
+                display: "inline-flex", alignItems: "center", gap: 7,
+              }}>
+                <Plus size={15} strokeWidth={2.4} /> 会を主催する
+              </button>
+            }
+          >
+            {area ? `${area}で募集中の会は、いまのところありません。` : "募集中の会はまだありません。"}
+            <br />あなたの会を主催してみませんか。
           </EmptyState>
         ) : (
           <>
@@ -429,7 +494,8 @@ const HomeScreen = ({ user, onDetail }) => {
 };
 
 /* ═══════════════════════════════════════════════════════ Detail */
-const DetailScreen = ({ user, partyId, onBack, onGoPoints }) => {
+const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled }) => {
+  const { toast, confirm } = useToast();
   const [party, setParty] = useState(null);
   const [members, setMembers] = useState([]);
   const [mySeats, setMySeats] = useState([]);     // 自分のグループの席（招待コード付き）
@@ -439,6 +505,7 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints }) => {
   const [sending, setSending] = useState(false);
   const [groupSize, setGroupSize] = useState(MIN_GROUP); // 申し込むグループの人数（2名以上）
   const [guestNames, setGuestNames] = useState([]);      // 同伴者のニックネーム
+  const [cancelling, setCancelling] = useState(false);
 
   const load = useCallback(async () => {
     const [p, ms, bal, req] = await Promise.all([
@@ -475,24 +542,66 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints }) => {
     try {
       await api.sendJoinRequest(user.id, party.id, groupSize, guestNames);
       setReqStatus("pending");
+      toast.success("参加リクエストを送りました。ホストの承認をお待ちください。");
     } catch (e) {
-      alert("リクエスト送信に失敗しました: " + e.message);
+      toast.error("リクエスト送信に失敗しました: " + e.message);
     } finally {
       setSending(false);
+    }
+  };
+
+  /* ホストによる取り消し。まだ1組も承認していない会だけ取り消せる
+     （承認済みの会を取り消せると、受け取ったポイントを返さずに
+       中止できてしまうため。判定は DB 側の cancel_party が行う） */
+  const cancel = async () => {
+    const ok = await confirm({
+      title: "この会を取り消しますか？",
+      message: "募集を取り下げ、届いている参加リクエストはすべて見送りになります。取り消したあとは元に戻せません。",
+      confirmLabel: "会を取り消す",
+      danger: true,
+    });
+    if (!ok) return;
+    setCancelling(true);
+    try {
+      await api.cancelParty(party.id);
+      toast.success("会を取り消しました。");
+      onCancelled?.();
+    } catch (e) {
+      toast.error("取り消せませんでした: " + e.message);
+    } finally {
+      setCancelling(false);
     }
   };
 
   const copyCode = async (code) => {
     try {
       await navigator.clipboard.writeText(code);
-      alert(`招待コード ${code} をコピーしました。`);
+      toast.success(`招待コード ${code} をコピーしました。`);
     } catch {
-      alert(`招待コード: ${code}`);
+      // クリップボードが使えない環境（http / 権限なし）ではコードを読み上げる
+      toast.info(`招待コード: ${code}`);
     }
   };
 
-  if (loading) return <div style={{ padding: "0 20px" }}><BackButton onBack={onBack} /><Spinner /></div>;
-  if (!party) return <div style={{ padding: "0 20px" }}><BackButton onBack={onBack} /><EmptyState>会が見つかりませんでした。</EmptyState></div>;
+  if (loading) {
+    return (
+      <div style={{ padding: "0 20px" }}>
+        <BackButton onBack={onBack} />
+        <div style={{ ...card, overflow: "hidden" }}>
+          <Skeleton w="100%" h={96} r={0} />
+          <div style={{ padding: "24px 22px" }}>
+            <Skeleton w="70%" h={20} />
+            <Skeleton w="52%" h={12} style={{ marginTop: 12 }} />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 22 }}>
+              {[0, 1, 2, 3].map((i) => <Skeleton key={i} h={62} r={14} />)}
+            </div>
+            <Skeleton h={48} r={999} style={{ marginTop: 20 }} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+  if (!party) return <div style={{ padding: "0 20px" }}><BackButton onBack={onBack} /><EmptyState icon={<XCircle size={24} strokeWidth={1.6} />}>会が見つかりませんでした。<br />取り消された可能性があります。</EmptyState></div>;
 
   const { host: hostGroup, guest: guestGroup } = groupSizes(party);
   const seatsLeft = Math.max(0, party.max_members - party.current_members);
@@ -504,6 +613,9 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints }) => {
   const canSeeMembers = isHost || isMember;                 // 承認後のみ個人プロフィールを表示
   const isFull = seatsLeft < MIN_GROUP;
   const enough = (balance ?? 0) >= cost;
+  const cancelled = party.status === "cancelled";
+  // ゲスト側の席が1つでも埋まっていたら、ホストはもう取り消せない
+  const hasGuests = members.some((m) => m.side === "guest");
   const INFO = [
     { label: "場所", value: [party.location, party.area && `（${party.area}）`].filter(Boolean).join("") || "未定", icon: MapPin },
     { label: "時間", value: party.party_time || "未定", icon: Clock },
@@ -643,7 +755,21 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints }) => {
             ))}
           </div>
 
-          {!isHost && !isMember && reqStatus !== "accepted" && reqStatus !== "pending" && !isFull && (
+          {/* 取り消された会 */}
+          {cancelled && (
+            <div style={{
+              display: "flex", gap: 11, alignItems: "flex-start", marginBottom: 18,
+              borderRadius: 15, padding: "14px 16px",
+              background: "rgba(168,32,58,0.16)", border: "1px solid rgba(200,56,79,0.38)",
+            }}>
+              <XCircle size={16} strokeWidth={1.9} color={C.accentDeep} style={{ flexShrink: 0, marginTop: 2 }} />
+              <div style={{ fontSize: 12, color: C.accentDeep, lineHeight: 1.75 }}>
+                この会はホストにより取り消されました。参加の申し込みはできません。
+              </div>
+            </div>
+          )}
+
+          {!cancelled && !isHost && !isMember && reqStatus !== "accepted" && reqStatus !== "pending" && !isFull && (
             <>
               {/* 参加は必ずグループ単位（2名以上） */}
               <div style={{ marginBottom: 14 }}>
@@ -694,8 +820,34 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints }) => {
           )}
 
           {isHost ? (
-            <div style={{ ...ghostBtn, width: "100%", padding: "15px 0", borderRadius: 999, fontSize: 14, textAlign: "center", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: "default" }}>
-              <Crown size={16} strokeWidth={2} color={C.primary} /> あなたが募集したグループ飲み会です
+            <>
+              <div style={{ ...ghostBtn, width: "100%", padding: "15px 0", borderRadius: 999, fontSize: 14, textAlign: "center", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: "default" }}>
+                <Crown size={16} strokeWidth={2} color={C.primary} />
+                {cancelled ? "取り消し済みの会です" : "あなたが募集したグループ飲み会です"}
+              </div>
+
+              {/* 取り消しは、まだ1組も承認していない会だけ */}
+              {!cancelled && (
+                hasGuests ? (
+                  <div style={{ display: "flex", gap: 7, alignItems: "flex-start", marginTop: 12, fontSize: 10.5, color: C.textMuted, lineHeight: 1.7 }}>
+                    <Lock size={12} strokeWidth={1.9} style={{ flexShrink: 0, marginTop: 2 }} />
+                    既に参加が承認されたグループがあるため、この会は取り消せません。中止したい場合はグループチャットでご相談ください。
+                  </div>
+                ) : (
+                  <button className="press" onClick={cancel} disabled={cancelling} style={{
+                    ...ghostBtn, width: "100%", padding: "13px 0", borderRadius: 999, fontSize: 13, marginTop: 10,
+                    color: C.accentDeep, borderColor: "rgba(200,56,79,0.34)",
+                    display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7,
+                    opacity: cancelling ? 0.6 : 1,
+                  }}>
+                    {cancelling ? "取り消し中…" : <><XCircle size={15} strokeWidth={2} /> この会を取り消す</>}
+                  </button>
+                )
+              )}
+            </>
+          ) : cancelled ? (
+            <div style={{ ...ghostBtn, width: "100%", padding: "15px 0", borderRadius: 999, fontSize: 14, textAlign: "center", cursor: "default", color: C.textMuted }}>
+              この会は取り消されました
             </div>
           ) : isMember || reqStatus === "accepted" ? (
             <div style={{ ...ghostBtn, width: "100%", padding: "15px 0", borderRadius: 999, fontSize: 14, textAlign: "center", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: "default", color: C.primaryDeep }}>
@@ -733,6 +885,7 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints }) => {
 
 /* ═══════════════════════════════════════════════════════ Create */
 const CreateScreen = ({ user, onCreated }) => {
+  const { toast } = useToast();
   const [title, setTitle] = useState("");
   const [location, setLocation] = useState("");
   const [area, setArea] = useState("");
@@ -747,15 +900,24 @@ const CreateScreen = ({ user, onCreated }) => {
   const roomType = api.ROOM_TYPE_OPEN;
 
   const submit = async () => {
-    if (!title.trim()) { alert("会の名前を入力してください。"); return; }
+    if (!title.trim()) { toast.error("会の名前を入力してください。"); return; }
     // グループ限定：1対1のマッチングは作成できない
     if (hostGroup < MIN_GROUP || guestGroup < MIN_GROUP) {
-      alert(`相席は${MIN_GROUP}名以上のグループ同士のみのため、ホスト側・募集側ともに${MIN_GROUP}名以上で設定してください。`);
+      toast.error(`相席は${MIN_GROUP}名以上のグループ同士のみのため、ホスト側・募集側ともに${MIN_GROUP}名以上で設定してください。`);
       return;
     }
     // 個室での相席は提供しない（オープンスペース以外は作成できない）
     if (roomType !== api.ROOM_TYPE_OPEN) {
-      alert("相席はオープンスペースのみです。個室での会は作成できません。");
+      toast.error("相席はオープンスペースのみです。個室での会は作成できません。");
+      return;
+    }
+    const pt = Number(points);
+    if (!Number.isFinite(pt) || pt < 0) {
+      toast.error("参加ポイントは0以上の数値で入力してください。");
+      return;
+    }
+    if (pt > api.LIMITS.pointRequest) {
+      toast.error(`参加ポイントは${api.LIMITS.pointRequest.toLocaleString()}pt以下で設定してください。`);
       return;
     }
     setSaving(true);
@@ -772,9 +934,10 @@ const CreateScreen = ({ user, onCreated }) => {
         room_type: roomType,
         point_request: Number(points) || 0,
       });
+      toast.success("会を公開しました。参加リクエストが届くとお知らせします。");
       onCreated(p.id);
     } catch (e) {
-      alert("会の作成に失敗しました: " + e.message);
+      toast.error("会の作成に失敗しました: " + e.message);
     } finally {
       setSaving(false);
     }
@@ -821,11 +984,11 @@ const CreateScreen = ({ user, onCreated }) => {
       <div className="fade" style={{ ...card, padding: 22 }}>
         <div style={{ marginBottom: 17 }}>
           <label style={labelStyle}>会の名前</label>
-          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="例: 金曜の夜に、静かな一軒で" style={fieldStyle} />
+          <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={api.LIMITS.title} placeholder="例: 金曜の夜に、静かな一軒で" style={fieldStyle} />
         </div>
         <div style={{ marginBottom: 17 }}>
           <label style={labelStyle}>お店</label>
-          <input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="例: 恵比寿 / BAR TRENCH" style={fieldStyle} />
+          <input value={location} onChange={(e) => setLocation(e.target.value)} maxLength={api.LIMITS.location} placeholder="例: 恵比寿 / BAR TRENCH" style={fieldStyle} />
         </div>
         <div style={{ marginBottom: 17 }}>
           <label style={labelStyle}>エリア</label>
@@ -855,7 +1018,7 @@ const CreateScreen = ({ user, onCreated }) => {
                   // 選択できない項目も押せるようにして、理由を伝える（状態は変わらない）
                   aria-disabled={!r.allowed}
                   onClick={() => {
-                    if (!r.allowed) alert("個室での相席は提供していません。相席はオープンスペースのみです。");
+                    if (!r.allowed) toast.info("個室での相席は提供していません。相席はオープンスペースのみです。");
                   }}
                   style={{
                     display: "flex", alignItems: "flex-start", gap: 10, textAlign: "left",
@@ -935,7 +1098,7 @@ const CreateScreen = ({ user, onCreated }) => {
         <div style={{ marginBottom: 22 }}>
           <label style={labelStyle}>参加ポイント（参加グループが支払う／1人あたり）</label>
           <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-            <input type="number" value={points} onChange={(e) => setPoints(e.target.value)} style={fieldStyle} />
+            <input type="number" min={0} max={api.LIMITS.pointRequest} step={50} inputMode="numeric" value={points} onChange={(e) => setPoints(e.target.value)} style={fieldStyle} />
             <span style={{ fontSize: 14, color: C.primaryDeep, fontWeight: 700 }}>pt</span>
           </div>
           <div style={{ display: "flex", alignItems: "flex-start", gap: 6, marginTop: 9, fontSize: 11, color: C.textMuted, lineHeight: 1.6 }}>
@@ -957,6 +1120,7 @@ const CreateScreen = ({ user, onCreated }) => {
    ポイントの付与は支払い完了後にサーバ（/api/stripe/webhook）が行うため、
    この画面から残高が増えることはない。 */
 const PointsScreen = ({ user, checkoutResult, onCheckoutHandled }) => {
+  const { toast, confirm } = useToast();
   const [tab, setTab] = useState("buy");
   const [balance, setBalance] = useState(null);
   const [history, setHistory] = useState([]);
@@ -1010,21 +1174,27 @@ const PointsScreen = ({ user, checkoutResult, onCheckoutHandled }) => {
       const url = await api.createCheckoutSession(pack.id);
       window.location.href = url;
     } catch (e) {
-      alert("決済ページを開けませんでした: " + e.message);
+      toast.error("決済ページを開けませんでした: " + e.message);
       setBusy(false);
     }
   };
 
   const convert = async () => {
     const amt = Number(convertAmt);
-    if (!balance || amt > balance) { alert("残高が不足しています。"); return; }
+    if (!balance || amt > balance) { toast.error("残高が不足しています。"); return; }
+    const converted = Math.floor(amt * 0.85);
+    const ok = await confirm({
+      title: `${amt.toLocaleString()}pt を変換しますか？`,
+      message: `${converted.toLocaleString()}オリパpt になります（手数料15%）。変換したポイントは元に戻せません。`,
+      confirmLabel: "変換する",
+    });
+    if (!ok) return;
     setBusy(true);
     try {
-      const converted = Math.floor(amt * 0.85);
       await api.convertPoints(amt, `オリパpt変換（${converted}オリパpt）`);
       await load();
-      alert(`${converted}オリパptに変換しました。`);
-    } catch (e) { alert("変換に失敗しました: " + e.message); }
+      toast.success(`${converted.toLocaleString()}オリパptに変換しました。`);
+    } catch (e) { toast.error("変換に失敗しました: " + e.message); }
     finally { setBusy(false); }
   };
 
@@ -1193,7 +1363,7 @@ const ChatScreen = ({ user, openRoom }) => {
           チャットは会に参加したメンバー全員のグループチャットのみです。個人間のダイレクトメッセージ機能はありません。
         </span>
       </div>
-      {loading ? <Spinner /> : rooms.length === 0 ? (
+      {loading ? <SkeletonList count={3} /> : rooms.length === 0 ? (
         <EmptyState icon={<MessageCircle size={24} strokeWidth={1.6} />}>
           参加中の会がありません。<br />会を主催するか、参加リクエストが承認されると<br />グループチャットが始まります。
         </EmptyState>
@@ -1223,6 +1393,7 @@ const ChatScreen = ({ user, openRoom }) => {
 
 /* ══════════════════════════════════════════════ ChatRoom (Realtime) */
 const ChatRoom = ({ user, party, onBack }) => {
+  const { toast } = useToast();
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(true);
@@ -1250,10 +1421,18 @@ const ChatRoom = ({ user, party, onBack }) => {
   const send = async () => {
     const content = text.trim();
     if (!content) return;
+    if (content.length > api.LIMITS.message) {
+      toast.error(`メッセージは${api.LIMITS.message.toLocaleString()}文字以内で入力してください。`);
+      return;
+    }
     setText("");
     try {
       await api.sendMessage(party.id, user.id, content);
-    } catch (e) { alert("送信に失敗しました: " + e.message); setText(content); }
+    } catch (e) {
+      // 送信できなかった文面は入力欄に戻す（打ち直させない）
+      toast.error("送信に失敗しました: " + e.message);
+      setText(content);
+    }
   };
 
   return (
@@ -1298,6 +1477,8 @@ const ChatRoom = ({ user, party, onBack }) => {
         <input
           value={text} onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) { e.preventDefault(); send(); } }}
+          maxLength={api.LIMITS.message}
+          aria-label="メッセージ"
           placeholder="グループにメッセージを送る…" style={{ ...fieldStyle, borderRadius: 22 }}
         />
         <button className="press" onClick={send} aria-label="送信" style={{ ...popBtn, width: 44, height: 44, borderRadius: 999, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
@@ -1309,78 +1490,249 @@ const ChatRoom = ({ user, party, onBack }) => {
 };
 
 /* ═══════════════════════════════════════════════════════ MyPage */
-const MyPageScreen = ({ user, onTerms }) => {
+const MyPageScreen = ({ user, onTerms, onSupport, onReport }) => {
+  const { toast, confirm } = useToast();
   const [profile, setProfile] = useState(null);
   const [balance, setBalance] = useState(null);
   const [editing, setEditing] = useState(false);
   // 性別は取り扱わない（性別による制限を設けないため、入力・表示ともに行わない）
   const [form, setForm] = useState({ username: "", age: "", bio: "", avatar_url: "" });
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const fileRef = useRef(null);
 
   const load = useCallback(async () => {
+    setLoading(true);
     try {
       const [p, b] = await Promise.all([api.getProfile(user.id), api.getBalance(user.id)]);
       setProfile(p);
       setBalance(b);
       if (p) setForm({ username: p.username || "", age: p.age || "", bio: p.bio || "", avatar_url: p.avatar_url || "" });
     } catch (e) { console.error(e); }
+    finally { setLoading(false); }
   }, [user.id]);
 
   useEffect(() => { load(); }, [load]);
+
+  /* 顔写真のアップロード。
+     選んだ画像をそのまま avatars バケットへ上げ、返ってきた公開URLを
+     フォームに入れる（保存ボタンを押した時点でプロフィールに反映される）。 */
+  const pickPhoto = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";           // 同じファイルを選び直せるようにする
+    if (!file) return;
+    setUploading(true);
+    try {
+      const url = await api.uploadAvatar(user.id, file);
+      const previous = form.avatar_url;
+      setForm((f) => ({ ...f, avatar_url: url }));
+      // 直前にこの画面で上げた写真が残っていれば消す（保存前の上げ直し分）
+      if (previous && previous !== profile?.avatar_url) {
+        api.removeAvatar(user.id, previous);
+      }
+      toast.success("写真をアップロードしました。「保存する」で反映されます。");
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const save = async () => {
     setSaving(true);
     try {
       const updated = await api.updateProfile(user.id, {
-        username: form.username || null,
-        age: form.age ? Number(form.age) : null,
-        bio: form.bio || null,
-        avatar_url: form.avatar_url || null,
+        username: form.username,
+        age: form.age === "" ? null : form.age,
+        bio: form.bio,
+        avatar_url: form.avatar_url,
       });
+      // 差し替え前の写真がストレージ上のものなら消しておく（容量を無駄にしない）
+      if (profile?.avatar_url && profile.avatar_url !== updated.avatar_url) {
+        api.removeAvatar(user.id, profile.avatar_url);
+      }
       setProfile(updated);
       setEditing(false);
-    } catch (e) { alert("保存に失敗しました: " + e.message); }
+      toast.success("プロフィールを保存しました。");
+    } catch (e) { toast.error("保存に失敗しました: " + e.message); }
     finally { setSaving(false); }
   };
 
   const logout = async () => {
-    if (confirm("ログアウトしますか？")) await api.signOut();
+    const ok = await confirm({
+      title: "ログアウトしますか？",
+      message: "次回はメールアドレスとパスワードでログインが必要です。",
+      confirmLabel: "ログアウト",
+    });
+    if (ok) await api.signOut();
   };
 
-  if (!profile && balance === null) return <Spinner />;
+  /* 退会。ポイントが失効すること・元に戻せないことを必ず伝えてから実行する
+     （利用規約 第15条）。念のため2段階で確認する。 */
+  const withdraw = async () => {
+    const first = await confirm({
+      title: "本当に退会しますか？",
+      message:
+        `保有ポイント（${(balance ?? 0).toLocaleString()}pt）はすべて失効し、払い戻しはできません。` +
+        "主催中の会は取り消され、プロフィール・チャットの発言も削除されます。",
+      confirmLabel: "退会手続きへ進む",
+      danger: true,
+    });
+    if (!first) return;
+    const second = await confirm({
+      title: "この操作は取り消せません",
+      message: "アカウントを削除します。同じメールアドレスで新しく登録し直すことはできますが、これまでのデータは戻りません。",
+      confirmLabel: "アカウントを削除する",
+      danger: true,
+    });
+    if (!second) return;
+    try {
+      await api.deleteAccount();
+      // 削除に成功すると onAuthStateChange がログイン前の画面へ戻す
+    } catch (e) {
+      toast.error("退会できませんでした: " + e.message);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div style={{ padding: "16px 20px 24px" }}>
+        <div style={{ ...card, padding: 20, marginBottom: 16, display: "flex", gap: 15, alignItems: "center" }}>
+          <Skeleton w={66} h={66} r={33} />
+          <div style={{ flex: 1 }}>
+            <Skeleton w="58%" h={18} />
+            <Skeleton w="34%" h={11} style={{ marginTop: 9 }} />
+          </div>
+        </div>
+        <div style={{ ...card, padding: 0 }}>
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} style={{ padding: "16px 18px", borderBottom: i < 3 ? `1px solid ${C.lineSoft}` : "none" }}>
+              <Skeleton w="46%" h={13} />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   if (editing) {
     return (
       <div style={{ padding: "16px 20px 24px" }}>
         <SectionTitle sub="Edit profile">プロフィール編集</SectionTitle>
         <div className="fade" style={{ ...card, padding: 22 }}>
+          {/* ── 顔写真 ── */}
+          <div style={{ marginBottom: 20 }}>
+            <label style={labelStyle}>顔写真</label>
+            <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+              <div style={{
+                width: 78, height: 78, borderRadius: 39, padding: 2, flexShrink: 0,
+                background: C.primaryGrad, boxShadow: "0 8px 22px rgba(0,0,0,0.5)", position: "relative",
+              }}>
+                {form.avatar_url ? (
+                  <img
+                    src={form.avatar_url}
+                    alt="プロフィール写真"
+                    style={{ width: "100%", height: "100%", borderRadius: 37, objectFit: "cover", display: "block", background: "#141c33" }}
+                  />
+                ) : (
+                  <div style={{
+                    width: "100%", height: "100%", borderRadius: 37, display: "flex", alignItems: "center", justifyContent: "center",
+                    background: "#141c33", color: C.primaryDeep,
+                  }}><User size={32} strokeWidth={1.6} /></div>
+                )}
+                {uploading && (
+                  <div style={{
+                    position: "absolute", inset: 2, borderRadius: 37, display: "flex", alignItems: "center", justifyContent: "center",
+                    background: "rgba(5,8,15,0.72)",
+                  }}>
+                    <div style={{
+                      width: 22, height: 22, borderRadius: "50%",
+                      border: `2px solid ${C.tintStrong}`, borderTopColor: C.primary,
+                      animation: "spin 0.85s linear infinite",
+                    }} />
+                  </div>
+                )}
+              </div>
+
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept={api.AVATAR_MIME.join(",")}
+                  onChange={pickPhoto}
+                  style={{ display: "none" }}
+                />
+                <button
+                  type="button"
+                  className="press"
+                  disabled={uploading}
+                  onClick={() => fileRef.current?.click()}
+                  style={{
+                    ...ghostBtn, width: "100%", padding: "11px 0", fontSize: 13,
+                    display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7,
+                    opacity: uploading ? 0.6 : 1,
+                  }}
+                >
+                  <Camera size={15} strokeWidth={2} />
+                  {uploading ? "アップロード中…" : form.avatar_url ? "写真を変更" : "写真を選ぶ"}
+                </button>
+                {form.avatar_url && (
+                  <button
+                    type="button"
+                    className="press"
+                    onClick={() => setForm({ ...form, avatar_url: "" })}
+                    style={{
+                      width: "100%", background: "none", border: "none", cursor: "pointer",
+                      padding: "9px 0 0", fontSize: 11.5, color: C.textMuted,
+                      display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
+                    }}
+                  >
+                    <Trash2 size={12} strokeWidth={1.9} /> 写真を削除
+                  </button>
+                )}
+              </div>
+            </div>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 6, marginTop: 12, fontSize: 10.5, color: C.textMuted, lineHeight: 1.65 }}>
+              <Lock size={12} strokeWidth={1.9} color={C.primary} style={{ flexShrink: 0, marginTop: 1 }} />
+              JPEG・PNG・WebP、2MBまで。写真・名前・年齢は一覧には表示されず、同じ会に参加が承認されたメンバーにのみ公開されます。
+            </div>
+          </div>
+
           <div style={{ marginBottom: 16 }}>
             <label style={labelStyle}>ニックネーム</label>
-            <input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} style={fieldStyle} />
+            <input
+              value={form.username}
+              maxLength={api.LIMITS.username}
+              onChange={(e) => setForm({ ...form, username: e.target.value })}
+              style={fieldStyle}
+            />
           </div>
           <div style={{ marginBottom: 16 }}>
             <label style={labelStyle}>年齢（{MIN_AGE}歳以上）</label>
-            <input type="number" min={MIN_AGE} max={99} value={form.age} onChange={(e) => setForm({ ...form, age: e.target.value })} style={fieldStyle} />
+            <input type="number" min={MIN_AGE} max={99} inputMode="numeric" value={form.age} onChange={(e) => setForm({ ...form, age: e.target.value })} style={fieldStyle} />
             <div style={{ display: "flex", alignItems: "flex-start", gap: 6, marginTop: 8, fontSize: 10.5, color: C.textMuted, lineHeight: 1.65 }}>
               <ShieldCheck size={12} strokeWidth={1.9} color={C.primary} style={{ flexShrink: 0, marginTop: 1 }} />
               本サービスは飲酒を伴うため{MIN_AGE}歳以上限定です。登録時の生年月日で年齢を確認しています。
             </div>
           </div>
-          <div style={{ marginBottom: 16 }}>
-            <label style={labelStyle}>顔写真URL</label>
-            <input value={form.avatar_url} onChange={(e) => setForm({ ...form, avatar_url: e.target.value })} placeholder="https://…" style={fieldStyle} />
-            <div style={{ display: "flex", alignItems: "flex-start", gap: 6, marginTop: 8, fontSize: 10.5, color: C.textMuted, lineHeight: 1.65 }}>
-              <Lock size={12} strokeWidth={1.9} color={C.primary} style={{ flexShrink: 0, marginTop: 1 }} />
-              写真・名前・年齢は一覧には表示されません。同じ会に参加が承認されたメンバーにのみ公開されます。
-            </div>
-          </div>
           <div style={{ marginBottom: 22 }}>
             <label style={labelStyle}>自己紹介</label>
-            <textarea value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} rows={3} placeholder="ひとこと" style={{ ...fieldStyle, resize: "vertical" }} />
+            <textarea
+              value={form.bio}
+              rows={3}
+              maxLength={api.LIMITS.bio}
+              onChange={(e) => setForm({ ...form, bio: e.target.value })}
+              placeholder="ひとこと"
+              style={{ ...fieldStyle, resize: "vertical", lineHeight: 1.8 }}
+            />
+            <div style={{ textAlign: "right", fontSize: 10, color: C.textFaint, marginTop: 5 }}>
+              {form.bio.length} / {api.LIMITS.bio}
+            </div>
           </div>
           <div style={{ display: "flex", gap: 9 }}>
-            <button className="press" onClick={() => setEditing(false)} style={{ ...ghostBtn, flex: 1, padding: "13px 0", borderRadius: 999, fontSize: 14 }}>キャンセル</button>
-            <button className="lux-cta" onClick={save} disabled={saving} style={{ ...popBtn, flex: 1, padding: "13px 0", borderRadius: 999, fontSize: 14, opacity: saving ? 0.6 : 1 }}>{saving ? "保存中…" : "保存する"}</button>
+            <button className="press" onClick={() => { setEditing(false); load(); }} style={{ ...ghostBtn, flex: 1, padding: "13px 0", borderRadius: 999, fontSize: 14 }}>キャンセル</button>
+            <button className="lux-cta" onClick={save} disabled={saving || uploading} style={{ ...popBtn, flex: 1, padding: "13px 0", borderRadius: 999, fontSize: 14, opacity: saving || uploading ? 0.6 : 1 }}>{saving ? "保存中…" : "保存する"}</button>
           </div>
         </div>
       </div>
@@ -1391,7 +1743,9 @@ const MyPageScreen = ({ user, onTerms }) => {
     { icon: Gem, label: "ポイント残高", value: `${(balance ?? 0).toLocaleString()} pt`, highlight: true },
     { icon: Mail, label: "メール", value: user.email },
     { icon: Settings, label: "プロフィール編集", action: () => setEditing(true) },
-    { icon: FileText, label: "利用規約", action: onTerms },
+    { icon: LifeBuoy, label: "お問い合わせ・ご意見", action: onSupport },
+    { icon: ShieldAlert, label: "通報・違反の報告", action: onReport },
+    { icon: FileText, label: "利用規約・プライバシーポリシー", action: onTerms },
     { icon: LogOut, label: "ログアウト", action: logout, danger: true },
   ];
 
@@ -1433,7 +1787,21 @@ const MyPageScreen = ({ user, onTerms }) => {
         ))}
       </div>
 
-      <div style={{ textAlign: "center", marginTop: 22, fontSize: 9.5, color: C.textFaint, letterSpacing: 2, textTransform: "uppercase" }}>AISEKI · PREMIUM GROUP MATCHING</div>
+      {/* ホーム画面への追加案内（未追加のときだけ出る） */}
+      <InstallCard />
+
+      {/* 退会（利用規約 第15条）。押し間違いを避けるため、控えめに置く。 */}
+      <div style={{ textAlign: "center", marginTop: 20 }}>
+        <button className="press" onClick={withdraw} style={{
+          background: "none", border: "none", cursor: "pointer", padding: "8px 14px",
+          fontSize: 11.5, color: C.textMuted, letterSpacing: 0.4,
+          textDecoration: "underline", textUnderlineOffset: 3,
+        }}>
+          退会する（アカウントを削除）
+        </button>
+      </div>
+
+      <div style={{ textAlign: "center", marginTop: 14, fontSize: 9.5, color: C.textFaint, letterSpacing: 2, textTransform: "uppercase" }}>AISEKI · PREMIUM GROUP MATCHING</div>
     </div>
   );
 };
@@ -1441,18 +1809,29 @@ const MyPageScreen = ({ user, onTerms }) => {
 /* ══════════════════════════════════════════════════════════════ Footer
    どの画面からでも利用規約・プライバシーポリシーに到達できるようにする。
    あわせて、業態上の法的表示（許認可・年齢制限・接待/個室/サクラなし）を常時掲示する。 */
-const AppFooter = ({ onTerms }) => (
+const AppFooter = ({ onTerms, onSupport }) => (
   <div style={{
     margin: "10px 20px 0", padding: "16px 0 20px",
     borderTop: `1px solid ${C.lineSoft}`, textAlign: "center",
   }}>
-    <button className="press" onClick={onTerms} style={{
-      background: "none", border: "none", cursor: "pointer", padding: "4px 8px",
-      fontSize: 11.5, fontWeight: 700, color: C.primaryDeep, letterSpacing: 0.5,
-      fontFamily: FONT_BODY, display: "inline-flex", alignItems: "center", gap: 6,
-    }}>
-      <FileText size={12.5} strokeWidth={2} /> 利用規約・プライバシーポリシー
-    </button>
+    <div style={{ display: "flex", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
+      <button className="press" onClick={onTerms} style={{
+        background: "none", border: "none", cursor: "pointer", padding: "4px 8px",
+        fontSize: 11.5, fontWeight: 700, color: C.primaryDeep, letterSpacing: 0.5,
+        fontFamily: FONT_BODY, display: "inline-flex", alignItems: "center", gap: 6,
+      }}>
+        <FileText size={12.5} strokeWidth={2} /> 利用規約・プライバシー
+      </button>
+      {onSupport && (
+        <button className="press" onClick={onSupport} style={{
+          background: "none", border: "none", cursor: "pointer", padding: "4px 8px",
+          fontSize: 11.5, fontWeight: 700, color: C.primaryDeep, letterSpacing: 0.5,
+          fontFamily: FONT_BODY, display: "inline-flex", alignItems: "center", gap: 6,
+        }}>
+          <LifeBuoy size={12.5} strokeWidth={2} /> お問い合わせ
+        </button>
+      )}
+    </div>
 
     {/* 法的表示 */}
     <div style={{
@@ -1507,14 +1886,74 @@ const readCheckoutResult = () => {
   return v === "success" || v === "cancel" ? v : null;
 };
 
+/* パスワード再設定メールから戻ってきたかを判定する。
+   Supabase はリンク先に #access_token=…&type=recovery を付けて返す
+   （バージョンによっては ?type=recovery のクエリ）。両方を見る。 */
+const isRecoveryLink = () => {
+  if (typeof window === "undefined") return false;
+  const q = new URLSearchParams(window.location.search);
+  const h = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  return q.get("type") === "recovery" || h.get("type") === "recovery";
+};
+
+/* ベルアイコン。未読があるときだけ印を出す。
+   通知の中身は listNotifications() が既存データから組み立てる。 */
+const NotificationBell = ({ user, onOpen, refreshKey }) => {
+  const [unread, setUnread] = useState(0);
+
+  useEffect(() => {
+    let alive = true;
+    const check = async () => {
+      try {
+        const [items, seenAt] = [await api.listNotifications(user.id), api.loadSeenAt()];
+        if (!alive) return;
+        setUnread(items.filter((n) => !seenAt || new Date(n.at) > seenAt).length);
+      } catch (e) {
+        console.error(e);
+      }
+    };
+    check();
+    // 画面を開きっぱなしでも気づけるよう、ゆっくり見に行く
+    const timer = setInterval(check, 60000);
+    return () => { alive = false; clearInterval(timer); };
+  }, [user.id, refreshKey]);
+
+  return (
+    <button
+      className="press"
+      onClick={onOpen}
+      aria-label={unread > 0 ? `お知らせ（未読${unread}件）` : "お知らせ"}
+      style={{
+        background: "rgba(255,255,255,0.05)", border: `1px solid ${C.line}`, borderRadius: 20,
+        width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center",
+        cursor: "pointer", color: C.primaryDeep, position: "relative", boxShadow: C.shadowSoft, flexShrink: 0,
+      }}
+    >
+      <Bell size={16} strokeWidth={1.8} />
+      {unread > 0 && (
+        <span style={{
+          position: "absolute", top: -3, right: -3, minWidth: 17, height: 17, borderRadius: 9,
+          padding: "0 4px", display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 9.5, fontWeight: 700, fontFamily: FONT_BODY,
+          background: C.accentGrad, color: "#fff2f4", boxShadow: "0 0 0 2px #0d1224",
+        }}>{unread > 9 ? "9+" : unread}</span>
+      )}
+    </button>
+  );
+};
+
 export default function App() {
   const [session, setSession] = useState(null);
   const [authReady, setAuthReady] = useState(false);
+  const [recovery, setRecovery] = useState(isRecoveryLink);
+  const [authMode, setAuthMode] = useState(null);   // null = ランディングページ
   const [checkoutResult, setCheckoutResult] = useState(readCheckoutResult);
   const [tab, setTab] = useState(() => (readCheckoutResult() ? "points" : "home"));
   const [detailId, setDetailId] = useState(null);
   const [chatRoom, setChatRoom] = useState(null);
-  const [showTerms, setShowTerms] = useState(false);
+  const [chatRoomId, setChatRoomId] = useState(null); // 通知から開くとき（会の実体は後から引く）
+  const [overlay, setOverlay] = useState(null);       // 'terms' | 'notifications' | 'support' | 'report'
+  const [notifyKey, setNotifyKey] = useState(0);      // ベルの再計算トリガ
 
   useEffect(() => {
     if (configError) { setAuthReady(true); return; }
@@ -1524,9 +1963,13 @@ export default function App() {
       .then(({ data }) => setSession(data?.session ?? null))
       .catch((err) => console.error("[aiseki] getSession 失敗:", err))
       .finally(() => setAuthReady(true));
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
       setSession(s);
-      if (!s) { setTab("home"); setDetailId(null); setChatRoom(null); setShowTerms(false); }
+      if (event === "PASSWORD_RECOVERY") setRecovery(true);
+      if (!s) {
+        setTab("home"); setDetailId(null); setChatRoom(null);
+        setChatRoomId(null); setOverlay(null); setAuthMode(null);
+      }
     });
     return () => sub.subscription.unsubscribe();
   }, []);
@@ -1542,36 +1985,124 @@ export default function App() {
     window.history.replaceState({}, "", url.pathname + url.search + url.hash);
   }, []);
 
+  /* 再設定用のトークンを URL に残さない（共有・履歴から漏らさない） */
+  const clearRecoveryParams = useCallback(() => {
+    if (typeof window === "undefined") return;
+    window.history.replaceState({}, "", window.location.pathname);
+  }, []);
+
+  /* 通知から会のチャットを開く。会の実体を取ってからチャット画面へ渡す。 */
+  const openChatByPartyId = useCallback(async (partyId) => {
+    setChatRoomId(partyId);
+    try {
+      const p = await api.getParty(partyId);
+      setChatRoom(p);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setChatRoomId(null);
+    }
+  }, []);
+
   const shell = (children) => (
-    <div style={{
-      maxWidth: 400, width: "100%", margin: "0 auto", minHeight: 720, height: 720, display: "flex", flexDirection: "column", overflow: "hidden",
-      borderRadius: 34,
-      background:
-        "radial-gradient(120% 70% at 88% -4%, rgba(168,32,58,0.24), transparent 58%)," +
-        "radial-gradient(100% 52% at 0% 4%, rgba(232,201,135,0.13), transparent 56%)," +
-        "linear-gradient(180deg, #101830 0%, #070b16 100%)",
-      border: `1px solid ${C.line}`,
-      boxShadow: "0 34px 80px rgba(0,0,0,0.7)",
-      fontFamily: FONT_BODY,
-      color: C.text,
-    }}>{children}</div>
+    <div className="app-shell-outer">
+      <div className="app-shell" style={{ fontFamily: FONT_BODY, color: C.text }}>
+        <ToastProvider>{children}</ToastProvider>
+      </div>
+    </div>
   );
 
   if (configError) return shell(<ConfigErrorScreen message={configError} />);
-  if (!authReady) return shell(<div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}><Spinner label="起動中…" /></div>);
-  if (!session) return <AuthScreen />;
+  if (!authReady) {
+    return shell(
+      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <Spinner label="起動中…" />
+      </div>
+    );
+  }
+
+  /* パスワード再設定 … 復旧セッションが張られている間だけ表示する */
+  if (recovery) {
+    return shell(
+      <Suspense fallback={<Loading label="読み込み中…" />}>
+        <ResetPasswordScreen onDone={() => { setRecovery(false); clearRecoveryParams(); setAuthMode("login"); }} />
+      </Suspense>
+    );
+  }
+
+  /* 未ログイン … まずサービス紹介（LP）、そこからログイン／新規登録へ */
+  if (!session) {
+    if (!authMode) {
+      return (
+        <Suspense fallback={
+          <div className="app-shell-outer"><Spinner label="読み込み中…" /></div>
+        }>
+          <LandingScreen onStart={setAuthMode} />
+        </Suspense>
+      );
+    }
+    return shell(
+      <Suspense fallback={<Loading label="読み込み中…" />}>
+        <AuthScreen initialMode={authMode} onBack={() => setAuthMode(null)} />
+      </Suspense>
+    );
+  }
 
   const user = session.user;
 
   if (chatRoom) {
-    return shell(<ChatRoom user={user} party={chatRoom} onBack={() => setChatRoom(null)} />);
+    return shell(
+      <ChatRoom
+        user={user}
+        party={chatRoom}
+        onBack={() => { setChatRoom(null); setNotifyKey((k) => k + 1); }}
+      />
+    );
+  }
+  if (chatRoomId) {
+    return shell(
+      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <Spinner label="チャットを開いています…" />
+      </div>
+    );
   }
 
+  const backToApp = () => setOverlay(null);
+
   const renderScreen = () => {
-    if (showTerms) return <TermsScreen onBack={() => setShowTerms(false)} />;
-    if (detailId) return <DetailScreen user={user} partyId={detailId} onBack={() => setDetailId(null)} onGoPoints={() => { setDetailId(null); setTab("points"); }} />;
+    if (overlay === "terms") return <TermsScreen onBack={backToApp} />;
+    if (overlay === "notifications") {
+      return (
+        <NotificationsScreen
+          user={user}
+          onBack={() => { backToApp(); setNotifyKey((k) => k + 1); }}
+          onOpenParty={(id) => { setOverlay(null); setDetailId(id); }}
+          onOpenChat={(id) => { setOverlay(null); openChatByPartyId(id); }}
+        />
+      );
+    }
+    if (overlay === "support" || overlay === "report") {
+      return (
+        <SupportScreen
+          user={user}
+          onBack={backToApp}
+          initialKind={overlay === "report" ? "report" : "question"}
+        />
+      );
+    }
+    if (detailId) {
+      return (
+        <DetailScreen
+          user={user}
+          partyId={detailId}
+          onBack={() => setDetailId(null)}
+          onGoPoints={() => { setDetailId(null); setTab("points"); }}
+          onCancelled={() => { setDetailId(null); setTab("home"); }}
+        />
+      );
+    }
     switch (tab) {
-      case "home": return <HomeScreen user={user} onDetail={setDetailId} />;
+      case "home": return <HomeScreen user={user} onDetail={setDetailId} onCreate={() => setTab("create")} />;
       case "create": return <CreateScreen user={user} onCreated={(id) => { setTab("home"); setDetailId(id); }} />;
       case "chat": return <ChatScreen user={user} openRoom={setChatRoom} />;
       case "points": return (
@@ -1581,31 +2112,48 @@ export default function App() {
           onCheckoutHandled={clearCheckoutParams}
         />
       );
-      case "mypage": return <MyPageScreen user={user} onTerms={() => setShowTerms(true)} />;
-      default: return <HomeScreen user={user} onDetail={setDetailId} />;
+      case "mypage": return (
+        <MyPageScreen
+          user={user}
+          onTerms={() => setOverlay("terms")}
+          onSupport={() => setOverlay("support")}
+          onReport={() => setOverlay("report")}
+        />
+      );
+      default: return <HomeScreen user={user} onDetail={setDetailId} onCreate={() => setTab("create")} />;
     }
   };
 
   return shell(
     <>
-      <div style={{
-        padding: "15px 20px 14px", display: "flex", justifyContent: "space-between", alignItems: "center",
+      <div className="app-topbar" style={{
+        padding: "15px 20px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10,
         borderBottom: `1px solid ${C.line}`, background: "linear-gradient(180deg, rgba(232,201,135,0.09), transparent)",
+        flexShrink: 0,
       }}>
-        <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+        <button
+          className="press"
+          onClick={() => { setTab("home"); setDetailId(null); setOverlay(null); }}
+          style={{
+            background: "none", border: "none", padding: 0, cursor: "pointer",
+            display: "flex", alignItems: "baseline", gap: 8, minWidth: 0,
+          }}
+        >
           <span style={{ fontFamily: FONT_LOGO, fontSize: 26, fontWeight: 600, letterSpacing: 3.5, ...brandText }}>AISEKI</span>
-          <span style={{ fontFamily: FONT_HEAD, fontSize: 10.5, color: C.textMuted, letterSpacing: 1, fontWeight: 500 }}>大人のグループ相席</span>
-        </div>
-        <button className="press" aria-label="お知らせ" style={{ background: "rgba(255,255,255,0.05)", border: `1px solid ${C.line}`, borderRadius: 20, width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.primaryDeep, position: "relative", boxShadow: C.shadowSoft }}>
-          <Bell size={16} strokeWidth={1.8} />
-          <span style={{ position: "absolute", top: 8, right: 9, width: 6, height: 6, borderRadius: 3, background: C.accent, boxShadow: "0 0 0 2px #0d1224" }} />
+          <span style={{ fontFamily: FONT_HEAD, fontSize: 10.5, color: C.textMuted, letterSpacing: 1, fontWeight: 500, whiteSpace: "nowrap" }}>大人のグループ相席</span>
         </button>
+        <NotificationBell user={user} refreshKey={notifyKey} onOpen={() => { setDetailId(null); setOverlay("notifications"); }} />
       </div>
-      <div style={{ flex: 1, overflowY: "auto" }}>
-        {renderScreen()}
-        {!showTerms && <AppFooter onTerms={() => setShowTerms(true)} />}
+
+      <div className="app-body">
+        <Suspense fallback={<Loading label="読み込み中…" />}>{renderScreen()}</Suspense>
+        {overlay !== "terms" && <AppFooter onTerms={() => setOverlay("terms")} onSupport={() => setOverlay("support")} />}
       </div>
-      <TabBar active={tab} onTab={(t) => { setTab(t); setDetailId(null); setShowTerms(false); setCheckoutResult(null); }} />
+
+      <TabBar
+        active={tab}
+        onTab={(t) => { setTab(t); setDetailId(null); setOverlay(null); setCheckoutResult(null); }}
+      />
     </>
   );
 }
