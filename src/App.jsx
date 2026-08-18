@@ -46,10 +46,17 @@ const AREAS = ["渋谷", "恵比寿", "中目黒", "六本木", "西麻布", "�
    ・店側は接待をしない／サクラを置かない（風営法上の風俗営業に該当しない）
    ・参加者の個人プロフィールは、参加が承認されたメンバーにのみ表示
    ・性別による制限なし（同性グループ同士でも参加可）
+   ・募集は無料。参加は1人あたり一律3,800pt（全額が運営に入る）
+   ・ホストは必ずおごられる（当日のホストのお会計は参加グループが負担）
    ══════════════════════════════════════════════════════════════ */
 const MIN_GROUP = api.MIN_GROUP_SIZE;
 const MIN_AGE = api.MIN_AGE;
 const GROUP_OPTIONS = [2, 3, 4, 5, 6];
+
+/* 参加ポイント（1人あたり）。全ての会で一律で、ホストは金額を設定できない。
+   DB 側（join_fee_per_person）でも同じ値が強制されている。 */
+const JOIN_FEE = api.JOIN_FEE_PER_PERSON;
+const feeText = (n = 1) => api.joinFeeFor(n).toLocaleString();
 
 /* 会のグループ構成（ホスト側 / 募集側）。旧データにも安全にフォールバック */
 const groupSizes = (p) => {
@@ -237,7 +244,7 @@ const FeaturedCard = ({ p, onTap }) => (
       <div style={{ position: "absolute", top: 14, left: 16 }}>
         <Eyebrow style={{ letterSpacing: 2, textShadow: "0 1px 3px rgba(0,0,0,0.5)" }}>◆ 本日のおすすめ</Eyebrow>
       </div>
-      <div style={{ position: "absolute", top: 12, right: 14 }}><TreatBadge treat={p.treat_type} /></div>
+      <div style={{ position: "absolute", top: 12, right: 14 }}><TreatBadge /></div>
       <div style={{ position: "absolute", left: 16, bottom: -22, width: 66, height: 66, borderRadius: 33, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 30,
         background: "linear-gradient(150deg, #1a2340 0%, #0c1122 100%)",
         border: `1px solid ${C.linePrimary}`, boxShadow: "0 10px 24px rgba(0,0,0,0.6)" }}>
@@ -260,9 +267,9 @@ const FeaturedCard = ({ p, onTap }) => (
       </div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: 16, paddingTop: 15, borderTop: `1px solid ${C.lineSoft}` }}>
         <div>
-          <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 700, letterSpacing: 0.2, marginBottom: 3 }}>参加ポイント / 1名</div>
+          <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 700, letterSpacing: 0.2, marginBottom: 3 }}>参加ポイント / 1名（一律）</div>
           <div style={{ fontFamily: FONT_DISPLAY, fontSize: 26, fontWeight: 700, lineHeight: 1, ...brandText }}>
-            {p.point_request}<span style={{ fontSize: 12, fontFamily: FONT_BODY, fontWeight: 600 }}> pt</span>
+            {feeText()}<span style={{ fontSize: 12, fontFamily: FONT_BODY, fontWeight: 600 }}> pt</span>
           </div>
         </div>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700, color: C.primaryDeep, letterSpacing: 0.5 }}>
@@ -289,7 +296,7 @@ const PartyCard = ({ p, onTap }) => {
             <div style={{ marginTop: 4 }}><MetaLine icon={MapPin}>{[p.location, p.area].filter(Boolean).join(" · ") || "場所未定"}</MetaLine></div>
           </div>
         </div>
-        <TreatBadge treat={p.treat_type} />
+        <TreatBadge />
       </div>
       {tags.length > 0 && (
         <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 12 }}>
@@ -301,7 +308,7 @@ const PartyCard = ({ p, onTap }) => {
           <MetaLine icon={Users}>{p.current_members}/{p.max_members}名</MetaLine>
           {p.party_time && <MetaLine icon={Clock}>{p.party_time}</MetaLine>}
         </div>
-        <div style={{ fontSize: 15, fontWeight: 700, fontFamily: FONT_DISPLAY, ...brandText }}>{p.point_request}<span style={{ fontSize: 10.5, fontFamily: FONT_BODY, fontWeight: 600 }}> pt</span></div>
+        <div style={{ fontSize: 15, fontWeight: 700, fontFamily: FONT_DISPLAY, ...brandText }}>{feeText()}<span style={{ fontSize: 10.5, fontFamily: FONT_BODY, fontWeight: 600 }}> pt</span></div>
       </div>
     </div>
   );
@@ -407,7 +414,6 @@ const HomeScreen = ({ user, onDetail, onCreate }) => {
         <div style={{ padding: "8px 20px 0" }}>
           <Eyebrow style={{ marginBottom: 11 }}>◆ グループ参加リクエスト</Eyebrow>
           {incoming.map((r, i) => {
-            const pt = r.party?.point_request ?? 0;
             const size = Math.max(MIN_GROUP, r.group_size ?? MIN_GROUP);
             return (
               <div key={r.id} className="rise" style={{ ...card, padding: 16, marginBottom: 10, animationDelay: `${i * 60}ms`,
@@ -424,9 +430,13 @@ const HomeScreen = ({ user, onDetail, onCreate }) => {
                     <div style={{ fontSize: 11.5, color: C.textSec }}>「{r.party?.title}」への参加希望</div>
                   </div>
                 </div>
-                <div style={{ fontSize: 11.5, color: C.textSec, marginBottom: 9, display: "inline-flex", alignItems: "center", gap: 5 }}>
-                  <Gem size={12} strokeWidth={1.8} color={C.primary} /> 承認すると <b style={{ color: C.primaryDeep }}>{(pt * size).toLocaleString()}pt</b> を受け取ります
-                  <span style={{ color: C.textMuted }}>（{pt.toLocaleString()}pt × {size}名）</span>
+                <div style={{ fontSize: 11.5, color: C.textSec, marginBottom: 7, display: "inline-flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
+                  <Gem size={12} strokeWidth={1.8} color={C.primary} /> このグループが <b style={{ color: C.primaryDeep }}>{feeText(size)}pt</b> を支払います
+                  <span style={{ color: C.textMuted }}>（{feeText()}pt × {size}名）</span>
+                </div>
+                <div style={{ fontSize: 10.5, color: C.textMuted, marginBottom: 9, lineHeight: 1.6 }}>
+                  ポイントは運営が受け取るため、あなたへの支払いはありません。
+                  <br />そのかわり、当日の<b style={{ color: C.primaryDeep, fontWeight: 700 }}>あなたのグループのお会計は、参加グループが負担します</b>。
                 </div>
                 <div style={{ fontSize: 10.5, color: C.textMuted, marginBottom: 13, display: "flex", alignItems: "flex-start", gap: 5, lineHeight: 1.6 }}>
                   <Lock size={11} strokeWidth={1.9} style={{ flexShrink: 0, marginTop: 2 }} />
@@ -639,7 +649,7 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled }) => {
   const seatsLeft = Math.max(0, party.max_members - party.current_members);
   // 参加できるグループ人数の選択肢（2名以上、かつ残枠まで）
   const sizeOptions = GROUP_OPTIONS.filter((n) => n <= seatsLeft);
-  const cost = party.point_request * groupSize;             // 参加グループが支払うポイント合計
+  const cost = api.joinFeeFor(groupSize);                   // 参加グループが支払うポイント合計（一律）
   const isHost = party.host_id === user.id;
   const isMember = members.some((m) => m.user_id === user.id);
   const canSeeMembers = isHost || isMember;                 // 承認後のみ個人プロフィールを表示
@@ -656,6 +666,9 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled }) => {
     // 席は常にオープンスペース（個室での相席は提供しない）
     { label: "席", value: "オープンスペース", icon: DoorClosed },
     { label: "年齢", value: `${MIN_AGE}歳以上限定`, icon: ShieldCheck },
+    // 金額とお会計の区分は全ての会で共通（ホストは設定できない）
+    { label: "参加ポイント", value: `${feeText()}pt / 1名`, icon: Gem },
+    { label: "お会計", value: "参加グループが負担", icon: Wallet },
   ];
 
   return (
@@ -669,7 +682,7 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled }) => {
             "radial-gradient(120% 130% at 10% 120%, rgba(232,201,135,0.20), transparent 62%)," +
             "linear-gradient(135deg, #1b2340 0%, #0a0e1c 100%)",
         }}>
-          <div style={{ position: "absolute", top: 14, right: 16 }}><TreatBadge treat={party.treat_type} /></div>
+          <div style={{ position: "absolute", top: 14, right: 16 }}><TreatBadge /></div>
           <div style={{ position: "absolute", left: 22, bottom: -28, width: 66, height: 66, borderRadius: 33, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 30,
             background: "linear-gradient(150deg, #1a2340 0%, #0c1122 100%)", border: `1px solid ${C.linePrimary}`, boxShadow: "0 10px 24px rgba(0,0,0,0.6)" }}>
             {partyEmoji(party.id)}
@@ -839,14 +852,32 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled }) => {
               }}>
                 <div style={{ fontSize: 10.5, color: C.textSec, fontWeight: 800, marginBottom: 6, letterSpacing: 0.2 }}>参加に必要なポイント（グループ合計）</div>
                 <div style={{ fontSize: 32, fontWeight: 700, fontFamily: FONT_DISPLAY, lineHeight: 1, ...brandText }}>{cost.toLocaleString()}<span style={{ fontSize: 15, fontFamily: FONT_BODY, fontWeight: 600 }}> pt</span></div>
-                <div style={{ fontSize: 11, color: C.textSec, marginTop: 6 }}>{party.point_request.toLocaleString()}pt × {groupSize}名</div>
+                <div style={{ fontSize: 11, color: C.textSec, marginTop: 6 }}>一律 {feeText()}pt × {groupSize}名</div>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 9, paddingTop: 9, borderTop: `1px solid ${C.lineSoft}` }}>
                   <span style={{ fontSize: 11, color: C.textSec }}>現在の残高</span>
                   <span style={{ fontSize: 12.5, fontWeight: 700, fontFamily: FONT_DISPLAY, color: enough ? C.primary : C.accent }}>
                     {(balance ?? 0).toLocaleString()} pt
                   </span>
                 </div>
-                <div style={{ fontSize: 10.5, color: C.textMuted, marginTop: 7 }}>※ 参加するグループが支払うポイントです。承認されるとホストに支払われます。</div>
+                <div style={{ fontSize: 10.5, color: C.textMuted, marginTop: 7, lineHeight: 1.65 }}>
+                  ※ 参加ポイントは全ての会で一律です。承認された時点で消費され、運営が受け取ります（ホストには支払われません）。
+                </div>
+              </div>
+
+              {/* ホストは必ずおごられる。参加前に必ず伝える。 */}
+              <div style={{
+                display: "flex", gap: 11, alignItems: "flex-start", marginBottom: 18,
+                borderRadius: 16, padding: "14px 16px",
+                background: "rgba(232,201,135,0.09)", border: `1px solid ${C.linePrimary}`,
+              }}>
+                <Wallet size={16} strokeWidth={1.9} color={C.primary} style={{ flexShrink: 0, marginTop: 2 }} />
+                <div>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: C.text, letterSpacing: 0.3 }}>当日のお会計は参加グループの負担です</div>
+                  <div style={{ fontSize: 11.5, color: C.textSec, lineHeight: 1.75, marginTop: 3 }}>
+                    この会は、ホストグループ（{hostGroup}名）の飲食代を参加グループがお支払いする決まりです。
+                    参加ポイントとは別に、当日そのままお店でご精算ください。
+                  </div>
+                </div>
               </div>
             </>
           )}
@@ -925,8 +956,6 @@ const CreateScreen = ({ user, onCreated }) => {
   const [hostNames, setHostNames] = useState([]);          // ホスト側同伴者のニックネーム
   const [guestGroup, setGuestGroup] = useState(MIN_GROUP); // 募集するグループの人数（2名以上）
   const [time, setTime] = useState("20:00");
-  const [treat, setTreat] = useState("奢り");
-  const [points, setPoints] = useState(300);
   const [saving, setSaving] = useState(false);
   // 席の種別は「オープンスペース」固定。個室は選択できない（変更不可）。
   const roomType = api.ROOM_TYPE_OPEN;
@@ -943,17 +972,9 @@ const CreateScreen = ({ user, onCreated }) => {
       toast.error("相席はオープンスペースのみです。個室での会は作成できません。");
       return;
     }
-    const pt = Number(points);
-    if (!Number.isFinite(pt) || pt < 0) {
-      toast.error("参加ポイントは0以上の数値で入力してください。");
-      return;
-    }
-    if (pt > api.LIMITS.pointRequest) {
-      toast.error(`参加ポイントは${api.LIMITS.pointRequest.toLocaleString()}pt以下で設定してください。`);
-      return;
-    }
     setSaving(true);
     try {
+      // 参加ポイント（一律）とお会計の区分は送らない。サーバ側で確定させる。
       const p = await api.createParty(user.id, {
         title: title.trim(),
         location: location.trim() || null,
@@ -962,9 +983,7 @@ const CreateScreen = ({ user, onCreated }) => {
         host_member_names: hostNames,
         guest_group_size: guestGroup,
         party_time: time,
-        treat_type: treat,
         room_type: roomType,
-        point_request: Number(points) || 0,
       });
       toast.success("会を公開しました。参加リクエストが届くとお知らせします。");
       onCreated(p.id);
@@ -1112,30 +1131,33 @@ const CreateScreen = ({ user, onCreated }) => {
           <input type="time" value={time} onChange={(e) => setTime(e.target.value)} style={{ ...fieldStyle, colorScheme: "dark" }} />
         </div>
 
-        <div style={{ marginBottom: 17 }}>
-          <label style={labelStyle}>お会計</label>
-          <div style={{ display: "flex", gap: 9 }}>
-            {["奢り", "割り勘"].map((t) => {
-              const on = treat === t;
-              return (
-                <button key={t} className="press" onClick={() => setTreat(t)} style={{
-                  flex: 1, padding: "12px 0", borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: "pointer",
-                  ...(on ? { ...popBtn, borderRadius: 999 } : { ...ghostBtn, borderRadius: 999 }),
-                }}>{t === "奢り" ? "◆ 奢り" : "割り勘"}</button>
-              );
-            })}
-          </div>
-        </div>
+        {/* 金額とお会計の区分はホストが決められない（全ての会で共通）。
+            設定項目ではなく、決まりとして提示する。 */}
+        <div style={{ marginBottom: 22, borderRadius: 16, padding: "15px 16px", background: "rgba(255,255,255,0.045)", border: `1px solid ${C.lineSoft}` }}>
+          <Eyebrow style={{ marginBottom: 11 }}>この会の決まり（全ての会で共通）</Eyebrow>
 
-        <div style={{ marginBottom: 22 }}>
-          <label style={labelStyle}>参加ポイント（参加グループが支払う／1人あたり）</label>
-          <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-            <input type="number" min={0} max={api.LIMITS.pointRequest} step={50} inputMode="numeric" value={points} onChange={(e) => setPoints(e.target.value)} style={fieldStyle} />
-            <span style={{ fontSize: 14, color: C.primaryDeep, fontWeight: 700 }}>pt</span>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 9, marginBottom: 11 }}>
+            <Gem size={14} strokeWidth={1.9} color={C.primary} style={{ flexShrink: 0, marginTop: 2 }} />
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 700, color: C.text }}>
+                募集は無料 · 参加は1名あたり <span style={brandText}>{feeText()}pt</span>
+              </div>
+              <div style={{ fontSize: 11, color: C.textSec, lineHeight: 1.7, marginTop: 3 }}>
+                会はいくつでも自由に立てられます。参加ポイントは全ての会で一律で、あなたが金額を決めることはできません。
+                お支払いいただいたポイントは運営が受け取るため、あなたへのポイントの支払いはありません。
+              </div>
+            </div>
           </div>
-          <div style={{ display: "flex", alignItems: "flex-start", gap: 6, marginTop: 9, fontSize: 11, color: C.textMuted, lineHeight: 1.6 }}>
-            <Gem size={13} strokeWidth={1.8} color={C.primary} style={{ flexShrink: 0, marginTop: 1 }} />
-            募集する側（あなた）にポイントはかかりません。グループの参加が承認されるたび、人数分のポイントを受け取れます。
+
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 9, paddingTop: 11, borderTop: `1px solid ${C.lineSoft}` }}>
+            <Wallet size={14} strokeWidth={1.9} color={C.primary} style={{ flexShrink: 0, marginTop: 2 }} />
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 700, color: C.text }}>あなたのグループは、必ずおごられます</div>
+              <div style={{ fontSize: 11, color: C.textSec, lineHeight: 1.7, marginTop: 3 }}>
+                当日のホストグループ（あなたを含む{hostGroup}名）の飲食代は、参加グループが負担します。
+                この決まりは参加者にも会の画面で明示されます。
+              </div>
+            </div>
           </div>
         </div>
 

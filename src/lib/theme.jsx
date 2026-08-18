@@ -126,20 +126,17 @@ export const partyEmoji = (seed = "") => {
   return set[h % set.length];
 };
 
-export const TreatBadge = ({ treat }) => {
-  const gold = treat === "奢り";
-  return (
-    <span style={{
-      display: "inline-flex", alignItems: "center", gap: 4,
-      fontSize: 10.5, fontWeight: 600, letterSpacing: 0.6, whiteSpace: "nowrap",
-      padding: "4px 12px", borderRadius: 999, fontFamily: FONT_BODY,
-      color: gold ? "#241a06" : C.textSec,
-      background: gold ? C.primaryGrad : "rgba(255,255,255,0.07)",
-      border: gold ? "none" : `1px solid ${C.lineSoft}`,
-      boxShadow: gold ? "inset 0 1px 0 rgba(255,255,255,0.5)" : "none",
-    }}>{gold ? "◆ 奢り" : "割り勘"}</span>
-  );
-};
+/* お会計の区分は全ての会で共通。
+   ホストグループの飲食代は、参加グループが負担する（ホストは必ずおごられる）。 */
+export const TreatBadge = () => (
+  <span style={{
+    display: "inline-flex", alignItems: "center", gap: 4,
+    fontSize: 10.5, fontWeight: 600, letterSpacing: 0.6, whiteSpace: "nowrap",
+    padding: "4px 12px", borderRadius: 999, fontFamily: FONT_BODY,
+    color: "#241a06", background: C.primaryGrad, border: "none",
+    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.5)",
+  }}>◆ ゲストのおごり</span>
+);
 
 export const Tag = ({ children }) => (
   <span style={{

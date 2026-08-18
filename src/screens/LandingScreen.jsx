@@ -16,13 +16,13 @@
 import { useState } from "react";
 import {
   UsersRound, Wine, DoorClosed, ShieldCheck, MessageCircle, Lock, Ban,
-  ArrowRight, Sparkles, Gem, ChevronDown, MapPin, Check, Menu, X,
+  ArrowRight, Sparkles, Gem, ChevronDown, MapPin, Check, Menu, X, Wallet,
 } from "lucide-react";
 import {
   C, FONT_LOGO, FONT_HEAD, FONT_DISPLAY, FONT_BODY,
   brandText, card, popBtn, ghostBtn, Eyebrow,
 } from "../lib/theme.jsx";
-import { MIN_AGE, MIN_GROUP_SIZE } from "../lib/api";
+import { MIN_AGE, MIN_GROUP_SIZE, JOIN_FEE_PER_PERSON as JOIN_FEE } from "../lib/api";
 import { FOOTER_NOTICE, LEGAL_UPDATED, CONTACT_EMAIL } from "../lib/legal.js";
 import { POINT_PACKS, packBonus } from "../lib/packs.js";
 
@@ -52,7 +52,8 @@ const FEATURES = [
   { icon: Wine, t: `${MIN_AGE}歳以上限定`, b: `飲酒を伴う場のため、登録時に生年月日で年齢を確認します。${MIN_AGE}歳未満の方は登録できません。` },
   { icon: Ban, t: "性別による制限なし", b: "性別は登録時に一切収集しません。同性グループ同士の会も等しく成立します。" },
   { icon: MapPin, t: "東京の夜の主要エリア", b: "渋谷・恵比寿・中目黒・六本木・西麻布・銀座・新宿。行きたい街から探せます。" },
-  { icon: Gem, t: "ポイント制", b: "募集する側は無料。参加する側だけがポイントを使います。承認された時点でホストへ移ります。" },
+  { icon: Gem, t: "料金は一律", b: `募集する側は無料で、会はいくつでも立てられます。参加する側だけが1名あたり一律${JOIN_FEE.toLocaleString()}ptを使います。` },
+  { icon: Wallet, t: "ホストは、おごられる", b: "当日のホストグループの飲食代は、参加グループが負担する決まりです。募集した側が支払うことはありません。" },
 ];
 
 const STEPS = [
@@ -88,11 +89,15 @@ const FAQ = [
   },
   {
     q: "相手の顔写真は事前に見られますか？",
-    a: "見られません。募集の一覧・詳細で表示されるのは、会の内容（エリア・お店・時間・人数・ポイント）とホストのニックネームまでです。参加者の写真・年齢は、参加が承認されたあとに会の画面で確認できます。",
+    a: "見られません。募集の一覧・詳細で表示されるのは、会の内容（エリア・お店・時間・人数）とホストのニックネームまでです。参加者の写真・年齢は、参加が承認されたあとに会の画面で確認できます。",
   },
   {
     q: "ポイントは誰が払うのですか？",
-    a: "参加を申し込むグループ側だけです。会を募集する側にポイントはかかりません。参加が承認された時点で、参加グループの人数分のポイントがホストへ移ります。飲食代金の精算は当日、利用者同士で行っていただきます。",
+    a: `参加を申し込むグループ側だけです。金額は会にかかわらず一律で、1名あたり${JOIN_FEE.toLocaleString()}pt。参加が承認された時点で消費されます。会を募集する側にポイントはかかりませんし、募集する側がポイントを受け取ることもありません（お支払いいただいたポイントは当社が受け取ります）。`,
+  },
+  {
+    q: "募集する側には何のメリットがありますか？",
+    a: "当日のお会計です。AISEKIでは、ホストグループの飲食代を参加グループが負担する決まりになっています。募集する側はポイントも飲食代も支払わずに、必ずおごられる側になります。募集は無料で、会はいくつでも立てられます。",
   },
   {
     q: "サクラはいませんか？",
@@ -329,8 +334,8 @@ export default function LandingScreen({ onStart }) {
               </div>
               <div style={{ padding: 16 }}>
                 {[
-                  { t: "金曜の夜に、静かな一軒で", a: "恵比寿 · BAR TRENCH", h: 2, g: 3, pt: 300, treat: true },
-                  { t: "week end 前夜祭", a: "中目黒 · 目黒川沿い", h: 3, g: 3, pt: 250, treat: false },
+                  { t: "金曜の夜に、静かな一軒で", a: "恵比寿 · BAR TRENCH", h: 2, g: 3 },
+                  { t: "week end 前夜祭", a: "中目黒 · 目黒川沿い", h: 3, g: 3 },
                 ].map((p, i) => (
                   <div key={p.t} style={{
                     ...card, padding: 14, marginBottom: i === 0 ? 10 : 0,
@@ -344,10 +349,8 @@ export default function LandingScreen({ onStart }) {
                       </div>
                       <span style={{
                         flexShrink: 0, fontSize: 10, fontWeight: 600, letterSpacing: 0.5, padding: "4px 11px", borderRadius: 999,
-                        ...(p.treat
-                          ? { background: C.primaryGrad, color: "#241a06" }
-                          : { background: "rgba(255,255,255,0.07)", color: C.textSec, border: `1px solid ${C.lineSoft}` }),
-                      }}>{p.treat ? "◆ 奢り" : "割り勘"}</span>
+                        background: C.primaryGrad, color: "#241a06",
+                      }}>◆ ゲストのおごり</span>
                     </div>
                     <div style={{
                       display: "flex", justifyContent: "space-between", alignItems: "center",
@@ -357,7 +360,7 @@ export default function LandingScreen({ onStart }) {
                         <UsersRound size={12} strokeWidth={1.8} />ホスト{p.h}名 × 募集{p.g}名
                       </span>
                       <span style={{ fontFamily: FONT_DISPLAY, fontSize: 15, fontWeight: 700, ...brandText }}>
-                        {p.pt}<span style={{ fontSize: 10, fontFamily: FONT_BODY }}> pt</span>
+                        {JOIN_FEE.toLocaleString()}<span style={{ fontSize: 10, fontFamily: FONT_BODY }}> pt</span>
                       </span>
                     </div>
                   </div>
@@ -513,10 +516,31 @@ export default function LandingScreen({ onStart }) {
         <div id="price" style={{ scrollMarginTop: 80 }} />
         <Heading
           eyebrow="Points"
-          sub="会を募集する側は無料です。参加を申し込むグループだけがポイントを使い、承認された時点でホストへ移ります。"
+          sub={`会を募集する側は無料で、いくつでも会を立てられます。参加を申し込むグループだけが、会にかかわらず1名あたり一律${JOIN_FEE.toLocaleString()}ptを使います。`}
         >
-          料金は、<span style={brandText}>ポイント制</span>。
+          参加は、<span style={brandText}>一律{JOIN_FEE.toLocaleString()}pt</span>。
         </Heading>
+
+        {/* 募集する側の見返りは「必ずおごられること」。ここを曖昧にしない。 */}
+        <div style={{
+          ...card, maxWidth: 620, margin: "0 auto 18px", padding: "18px 20px",
+          background: "linear-gradient(135deg, rgba(232,201,135,0.12), rgba(168,32,58,0.14))",
+          border: `1px solid ${C.linePrimary}`,
+        }}>
+          <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+            <Wallet size={18} strokeWidth={1.9} color={C.primary} style={{ flexShrink: 0, marginTop: 2 }} />
+            <div>
+              <div style={{ fontFamily: FONT_HEAD, fontSize: 15, fontWeight: 700, color: C.text, letterSpacing: 0.3 }}>
+                募集した側は、必ずおごられます。
+              </div>
+              <div style={{ fontSize: 12.5, color: C.textSec, lineHeight: 1.9, marginTop: 5 }}>
+                当日のホストグループの飲食代は、参加グループが負担する決まりです。
+                募集する側はポイントも飲食代も支払いません。かわりに、ポイントによる報酬もありません
+                （お支払いいただいたポイントは当社が受け取ります）。
+              </div>
+            </div>
+          </div>
+        </div>
 
         <div style={{ ...card, padding: "clamp(22px, 3.5vw, 32px)", maxWidth: 620, margin: "0 auto" }}>
           {POINT_PACKS.map((p, i, arr) => {
@@ -554,7 +578,8 @@ export default function LandingScreen({ onStart }) {
             marginTop: 18, paddingTop: 16, borderTop: `1px solid ${C.lineSoft}`,
             fontSize: 11.5, color: C.textMuted, lineHeight: 1.95,
           }}>
-            会への参加ポイントはホストが設定します（1名あたり）。飲食代金の精算は当日、利用者同士で行っていただきます。
+            会への参加ポイントは全ての会で一律 {JOIN_FEE.toLocaleString()}pt（1名あたり）で、ホストが金額を設定することはできません。
+            当日の飲食代は、ホストグループの分を含めて参加グループがお支払いください。
             ポイントの払い戻し・換金はできません。
           </div>
         </div>

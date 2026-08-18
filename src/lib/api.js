@@ -11,6 +11,23 @@ import { supabase } from "./supabase";
    ===================================================================== */
 export const MIN_GROUP_SIZE = 2;
 
+/* ===================== 料金（一律・変更不可） =====================
+   ・募集する側（ホスト）は無料。会はいくつでも自由に立てられる。
+   ・参加する側は 1人あたり一律 3,800pt。会ごとの金額設定は無い。
+   ・支払われたポイントは全額が運営の収益で、ホストへの報酬は無い。
+   ・そのかわり、当日のホストグループの飲食代は参加グループが負担する。
+   ここを変えるときは supabase の join_fee_per_person() も必ず合わせること
+   （DB 側の CHECK 制約とトリガーが同じ値を強制している）。
+   ================================================================= */
+export const JOIN_FEE_PER_PERSON = 3800;
+
+/* お会計の区分。ホストは必ずおごられるため、これ以外は保存できない。 */
+export const TREAT_TYPE_GUEST_TREATS = "ゲストのおごり";
+
+/* 参加グループが支払う合計ポイント */
+export const joinFeeFor = (groupSize) =>
+  JOIN_FEE_PER_PERSON * Math.max(0, Number(groupSize) || 0);
+
 /* 席の種別。個室は業態上そもそも選択できない（オープンスペースのみ）。 */
 export const ROOM_TYPE_OPEN = "open";
 export const ROOM_TYPES = [
@@ -41,7 +58,6 @@ export const LIMITS = {
   message: 2000,
   inquiry: 4000,
   inquirySubject: 120,
-  pointRequest: 100000,
 };
 
 export function isValidEmail(v) {
@@ -486,11 +502,13 @@ export async function claimSeat(code) {
   return data; // { party_id, title }
 }
 
-// 会の作成。
+// 会の作成。募集は無料で、いくつでも自由に立てられる。
 //  ・ホスト側・参加側ともに2名以上のグループが必須（1対1は作成不可）
 //  ・席の種別はオープンスペース固定（個室での相席は作成できない）
+//  ・参加ポイントは 1人あたり一律 3,800pt 固定。ホストは金額を設定できない
+//  ・お会計は「ゲストのおごり」固定（ホストは必ずおごられる）
 // 同伴者の席はサーバ側（handle_new_party → create_group_seats）で人数分作られる。
-// 実際の人数・定員・席の種別はサーバ側トリガー／制約が確定させる。
+// 実際の人数・定員・席の種別・金額はサーバ側トリガー／制約が確定させる。
 export async function createParty(hostId, fields) {
   const hostGroup = Number(fields.host_group_size);
   const guestGroup = Number(fields.guest_group_size);
@@ -504,15 +522,8 @@ export async function createParty(hostId, fields) {
   const title = trimTo(fields.title, LIMITS.title);
   if (!title) throw new Error("会の名前を入力してください。");
 
-  const points = Number(fields.point_request);
-  if (!Number.isFinite(points) || points < 0) {
-    throw new Error("参加ポイントは0以上の数値で入力してください。");
-  }
-  if (points > LIMITS.pointRequest) {
-    throw new Error(`参加ポイントは${LIMITS.pointRequest.toLocaleString()}pt以下で設定してください。`);
-  }
-
-  const { host_member_names, room_type, ...rest } = fields;
+  // 金額・お会計の区分はクライアントから受け取らない（一律・変更不可）。
+  const { host_member_names, room_type, point_request, treat_type, ...rest } = fields;
   const { data, error } = await supabase
     .from("parties")
     .insert({
@@ -521,7 +532,8 @@ export async function createParty(hostId, fields) {
       ...rest,
       title,
       location: trimTo(fields.location, LIMITS.location),
-      point_request: Math.floor(points),
+      point_request: JOIN_FEE_PER_PERSON,
+      treat_type: TREAT_TYPE_GUEST_TREATS,
       host_group_size: hostGroup,
       guest_group_size: guestGroup,
       host_member_names: normalizeMemberNames(host_member_names, hostGroup),
@@ -546,7 +558,7 @@ export async function listMyParties(userId) {
 }
 
 /* ====================== Join requests ======================== */
-// グループ単位の参加リクエスト（募集側＝ホストは無料。ポイントは承認時に移動）
+// グループ単位の参加リクエスト（募集側＝ホストは無料。ポイントは承認時に消費される）
 // 同伴者の表示名も一緒に送るが、承認されるまでホストには渡らない（列単位で遮断）。
 export async function sendJoinRequest(userId, partyId, groupSize, memberNames) {
   const size = Number(groupSize);
@@ -595,7 +607,7 @@ export async function listIncomingRequests(userId) {
 
   const { data, error } = await supabase
     .from("join_requests")
-    .select("id, party_id, group_size, applicant_name, status, created_at, party:party_id(id, title, point_request)")
+    .select("id, party_id, group_size, applicant_name, status, created_at, party:party_id(id, title)")
     .in("party_id", ids)
     .eq("status", "pending")
     .order("created_at", { ascending: false });

@@ -25,11 +25,21 @@
 --     purchase_points() は service_role 専用で、アプリからは呼べない。
 --     付与は /api/stripe/webhook → grant_purchased_points() の経路のみ。
 --
+--  設計方針D（料金）
+--   ・募集（ホスト）は無料。会はいくつでも自由に立てられる。
+--   ・参加は 1人あたり一律 3,800pt（join_fee_per_person）。会ごとの設定は無い。
+--   ・支払われたポイントは全額が運営の収益（platform_revenues）。
+--     ホストへのポイント報酬は一切無い。
+--   ・そのかわり、当日のホストグループの飲食代は参加グループが負担する
+--     （treat_type は 'ゲストのおごり' 固定）。
+--
 --  ※ 既存DBへの差分適用は次の順に実行してください。
 --     supabase/migration_group_only.sql
 --     supabase/migration_group_members.sql
 --     supabase/migration_age20_open_space.sql
 --     supabase/migration_stripe_payments.sql
+--     supabase/migration_launch.sql
+--     supabase/migration_fixed_join_fee.sql
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
@@ -41,12 +51,23 @@ create extension if not exists "pgcrypto";
 --  0. サービス共通の定数
 --     ・利用可能年齢（飲酒を伴うため 20歳以上）
 --     ・相席の席種別（オープンスペースのみ。個室は提供しない）
+--     ・参加ポイント（1人あたり一律。ホストは金額を決められない）
+--     ・お会計の区分（ホストは必ずおごられる）
 -- =====================================================================
 create or replace function public.min_age()
 returns int language sql immutable set search_path = public as $$ select 20 $$;
 
 create or replace function public.allowed_room_type()
 returns text language sql immutable set search_path = public as $$ select 'open'::text $$;
+
+-- 参加ポイント（1人あたり・全ての会で一律）。
+-- 画面側（src/lib/api.js の JOIN_FEE_PER_PERSON）と必ず一致させること。
+create or replace function public.join_fee_per_person()
+returns int language sql immutable set search_path = public as $$ select 3800 $$;
+
+-- お会計の区分。ホストは必ずおごられるため、これ以外は保存できない。
+create or replace function public.allowed_treat_type()
+returns text language sql immutable set search_path = public as $$ select 'ゲストのおごり'::text $$;
 
 -- =====================================================================
 --  1. profiles  … ユーザープロフィール（auth.users と 1:1）
@@ -188,9 +209,9 @@ create table if not exists public.parties (
   max_members      int  not null default 4,
   current_members  int  not null default 2,
   party_time       text,                   -- 集合時間（'20:00' 等）
-  treat_type       text not null default '割り勘',   -- '奢り' | '割り勘'
+  treat_type       text not null default 'ゲストのおごり', -- 固定（ホストは必ずおごられる）
   room_type        text not null default 'open',     -- 'open' のみ（個室相席は提供しない）
-  point_request    int  not null default 0,          -- 1人あたり必要ポイント
+  point_request    int  not null default 3800,       -- 1人あたり必要ポイント（一律）
   status           text not null default 'recruiting', -- 'recruiting' | 'matched' | 'completed'
   created_at       timestamptz not null default now()
 );
@@ -212,6 +233,20 @@ alter table public.parties add constraint parties_group_only check (
 update public.parties set room_type = 'open' where room_type is distinct from 'open';
 alter table public.parties drop constraint if exists parties_open_space_only;
 alter table public.parties add constraint parties_open_space_only check (room_type = 'open');
+
+-- 参加ポイントを一律に固定する制約（ホストは金額を決められない）
+update public.parties set point_request = public.join_fee_per_person()
+ where point_request is distinct from public.join_fee_per_person();
+alter table public.parties drop constraint if exists parties_fixed_fee;
+alter table public.parties add constraint parties_fixed_fee
+  check (point_request = public.join_fee_per_person());
+
+-- お会計は「ゲストのおごり」固定（ホストは必ずおごられる）
+update public.parties set treat_type = public.allowed_treat_type()
+ where treat_type is distinct from public.allowed_treat_type();
+alter table public.parties drop constraint if exists parties_treat_type_check;
+alter table public.parties add constraint parties_treat_type_check
+  check (treat_type = public.allowed_treat_type());
 
 -- =====================================================================
 --  5. party_members … 会の「席」。人数の唯一の真実。
@@ -246,9 +281,11 @@ create index if not exists party_members_user_idx  on public.party_members(user_
 
 -- =====================================================================
 --  6. join_requests … 参加リクエスト（参加者 → ホストの会）
---     ・募集する側（ホスト）はポイント不要。
---     ・参加する側（参加者）が point_request を支払い、ホストが受け取る。
---     ・ポイント移動は承認時に accept_join_request() 関数内で実行。
+--     ・募集する側（ホスト）はポイント不要。会は自由に立てられる。
+--     ・参加する側（参加者）が 1人あたり一律 3,800pt を支払う。
+--     ・支払われたポイントは全額が運営の収益（ホストへの報酬は無し）。
+--     ・そのかわり、当日のホストグループの飲食代は参加グループが負担する。
+--     ・ポイントの消費は承認時に accept_join_request() 関数内で実行。
 -- =====================================================================
 create table if not exists public.join_requests (
   id             uuid primary key default gen_random_uuid(),
@@ -267,6 +304,28 @@ create index if not exists join_user_idx  on public.join_requests(user_id);
 -- 同じ会への重複リクエスト（保留中）を防止
 create unique index if not exists join_requests_pending_unique
   on public.join_requests(party_id, user_id) where status = 'pending';
+
+-- =====================================================================
+--  6-b. platform_revenues … 運営の収益台帳
+--     参加が承認されるたび、参加グループが支払ったポイントの全額を記録する。
+--     ホストの残高には一切入らない（ホストへの報酬は無い）。
+--     書き込むのは accept_join_request()（security definer）だけで、
+--     利用者からは読めない（RLS 有効・ポリシー無し）。
+-- =====================================================================
+create table if not exists public.platform_revenues (
+  id              uuid primary key default gen_random_uuid(),
+  party_id        uuid references public.parties(id)       on delete set null,
+  join_request_id uuid references public.join_requests(id) on delete set null,
+  payer_id        uuid references public.profiles(id)      on delete set null,
+  group_size      int  not null check (group_size    > 0),
+  fee_per_person  int  not null check (fee_per_person >= 0),
+  points          int  not null check (points        >= 0),  -- 運営に入る合計
+  created_at      timestamptz not null default now()
+);
+create index if not exists platform_revenues_created_idx
+  on public.platform_revenues(created_at desc);
+create index if not exists platform_revenues_party_idx
+  on public.platform_revenues(party_id);
 
 -- =====================================================================
 --  7. messages … チャット
@@ -514,6 +573,11 @@ begin
   end if;
   new.room_type := public.allowed_room_type();
 
+  -- 参加ポイントは全ての会で一律。ホストは金額を決められない。
+  new.point_request := public.join_fee_per_person();
+  -- ホストは必ずおごられる（当日の飲食代は参加グループが負担する）。
+  new.treat_type    := public.allowed_treat_type();
+
   new.max_members       := new.host_group_size + new.guest_group_size;
   new.current_members   := new.host_group_size;  -- 席作成後にトリガーが再計算する
   new.host_member_names := public.normalize_member_names(new.host_member_names, new.host_group_size);
@@ -528,6 +592,23 @@ drop trigger if exists on_party_group_check on public.parties;
 create trigger on_party_group_check
   before insert on public.parties
   for each row execute function public.enforce_group_party();
+
+-- 会の更新時も、参加ポイントとお会計の区分は書き換えさせない。
+create or replace function public.enforce_party_fee_on_update()
+returns trigger
+language plpgsql security definer set search_path = public
+as $$
+begin
+  new.point_request := public.join_fee_per_person();
+  new.treat_type    := public.allowed_treat_type();
+  return new;
+end;
+$$;
+
+drop trigger if exists on_party_fee_lock on public.parties;
+create trigger on_party_fee_lock
+  before update on public.parties
+  for each row execute function public.enforce_party_fee_on_update();
 
 -- 会の作成時に、ホスト側グループの席を人数分作る
 create or replace function public.handle_new_party()
@@ -764,7 +845,9 @@ begin
 end;
 $$;
 
--- 参加リクエスト承認：参加者が支払い → ホストが受け取る
+-- 参加リクエスト承認：参加グループが一律 3,800pt × 人数 を支払う。
+-- 支払われたポイントは全額が運営の収益になり、ホストは受け取らない。
+-- ホストへの見返りは「当日の飲食代を参加グループが負担すること」。
 create or replace function public.accept_join_request(p_request_id uuid)
 returns void
 language plpgsql security definer set search_path = public
@@ -773,6 +856,7 @@ declare
   v_req   public.join_requests;
   v_party public.parties;
   v_bal   int;
+  v_fee   int;
   v_cost  int;
   v_seats int;
 begin
@@ -796,8 +880,9 @@ begin
     raise exception '残りの枠が足りません';
   end if;
 
-  -- 参加グループの残高チェック（1人あたり point_request × 人数）
-  v_cost := v_party.point_request * v_req.group_size;
+  -- 参加グループの残高チェック（一律 3,800pt × 人数）
+  v_fee  := public.join_fee_per_person();
+  v_cost := v_fee * v_req.group_size;
   select balance into v_bal from public.point_balances where user_id = v_req.user_id for update;
   if coalesce(v_bal, 0) < v_cost then
     raise exception '参加者のポイントが不足しています';
@@ -810,13 +895,12 @@ begin
     insert into public.points (user_id, amount, type, description)
     values (v_req.user_id, -v_cost, 'spend', 'グループ参加: ' || v_party.title);
 
-    -- ホストが受け取る
-    insert into public.point_balances (user_id, balance)
-    values (v_party.host_id, v_cost)
-    on conflict (user_id) do update
-      set balance = public.point_balances.balance + v_cost;
-    insert into public.points (user_id, amount, type, description)
-    values (v_party.host_id, v_cost, 'earn', 'グループ受入: ' || v_party.title);
+    -- 支払われたポイントは全額が運営の収益。ホストの残高には入れない。
+    -- （ホストへの報酬は無し。ホストは当日の飲食代をゲストに負担してもらう）
+    insert into public.platform_revenues
+      (party_id, join_request_id, payer_id, group_size, fee_per_person, points)
+    values
+      (v_party.id, v_req.id, v_req.user_id, v_req.group_size, v_fee, v_cost);
   end if;
 
   -- 参加グループの席を人数分作る（current_members はトリガーが同期する）
@@ -858,6 +942,12 @@ alter table public.parties        enable row level security;
 alter table public.party_members  enable row level security;
 alter table public.join_requests  enable row level security;
 alter table public.messages       enable row level security;
+alter table public.platform_revenues enable row level security;
+
+-- platform_revenues: 運営の売上台帳。利用者には見せない。
+-- ポリシーを作らない ＝ RLS を迂回できる service_role だけが読み書きできる。
+drop policy if exists platform_revenues_select on public.platform_revenues;
+revoke all on public.platform_revenues from anon, authenticated;
 
 -- profiles: 本人 / 同じ会に参加承認された相手のみ閲覧可（不特定多数には非公開）
 drop policy if exists profiles_select on public.profiles;
@@ -1001,5 +1091,16 @@ create policy messages_insert on public.messages for insert with check (
 
 -- =====================================================================
 --  Realtime（チャット用）
+--  ※ alter publication に if not exists は無いので、
+--     既に追加済みの環境で再実行しても止まらないように自分で判定する。
 -- =====================================================================
-alter publication supabase_realtime add table public.messages;
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+     where pubname = 'supabase_realtime'
+       and schemaname = 'public' and tablename = 'messages'
+  ) then
+    alter publication supabase_realtime add table public.messages;
+  end if;
+end $$;

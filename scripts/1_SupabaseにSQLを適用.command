@@ -1,11 +1,10 @@
 #!/bin/bash
 # =====================================================================
-#  最新のマイグレーション（ローンチ用）を
-#  aiseki の Supabase に適用する
+#  最新のマイグレーションを aiseki の Supabase に適用する
 #
 #  このファイルをダブルクリックすると
-#   1) マイグレーションSQL（supabase/migration_launch.sql）を
-#      クリップボードにコピーし
+#   1) マイグレーションSQL（ローンチ用 → 参加ポイント一律化 の順）を
+#      1つにまとめてクリップボードにコピーし
 #   2) Supabase の SQL Editor をブラウザで開きます。
 #
 #  あとは SQL Editor に貼り付け（⌘V）→ Run（⌘Enter）を押すだけです。
@@ -13,24 +12,30 @@
 
 cd "$(dirname "$0")/.." || exit 1
 
-SQL_FILE="supabase/migration_launch.sql"
+# 適用する順番どおりに並べる（後ろのものが前のものを上書きする前提）
+SQL_FILES=(
+  "supabase/migration_launch.sql"
+  "supabase/migration_fixed_join_fee.sql"
+)
 # 接続先は .env から読む（プロジェクトを作り直しても書き換え不要にするため）
 PROJECT_REF=""
 if [ -f ".env" ]; then
   PROJECT_REF=$(grep -E '^VITE_SUPABASE_URL=' .env | head -1 | sed -E 's#.*https://([a-z0-9]+)\.supabase\.co.*#\1#')
 fi
 
-if [ ! -f "$SQL_FILE" ]; then
-  echo "❌ $SQL_FILE が見つかりません。"
-  echo "   このファイルは aiseki プロジェクトの scripts/ に置いてください。"
-  read -n 1 -s -r -p "何かキーを押すと閉じます..."
-  exit 1
-fi
+for f in "${SQL_FILES[@]}"; do
+  if [ ! -f "$f" ]; then
+    echo "❌ $f が見つかりません。"
+    echo "   このファイルは aiseki プロジェクトの scripts/ に置いてください。"
+    read -n 1 -s -r -p "何かキーを押すと閉じます..."
+    exit 1
+  fi
+done
 
-pbcopy < "$SQL_FILE"
+cat "${SQL_FILES[@]}" | pbcopy
 
 echo "✅ マイグレーションSQLをクリップボードにコピーしました。"
-echo "   （$(wc -l < "$SQL_FILE" | tr -d ' ') 行）"
+echo "   （${#SQL_FILES[@]} ファイル / $(cat "${SQL_FILES[@]}" | wc -l | tr -d ' ') 行）"
 echo ""
 echo "▶ 次の手順:"
 echo "   1. これから開くブラウザの SQL Editor で ⌘V を押して貼り付け"
