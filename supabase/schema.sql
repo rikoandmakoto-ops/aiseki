@@ -964,6 +964,10 @@ revoke all on function public.shares_party(uuid, uuid)     from public, anon, au
 -- RLS ポリシーは呼び出し元ロールの権限で評価されるため、EXECUTE を戻さないと
 -- profiles の SELECT が「permission denied for function shares_party」で必ず失敗する。
 grant execute on function public.shares_party(uuid, uuid) to authenticated;
+-- 同様に is_party_member() も members_select / messages_select / messages_insert /
+-- join_insert の各ポリシー本体から呼ばれるため、EXECUTE を戻さないと
+-- 席一覧とチャットが「permission denied for function is_party_member」で失敗する。
+grant execute on function public.is_party_member(uuid, uuid) to authenticated;
 -- 年齢判定は内部専用（他人の年齢を総当たりで調べられないようにする）
 revoke all on function public.is_legal_age(uuid)           from public, anon, authenticated;
 revoke all on function public.assert_legal_age(uuid)       from public, anon, authenticated;
