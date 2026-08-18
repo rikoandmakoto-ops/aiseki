@@ -7,9 +7,14 @@
 
 ---
 
-## 1. データベースの更新（必須）
+## 1. データベースの更新（必須）— ✅ 2026-08-19 適用済み
 
 `supabase/migration_launch.sql` を Supabase に適用する。
+
+> **本番（`tvydtsqirogdxglkoicz`）には 2026-08-19 に適用済み。**
+> 重複外部キー2本（`party_members_user_id_fkey_profiles` /
+> `messages_user_id_fkey_profiles`）の削除まで完了している。
+> 以下の手順は、別環境を立てたときのために残してある。
 
 **やり方（どちらでもよい）**
 

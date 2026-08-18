@@ -502,6 +502,7 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled }) => {
   const [balance, setBalance] = useState(null);
   const [reqStatus, setReqStatus] = useState(null); // null | 'pending' | 'accepted' | 'rejected'
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [sending, setSending] = useState(false);
   const [groupSize, setGroupSize] = useState(MIN_GROUP); // 申し込むグループの人数（2名以上）
   const [guestNames, setGuestNames] = useState([]);      // 同伴者のニックネーム
@@ -527,15 +528,30 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled }) => {
     }
   }, [partyId, user.id]);
 
+  const [reloadKey, setReloadKey] = useState(0);
+
   useEffect(() => {
     let alive = true;
     (async () => {
       setLoading(true);
-      try { await load(); } catch (e) { if (alive) console.error(e); }
+      setLoadError("");
+      try {
+        await load();
+      } catch (e) {
+        console.error(e);
+        if (!alive) return;
+        /* 「取り消された会」と「通信できなかった」は利用者にとって
+           まったく別の話なので、取り違えないよう分けて伝える。 */
+        setLoadError(
+          /failed to fetch|load failed|networkerror/i.test(e.message || "")
+            ? "通信できませんでした。電波の良い場所でもう一度お試しください。"
+            : ""
+        );
+      }
       finally { if (alive) setLoading(false); }
     })();
     return () => { alive = false; };
-  }, [load]);
+  }, [load, reloadKey]);
 
   const sendRequest = async () => {
     setSending(true);
@@ -601,7 +617,23 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled }) => {
       </div>
     );
   }
-  if (!party) return <div style={{ padding: "0 20px" }}><BackButton onBack={onBack} /><EmptyState icon={<XCircle size={24} strokeWidth={1.6} />}>会が見つかりませんでした。<br />取り消された可能性があります。</EmptyState></div>;
+  if (!party) {
+    return (
+      <div style={{ padding: "0 20px" }}>
+        <BackButton onBack={onBack} />
+        <EmptyState
+          icon={<XCircle size={24} strokeWidth={1.6} />}
+          action={
+            <button className="press" onClick={() => setReloadKey((k) => k + 1)} style={{ ...ghostBtn, padding: "11px 26px", fontSize: 13 }}>
+              もう一度読み込む
+            </button>
+          }
+        >
+          {loadError || <>会が見つかりませんでした。<br />取り消された可能性があります。</>}
+        </EmptyState>
+      </div>
+    );
+  }
 
   const { host: hostGroup, guest: guestGroup } = groupSizes(party);
   const seatsLeft = Math.max(0, party.max_members - party.current_members);
@@ -1119,6 +1151,9 @@ const CreateScreen = ({ user, onCreated }) => {
    購入は Stripe Checkout に遷移して行う。
    ポイントの付与は支払い完了後にサーバ（/api/stripe/webhook）が行うため、
    この画面から残高が増えることはない。 */
+/* 変換できる最小単位。スライダーの下限でもある。 */
+const CONVERT_MIN = 100;
+
 const PointsScreen = ({ user, checkoutResult, onCheckoutHandled }) => {
   const { toast, confirm } = useToast();
   const [tab, setTab] = useState("buy");
@@ -1126,6 +1161,7 @@ const PointsScreen = ({ user, checkoutResult, onCheckoutHandled }) => {
   const [history, setHistory] = useState([]);
   const [busy, setBusy] = useState(false);
   const [convertAmt, setConvertAmt] = useState(1000);
+  const canConvert = (balance ?? 0) >= CONVERT_MIN;
   const [notice, setNotice] = useState("");
 
   const load = useCallback(async () => {
@@ -1133,6 +1169,9 @@ const PointsScreen = ({ user, checkoutResult, onCheckoutHandled }) => {
       const [b, h] = await Promise.all([api.getBalance(user.id), api.getPointHistory(user.id)]);
       setBalance(b);
       setHistory(h);
+      /* 変換する量が残高を超えたままだと、スライダーは上限で止まっているのに
+         「1,000pt を変換」と出て、押すと残高不足で弾かれる。残高に合わせておく。 */
+      setConvertAmt((amt) => Math.min(amt, Math.max(CONVERT_MIN, b ?? CONVERT_MIN)));
       return b;
     } catch (e) { console.error(e); return null; }
   }, [user.id]);
@@ -1284,7 +1323,17 @@ const PointsScreen = ({ user, checkoutResult, onCheckoutHandled }) => {
         </div>
       )}
 
-      {tab === "convert" && (
+      {tab === "convert" && !canConvert && (
+        <div className="fade" style={{ ...card, padding: 22 }}>
+          <Eyebrow style={{ marginBottom: 16 }}>オリパpt 変換</Eyebrow>
+          <EmptyState icon={<Repeat size={22} strokeWidth={1.6} />}>
+            変換は{CONVERT_MIN}pt から行えます。<br />
+            現在の残高は{(balance ?? 0).toLocaleString()}ptです。
+          </EmptyState>
+        </div>
+      )}
+
+      {tab === "convert" && canConvert && (
         <div className="fade" style={{ ...card, padding: 22 }}>
           <Eyebrow style={{ marginBottom: 16 }}>オリパpt 変換</Eyebrow>
           <div style={{ background: "rgba(255,255,255,0.045)", border: `1px solid ${C.lineSoft}`, borderRadius: 15, padding: 18, marginBottom: 18 }}>
@@ -1301,7 +1350,7 @@ const PointsScreen = ({ user, checkoutResult, onCheckoutHandled }) => {
             </div>
             <div style={{ fontSize: 10.5, color: C.textMuted, textAlign: "center" }}>変換レート 1pt → 0.85オリパpt（手数料15%）</div>
           </div>
-          <input type="range" min={100} max={Math.max(100, balance || 100)} step={50} value={convertAmt} onChange={(e) => setConvertAmt(Number(e.target.value))} style={{ width: "100%", marginBottom: 18 }} />
+          <input type="range" min={CONVERT_MIN} max={Math.max(CONVERT_MIN, balance || CONVERT_MIN)} step={50} value={convertAmt} onChange={(e) => setConvertAmt(Number(e.target.value))} aria-label="変換するポイント" style={{ width: "100%", marginBottom: 18 }} />
           <button className="lux-cta" onClick={convert} disabled={busy} style={{ ...popBtn, width: "100%", padding: "15px 0", borderRadius: 999, fontSize: 15, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, opacity: busy ? 0.6 : 1 }}>
             <Repeat size={16} strokeWidth={2} /> 変換する
           </button>
@@ -1397,22 +1446,49 @@ const ChatRoom = ({ user, party, onBack }) => {
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const scrollRef = useRef(null);
+  const lookedUp = useRef(new Set());   // プロフィールを引きに行った相手（二重に引かない）
 
   useEffect(() => {
     let alive = true;
+    lookedUp.current = new Set();
     (async () => {
       try {
         const ms = await api.listMessages(party.id);
-        if (alive) setMessages(ms);
-      } catch (e) { console.error(e); }
+        if (alive) { setMessages(ms); setLoadError(""); }
+      } catch (e) {
+        console.error(e);
+        if (alive) setLoadError("メッセージを読み込めませんでした。通信環境をご確認ください。");
+      }
       finally { if (alive) setLoading(false); }
     })();
+
+    /* リアルタイムで届く行は messages の生データで、profiles の埋め込みが無い。
+       そのまま並べると相手の名前が「ゲスト」になってしまうので、
+       すでに読み込んだ発言から表示名を借り、初めて発言した人だけ取りに行く。 */
     const unsub = api.subscribeMessages(party.id, (m) => {
-      setMessages((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]));
+      if (!alive) return;
+      setMessages((prev) => {
+        if (prev.some((x) => x.id === m.id)) return prev;
+        const known = prev.find((x) => x.user_id === m.user_id && x.profiles)?.profiles;
+        return [...prev, known ? { ...m, profiles: known } : m];
+      });
+
+      const uid = m.user_id;
+      if (!uid || uid === user.id || lookedUp.current.has(uid)) return;
+      lookedUp.current.add(uid);
+      api.getProfile(uid)
+        .then((p) => {
+          if (!alive || !p) return;
+          setMessages((prev) =>
+            prev.map((x) => (x.user_id === uid && !x.profiles ? { ...x, profiles: p } : x))
+          );
+        })
+        .catch((e) => console.error(e));
     });
     return () => { alive = false; unsub(); };
-  }, [party.id]);
+  }, [party.id, user.id]);
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -1453,7 +1529,9 @@ const ChatRoom = ({ user, party, onBack }) => {
       </div>
 
       <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: "16px 18px" }}>
-        {loading ? <Spinner /> : messages.length === 0 ? (
+        {loading ? <Spinner /> : loadError ? (
+          <EmptyState icon={<XCircle size={22} strokeWidth={1.6} />}>{loadError}</EmptyState>
+        ) : messages.length === 0 ? (
           <EmptyState icon={<MessageCircle size={22} strokeWidth={1.6} />}>まだメッセージはありません。<br />当日に向けて、最初のひとことを。</EmptyState>
         ) : messages.map((m) => {
           const mine = m.user_id === user.id;
@@ -1886,6 +1964,17 @@ const readCheckoutResult = () => {
   return v === "success" || v === "cancel" ? v : null;
 };
 
+/* ホーム画面に追加したときのショートカット（manifest.webmanifest の shortcuts）は
+   /?tab=create のように開かれる。ここで受け取らないと、どのショートカットから
+   起動してもホームが開いてしまう。決済から戻ったとき（?checkout=）はポイント画面が
+   優先されるため、そちらを先に見る。 */
+const TAB_KEYS = ["home", "chat", "create", "points", "mypage"];
+const readTabParam = () => {
+  if (typeof window === "undefined") return null;
+  const v = new URLSearchParams(window.location.search).get("tab");
+  return TAB_KEYS.includes(v) ? v : null;
+};
+
 /* パスワード再設定メールから戻ってきたかを判定する。
    Supabase はリンク先に #access_token=…&type=recovery を付けて返す
    （バージョンによっては ?type=recovery のクエリ）。両方を見る。 */
@@ -1948,7 +2037,7 @@ export default function App() {
   const [recovery, setRecovery] = useState(isRecoveryLink);
   const [authMode, setAuthMode] = useState(null);   // null = ランディングページ
   const [checkoutResult, setCheckoutResult] = useState(readCheckoutResult);
-  const [tab, setTab] = useState(() => (readCheckoutResult() ? "points" : "home"));
+  const [tab, setTab] = useState(() => (readCheckoutResult() ? "points" : readTabParam() ?? "home"));
   const [detailId, setDetailId] = useState(null);
   const [chatRoom, setChatRoom] = useState(null);
   const [chatRoomId, setChatRoomId] = useState(null); // 通知から開くとき（会の実体は後から引く）
@@ -1972,6 +2061,17 @@ export default function App() {
       }
     });
     return () => sub.subscription.unsubscribe();
+  }, []);
+
+  /* ショートカットで指定されたタブは開いた時点で用が済むので、
+     アドレスバーから ?tab=... を消す。付いたままだと、あとで
+     別のタブを開いてリロードしたときに元に戻ってしまう。 */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has("tab")) return;
+    url.searchParams.delete("tab");
+    window.history.replaceState({}, "", url.pathname + url.search + url.hash);
   }, []);
 
   /* 決済結果を読み終えたら、アドレスバーから ?checkout=... を消す。
