@@ -60,8 +60,8 @@ const NAV = [
 const TabBar = ({ active, onTab }) => (
   <div style={{
     display: "flex", alignItems: "flex-end", padding: "9px 10px 12px",
-    background: "linear-gradient(180deg, rgba(255,255,255,0.86), #ffffff)",
-    borderTop: `1.5px solid ${C.line}`,
+    background: "linear-gradient(180deg, rgba(11,16,32,0.55), rgba(5,8,15,0.94))",
+    borderTop: `1px solid ${C.line}`,
     backdropFilter: "blur(22px)", WebkitBackdropFilter: "blur(22px)",
   }}>
     {NAV.map((t) => {
@@ -74,8 +74,8 @@ const TabBar = ({ active, onTab }) => (
             <button className="press" onClick={() => onTab(t.key)} aria-label={t.label} style={{
               marginTop: -26, width: 54, height: 54, borderRadius: 27, border: "none", cursor: "pointer",
               display: "flex", alignItems: "center", justifyContent: "center",
-              background: C.primaryGrad, color: "#ffffff",
-              boxShadow: "0 10px 24px rgba(41,182,246,0.5), inset 0 1px 0 rgba(255,255,255,0.7), 0 0 0 5px #ffffff",
+              background: C.primaryGrad, color: "#241a06",
+              boxShadow: "0 12px 26px rgba(176,138,60,0.5), inset 0 1px 0 rgba(255,255,255,0.65), 0 0 0 5px #0a0e1c",
             }}>
               <Plus size={24} strokeWidth={2.4} />
             </button>
@@ -171,7 +171,7 @@ const InviteCodeCard = ({ onJoined }) => {
       }}>
         <span style={{
           flexShrink: 0, width: 28, height: 28, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center",
-          background: "rgba(79,195,247,0.14)", border: `1px solid ${C.linePrimary}`, color: C.primaryDeep,
+          background: "rgba(232,201,135,0.12)", border: `1px solid ${C.linePrimary}`, color: C.primaryDeep,
         }}><Ticket size={14} strokeWidth={1.9} /></span>
         <span style={{ flex: 1, fontSize: 12.5, fontWeight: 700, letterSpacing: 0.3 }}>招待コードで参加する</span>
         <span style={{ fontSize: 11, color: C.textMuted }}>{open ? "閉じる" : "同伴者の方はこちら"}</span>
@@ -188,7 +188,7 @@ const InviteCodeCard = ({ onJoined }) => {
               maxLength={8}
               style={{ ...fieldStyle, letterSpacing: 2, fontFamily: FONT_DISPLAY, fontWeight: 700 }}
             />
-            <button className="pop-cta" onClick={submit} disabled={busy} style={{ ...popBtn, padding: "0 18px", borderRadius: 999, fontSize: 13.5, flexShrink: 0, opacity: busy ? 0.6 : 1 }}>
+            <button className="lux-cta" onClick={submit} disabled={busy} style={{ ...popBtn, padding: "0 18px", borderRadius: 999, fontSize: 13.5, flexShrink: 0, opacity: busy ? 0.6 : 1 }}>
               {busy ? "…" : "参加"}
             </button>
           </div>
@@ -203,7 +203,7 @@ const InviteCodeCard = ({ onJoined }) => {
 
 /* ═══════════════════════════════════════════ Featured (hero) card */
 const FeaturedCard = ({ p, onTap }) => (
-  <div className="pop-card" onClick={onTap} style={{
+  <div className="lux-card" onClick={onTap} style={{
     ...card, borderRadius: 22, padding: 0, marginBottom: 16, cursor: "pointer", overflow: "hidden", position: "relative",
     border: `1px solid ${C.linePrimary}`,
   }}>
@@ -211,17 +211,17 @@ const FeaturedCard = ({ p, onTap }) => (
     <div style={{
       position: "relative", height: 128, overflow: "hidden",
       background:
-        "radial-gradient(120% 130% at 82% -10%, rgba(255,95,158,0.5), transparent 58%)," +
-        "radial-gradient(120% 130% at 12% 120%, rgba(79,195,247,0.34), transparent 60%)," +
-        "linear-gradient(135deg, #7ee0ff, #29b6f6)",
+        "radial-gradient(120% 130% at 82% -10%, rgba(168,32,58,0.55), transparent 60%)," +
+        "radial-gradient(120% 130% at 12% 120%, rgba(232,201,135,0.22), transparent 62%)," +
+        "linear-gradient(135deg, #1b2340 0%, #0a0e1c 100%)",
     }}>
       <div style={{ position: "absolute", top: 14, left: 16 }}>
-        <Eyebrow style={{ color: "#ffffff", letterSpacing: 1.2, textShadow: "0 1px 3px rgba(2,90,135,0.35)" }}>✨ 今夜のおすすめグループ</Eyebrow>
+        <Eyebrow style={{ letterSpacing: 2, textShadow: "0 1px 3px rgba(0,0,0,0.5)" }}>◆ 本日のおすすめ</Eyebrow>
       </div>
       <div style={{ position: "absolute", top: 12, right: 14 }}><TreatBadge treat={p.treat_type} /></div>
       <div style={{ position: "absolute", left: 16, bottom: -22, width: 66, height: 66, borderRadius: 33, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 30,
-        background: "#ffffff",
-        border: `3px solid #ffffff`, boxShadow: "0 8px 18px rgba(41,182,246,0.3)" }}>
+        background: "linear-gradient(150deg, #1a2340 0%, #0c1122 100%)",
+        border: `1px solid ${C.linePrimary}`, boxShadow: "0 10px 24px rgba(0,0,0,0.6)" }}>
         {partyEmoji(p.id)}
       </div>
     </div>
@@ -260,8 +260,8 @@ const PartyCard = ({ p, onTap }) => {
   const { host, guest } = groupSizes(p);
   const tags = [`ホスト側 ${host}名`, `募集 ${guest}名グループ`];
   return (
-    <div className="pop-card" onClick={onTap} style={{ ...card, padding: 15, marginBottom: 12, cursor: "pointer", position: "relative", overflow: "hidden" }}>
-      <div style={{ position: "absolute", top: 0, left: 18, right: 18, height: 1, background: "linear-gradient(90deg, transparent, rgba(79,195,247,0.38), transparent)" }} />
+    <div className="lux-card" onClick={onTap} style={{ ...card, padding: 15, marginBottom: 12, cursor: "pointer", position: "relative", overflow: "hidden" }}>
+      <div style={{ position: "absolute", top: 0, left: 18, right: 18, height: 1, background: "linear-gradient(90deg, transparent, rgba(232,201,135,0.38), transparent)" }} />
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 11 }}>
         <div style={{ display: "flex", gap: 12, alignItems: "center", minWidth: 0 }}>
           <AvatarBubble size={48}>{partyEmoji(p.id)}</AvatarBubble>
@@ -333,7 +333,7 @@ const HomeScreen = ({ user, onDetail }) => {
         <div style={{
           display: "inline-flex", alignItems: "center", gap: 6, marginTop: 10,
           padding: "5px 12px", borderRadius: 20, fontSize: 10.5, fontWeight: 700, letterSpacing: 0.4,
-          color: C.primaryDeep, background: "rgba(79,195,247,0.12)", border: `1px solid ${C.linePrimary}`,
+          color: C.primaryDeep, background: "rgba(232,201,135,0.10)", border: `1px solid ${C.linePrimary}`,
         }}>
           <UsersRound size={12} strokeWidth={2} /> {MIN_GROUP}名以上のグループ同士 · オープンスペースのみ · {MIN_AGE}歳以上
         </div>
@@ -351,8 +351,8 @@ const HomeScreen = ({ user, onDetail }) => {
               <button key={a} className="chip" onClick={() => setArea(a === "すべて" ? null : a)} style={{
                 padding: "7px 16px", borderRadius: 22, fontSize: 12.5, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
                 ...(on
-                  ? { ...popBtn, borderRadius: 999, color: "#ffffff", boxShadow: "0 6px 16px rgba(41,182,246,0.36), inset 0 1px 0 rgba(255,255,255,0.55)" }
-                  : { background: "rgba(79,195,247,0.09)", border: `1px solid ${C.lineSoft}`, color: C.textSec }),
+                  ? { ...popBtn, borderRadius: 999, boxShadow: "0 6px 16px rgba(176,138,60,0.4), inset 0 1px 0 rgba(255,255,255,0.55)" }
+                  : { background: "rgba(255,255,255,0.05)", border: `1px solid ${C.lineSoft}`, color: C.textSec }),
               }}>{a}</button>
             );
           })}
@@ -362,13 +362,13 @@ const HomeScreen = ({ user, onDetail }) => {
       {/* incoming join requests (host inbox) */}
       {incoming.length > 0 && (
         <div style={{ padding: "8px 20px 0" }}>
-          <Eyebrow style={{ marginBottom: 11 }}>📩 グループ参加リクエスト</Eyebrow>
+          <Eyebrow style={{ marginBottom: 11 }}>◆ グループ参加リクエスト</Eyebrow>
           {incoming.map((r, i) => {
             const pt = r.party?.point_request ?? 0;
             const size = Math.max(MIN_GROUP, r.group_size ?? MIN_GROUP);
             return (
               <div key={r.id} className="rise" style={{ ...card, padding: 16, marginBottom: 10, animationDelay: `${i * 60}ms`,
-                background: "linear-gradient(135deg, rgba(255,95,158,0.22), rgba(255,180,95,0.08))", border: "1px solid rgba(255,95,158,0.32)" }}>
+                background: "linear-gradient(135deg, rgba(168,32,58,0.30), rgba(232,201,135,0.07))", border: `1px solid ${C.linePrimary}` }}>
                 {/* 承認前に表示するのは代表者のニックネームとグループ人数のみ。
                     顔写真・年齢などのプロフィールは承認後にのみ閲覧できる。 */}
                 <div style={{ display: "flex", alignItems: "center", gap: 11, marginBottom: 11 }}>
@@ -390,7 +390,7 @@ const HomeScreen = ({ user, onDetail }) => {
                   メンバーのプロフィールは、承認後に会の画面で確認できます。
                 </div>
                 <div style={{ display: "flex", gap: 9 }}>
-                  <button className="pop-cta" onClick={() => respond(r.id, "accepted")} style={{ ...popBtn, flex: 1, padding: "11px 0", borderRadius: 999, fontSize: 13, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                  <button className="lux-cta" onClick={() => respond(r.id, "accepted")} style={{ ...popBtn, flex: 1, padding: "11px 0", borderRadius: 999, fontSize: 13, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
                     <Check size={15} strokeWidth={2.5} /> 承認する
                   </button>
                   <button className="press" onClick={() => respond(r.id, "rejected")} style={{ ...ghostBtn, flex: 1, padding: "11px 0", borderRadius: 999, fontSize: 13 }}>見送る</button>
@@ -404,12 +404,12 @@ const HomeScreen = ({ user, onDetail }) => {
       {/* feed */}
       <div style={{ padding: "12px 20px 24px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 14 }}>
-          <Eyebrow style={{ color: C.textMuted }}>募集中のグループ飲み会</Eyebrow>
+          <Eyebrow style={{ color: C.textMuted }}>本日の募集中の会</Eyebrow>
           <span style={{ fontSize: 11.5, color: C.textFaint, fontFamily: FONT_DISPLAY, fontWeight: 600, letterSpacing: 0.5 }}>{loading ? "…" : `${parties.length} groups`}</span>
         </div>
         {loading ? <Spinner /> : parties.length === 0 ? (
           <EmptyState icon={<Wine size={24} strokeWidth={1.6} />}>
-            この条件で募集中の会はまだありません。<br />「＋」から、最初のグループ飲み会を立ち上げましょう。
+            この条件で募集中の会はまだありません。<br />「＋」から、あなたの会を主催してみませんか。
           </EmptyState>
         ) : (
           <>
@@ -521,13 +521,13 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints }) => {
         <div style={{
           height: 96, position: "relative",
           background:
-            "radial-gradient(120% 130% at 82% -10%, rgba(255,95,158,0.45), transparent 58%)," +
-            "radial-gradient(120% 130% at 10% 120%, rgba(79,195,247,0.30), transparent 60%)," +
-            "linear-gradient(135deg, #7ee0ff, #29b6f6)",
+            "radial-gradient(120% 130% at 82% -10%, rgba(168,32,58,0.5), transparent 60%)," +
+            "radial-gradient(120% 130% at 10% 120%, rgba(232,201,135,0.20), transparent 62%)," +
+            "linear-gradient(135deg, #1b2340 0%, #0a0e1c 100%)",
         }}>
           <div style={{ position: "absolute", top: 14, right: 16 }}><TreatBadge treat={party.treat_type} /></div>
           <div style={{ position: "absolute", left: 22, bottom: -28, width: 66, height: 66, borderRadius: 33, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 30,
-            background: "#ffffff", border: "3px solid #ffffff", boxShadow: "0 8px 18px rgba(41,182,246,0.3)" }}>
+            background: "linear-gradient(150deg, #1a2340 0%, #0c1122 100%)", border: `1px solid ${C.linePrimary}`, boxShadow: "0 10px 24px rgba(0,0,0,0.6)" }}>
             {partyEmoji(party.id)}
           </div>
         </div>
@@ -548,11 +548,11 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints }) => {
           {!canSeeMembers && (
             <div style={{
               display: "flex", gap: 11, alignItems: "flex-start", marginBottom: 22,
-              background: "rgba(79,195,247,0.08)", border: `1px solid ${C.lineSoft}`, borderRadius: 15, padding: "14px 16px",
+              background: "rgba(255,255,255,0.045)", border: `1px solid ${C.lineSoft}`, borderRadius: 15, padding: "14px 16px",
             }}>
               <span style={{
                 flexShrink: 0, width: 32, height: 32, borderRadius: 16, display: "flex", alignItems: "center", justifyContent: "center",
-                background: "rgba(79,195,247,0.12)", border: `1px solid ${C.linePrimary}`, color: C.primaryDeep,
+                background: "rgba(232,201,135,0.10)", border: `1px solid ${C.linePrimary}`, color: C.primaryDeep,
               }}><Lock size={15} strokeWidth={1.9} /></span>
               <div>
                 <div style={{ fontSize: 12.5, fontWeight: 700, color: C.text, letterSpacing: 0.3 }}>メンバーのプロフィールは非公開です</div>
@@ -578,24 +578,24 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints }) => {
                     <div key={m.id} style={{ textAlign: "center", flexShrink: 0, width: 74 }}>
                       <div style={{
                         position: "relative", width: 68, height: 68, margin: "0 auto", borderRadius: 34, padding: 2,
-                        background: claimed ? C.primaryGrad : "rgba(79,195,247,0.16)",
-                        boxShadow: claimed ? "0 6px 16px rgba(41,182,246,0.16)" : "none",
+                        background: claimed ? C.primaryGrad : "rgba(232,201,135,0.14)",
+                        boxShadow: claimed ? "0 6px 16px rgba(0,0,0,0.45)" : "none",
                         opacity: claimed ? 1 : 0.72,
                       }}>
                         {claimed && prof.avatar_url ? (
-                          <img src={prof.avatar_url} alt={name} loading="lazy" style={{ width: "100%", height: "100%", borderRadius: 32, objectFit: "cover", display: "block", background: "#e3f6ff" }} />
+                          <img src={prof.avatar_url} alt={name} loading="lazy" style={{ width: "100%", height: "100%", borderRadius: 32, objectFit: "cover", display: "block", background: "#141c33" }} />
                         ) : (
                           <div style={{
                             width: "100%", height: "100%", borderRadius: 32, display: "flex", alignItems: "center", justifyContent: "center",
-                            background: "#eaf8ff", color: claimed ? C.primary : C.textMuted,
+                            background: "#141c33", color: claimed ? C.primary : C.textMuted,
                             border: claimed ? "none" : `1px dashed ${C.lineSoft}`,
                           }}>
                             {m.role === "host" ? <Crown size={24} strokeWidth={1.7} /> : <User size={24} strokeWidth={1.7} />}
                           </div>
                         )}
                         {m.role === "host" && (
-                          <div style={{ position: "absolute", top: -4, right: -2, background: C.primaryGrad, borderRadius: 10, padding: "2px 3px", boxShadow: "0 2px 6px rgba(41,182,246,0.16)" }}>
-                            <Crown size={11} strokeWidth={2.2} color="#ffffff" />
+                          <div style={{ position: "absolute", top: -4, right: -2, background: C.primaryGrad, borderRadius: 10, padding: "2px 3px", boxShadow: "0 2px 6px rgba(0,0,0,0.5)" }}>
+                            <Crown size={11} strokeWidth={2.2} color="#241a06" />
                           </div>
                         )}
                       </div>
@@ -612,7 +612,7 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints }) => {
 
           {/* 自分のグループの未登録席 … 同伴者に渡す招待コード */}
           {canSeeMembers && mySeats.some((s) => s.invite_code) && (
-            <div style={{ marginBottom: 24, borderRadius: 16, padding: "15px 16px", background: "rgba(79,195,247,0.10)", border: `1px solid ${C.linePrimary}` }}>
+            <div style={{ marginBottom: 24, borderRadius: 16, padding: "15px 16px", background: "rgba(232,201,135,0.08)", border: `1px solid ${C.linePrimary}` }}>
               <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 4 }}>
                 <Ticket size={14} strokeWidth={1.9} color={C.primary} />
                 <span style={{ fontSize: 12.5, fontWeight: 700, color: C.text, letterSpacing: 0.3 }}>同伴者を招待する</span>
@@ -634,7 +634,7 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints }) => {
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 18 }}>
             {INFO.map((item) => (
-              <div key={item.label} style={{ background: "rgba(79,195,247,0.08)", border: `1px solid ${C.lineSoft}`, borderRadius: 14, padding: "13px 14px" }}>
+              <div key={item.label} style={{ background: "rgba(255,255,255,0.045)", border: `1px solid ${C.lineSoft}`, borderRadius: 14, padding: "13px 14px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10.5, color: C.textMuted, marginBottom: 6, letterSpacing: 0.5, textTransform: "uppercase" }}>
                   <item.icon size={13} strokeWidth={1.8} /> {item.label}
                 </div>
@@ -676,8 +676,8 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints }) => {
 
               <div style={{
                 borderRadius: 16, padding: 18, marginBottom: 18, position: "relative", overflow: "hidden",
-                background: "linear-gradient(135deg, rgba(255,95,158,0.24), rgba(255,180,95,0.12))",
-                border: `1px solid rgba(255,95,158,0.32)`,
+                background: "linear-gradient(135deg, rgba(168,32,58,0.28), rgba(232,201,135,0.10))",
+                border: `1px solid ${C.linePrimary}`,
               }}>
                 <div style={{ fontSize: 10.5, color: C.textSec, fontWeight: 800, marginBottom: 6, letterSpacing: 0.2 }}>参加に必要なポイント（グループ合計）</div>
                 <div style={{ fontSize: 32, fontWeight: 700, fontFamily: FONT_DISPLAY, lineHeight: 1, ...brandText }}>{cost.toLocaleString()}<span style={{ fontSize: 15, fontFamily: FONT_BODY, fontWeight: 600 }}> pt</span></div>
@@ -717,7 +717,7 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints }) => {
               <Gem size={16} strokeWidth={2.2} /> ポイントが不足しています（購入する）
             </button>
           ) : (
-            <button className="pop-cta" onClick={sendRequest} disabled={sending} style={{
+            <button className="lux-cta" onClick={sendRequest} disabled={sending} style={{
               ...popBtn, width: "100%", padding: "15px 0", borderRadius: 999, fontSize: 15,
               display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8,
               opacity: sending ? 0.7 : 1, cursor: sending ? "default" : "pointer",
@@ -796,18 +796,18 @@ const CreateScreen = ({ user, onCreated }) => {
 
   return (
     <div style={{ padding: "16px 20px 24px" }}>
-      <SectionTitle sub="Host a group dinner">グループ飲み会を作成</SectionTitle>
+      <SectionTitle sub="Host an evening">グループ相席を主催する</SectionTitle>
 
       {/* グループ限定・オープンスペース限定・20歳以上限定であることを作成画面でも明示 */}
       <div className="fade" style={{
         display: "flex", gap: 11, alignItems: "flex-start", marginBottom: 14,
         borderRadius: 16, padding: "14px 16px",
-        background: "linear-gradient(135deg, rgba(79,195,247,0.14), rgba(255,164,110,0.16))",
+        background: "linear-gradient(135deg, rgba(232,201,135,0.13), rgba(168,32,58,0.16))",
         border: `1px solid ${C.linePrimary}`,
       }}>
         <span style={{
           flexShrink: 0, width: 32, height: 32, borderRadius: 16, display: "flex", alignItems: "center", justifyContent: "center",
-          background: "rgba(79,195,247,0.14)", border: `1px solid ${C.linePrimary}`, color: C.primaryDeep,
+          background: "rgba(232,201,135,0.12)", border: `1px solid ${C.linePrimary}`, color: C.primaryDeep,
         }}><UsersRound size={15} strokeWidth={1.9} /></span>
         <div>
           <div style={{ fontSize: 12.5, fontWeight: 700, color: C.text, letterSpacing: 0.3 }}>{MIN_GROUP}名以上のグループ同士 · オープンスペースのみ</div>
@@ -821,7 +821,7 @@ const CreateScreen = ({ user, onCreated }) => {
       <div className="fade" style={{ ...card, padding: 22 }}>
         <div style={{ marginBottom: 17 }}>
           <label style={labelStyle}>会の名前</label>
-          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="例: 金曜の乾杯、軽く一杯" style={fieldStyle} />
+          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="例: 金曜の夜に、静かな一軒で" style={fieldStyle} />
         </div>
         <div style={{ marginBottom: 17 }}>
           <label style={labelStyle}>お店</label>
@@ -835,7 +835,7 @@ const CreateScreen = ({ user, onCreated }) => {
               return (
                 <button key={a} className="chip" onClick={() => setArea(on ? "" : a)} style={{
                   padding: "7px 15px", borderRadius: 20, fontSize: 12.5, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
-                  ...(on ? { ...popBtn, borderRadius: 999 } : { background: "rgba(79,195,247,0.09)", border: `1px solid ${C.lineSoft}`, color: C.textSec }),
+                  ...(on ? { ...popBtn, borderRadius: 999 } : { background: "rgba(255,255,255,0.05)", border: `1px solid ${C.lineSoft}`, color: C.textSec }),
                 }}>{a}</button>
               );
             })}
@@ -904,7 +904,7 @@ const CreateScreen = ({ user, onCreated }) => {
         <div style={{ marginBottom: 17 }}>
           <label style={labelStyle}>募集するグループの人数（{MIN_GROUP}名以上）</label>
           <GroupPicker value={guestGroup} onChange={setGuestGroup} />
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 10, padding: "10px 13px", borderRadius: 12, background: "rgba(79,195,247,0.08)", border: `1px solid ${C.lineSoft}` }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 10, padding: "10px 13px", borderRadius: 12, background: "rgba(255,255,255,0.045)", border: `1px solid ${C.lineSoft}` }}>
             <span style={{ fontSize: 11.5, color: C.textSec }}>合計人数</span>
             <span style={{ fontSize: 14, fontWeight: 700, fontFamily: FONT_DISPLAY, ...brandText }}>
               {hostGroup + guestGroup}<span style={{ fontSize: 11, fontFamily: FONT_BODY, fontWeight: 600 }}> 名</span>
@@ -914,7 +914,7 @@ const CreateScreen = ({ user, onCreated }) => {
 
         <div style={{ marginBottom: 17 }}>
           <label style={labelStyle}>時間</label>
-          <input type="time" value={time} onChange={(e) => setTime(e.target.value)} style={{ ...fieldStyle, colorScheme: "light" }} />
+          <input type="time" value={time} onChange={(e) => setTime(e.target.value)} style={{ ...fieldStyle, colorScheme: "dark" }} />
         </div>
 
         <div style={{ marginBottom: 17 }}>
@@ -926,7 +926,7 @@ const CreateScreen = ({ user, onCreated }) => {
                 <button key={t} className="press" onClick={() => setTreat(t)} style={{
                   flex: 1, padding: "12px 0", borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: "pointer",
                   ...(on ? { ...popBtn, borderRadius: 999 } : { ...ghostBtn, borderRadius: 999 }),
-                }}>{t === "奢り" ? "🎁 奢り" : "割り勘"}</button>
+                }}>{t === "奢り" ? "◆ 奢り" : "割り勘"}</button>
               );
             })}
           </div>
@@ -944,8 +944,8 @@ const CreateScreen = ({ user, onCreated }) => {
           </div>
         </div>
 
-        <button className="pop-cta" onClick={submit} disabled={saving} style={{ ...popBtn, width: "100%", padding: "15px 0", borderRadius: 999, fontSize: 15, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, opacity: saving ? 0.7 : 1 }}>
-          {saving ? "作成中…" : <><Sparkles size={16} strokeWidth={2} /> グループ飲み会を作成する</>}
+        <button className="lux-cta" onClick={submit} disabled={saving} style={{ ...popBtn, width: "100%", padding: "15px 0", borderRadius: 999, fontSize: 15, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, opacity: saving ? 0.7 : 1 }}>
+          {saving ? "作成中…" : <><Sparkles size={16} strokeWidth={2} /> この会を公開する</>}
         </button>
       </div>
     </div>
@@ -1039,21 +1039,21 @@ const PointsScreen = ({ user, checkoutResult, onCheckoutHandled }) => {
       {/* balance card */}
       <div className="fade" style={{
         borderRadius: 26, padding: "26px 24px", marginBottom: 18, position: "relative", overflow: "hidden",
-        background: "linear-gradient(140deg, #7ee0ff 0%, #4fc3f7 46%, #29b6f6 100%)",
-        border: "none", boxShadow: "0 16px 32px rgba(41,182,246,0.34), inset 0 2px 0 rgba(255,255,255,0.45)",
+        background: C.primaryGrad,
+        border: "none", boxShadow: "0 18px 38px rgba(176,138,60,0.34), inset 0 1px 0 rgba(255,255,255,0.6)",
       }}>
-        <div style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: 62, background: "linear-gradient(90deg, rgba(255,255,255,0.34), transparent)", animation: "sheen 5.5s ease-in-out infinite" }} />
+        <div style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: 62, background: "linear-gradient(90deg, rgba(255,255,255,0.42), transparent)", animation: "sheen 5.5s ease-in-out infinite" }} />
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", position: "relative" }}>
           <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10.5, color: "rgba(255,255,255,0.9)", marginBottom: 10, letterSpacing: 1.6, fontWeight: 800, textTransform: "uppercase" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "rgba(36,26,6,0.72)", marginBottom: 10, letterSpacing: 2.2, fontWeight: 600, textTransform: "uppercase" }}>
               <Gem size={12} strokeWidth={2.2} /> Point Balance
             </div>
-            <div style={{ fontSize: 46, fontWeight: 800, fontFamily: FONT_DISPLAY, lineHeight: 1, marginBottom: 8, color: "#ffffff", textShadow: "0 2px 6px rgba(2,90,135,0.28)" }}>
-              {balance === null ? "…" : balance.toLocaleString()}<span style={{ fontSize: 17, fontWeight: 700, fontFamily: FONT_BODY }}> pt</span>
+            <div style={{ fontSize: 46, fontWeight: 600, fontFamily: FONT_DISPLAY, lineHeight: 1, marginBottom: 8, color: "#241a06" }}>
+              {balance === null ? "…" : balance.toLocaleString()}<span style={{ fontSize: 17, fontWeight: 500, fontFamily: FONT_BODY }}> pt</span>
             </div>
-            <div style={{ fontSize: 11.5, color: "rgba(255,255,255,0.92)", fontWeight: 600 }}>グループ飲み会の参加に使えるポイント</div>
+            <div style={{ fontSize: 11.5, color: "rgba(36,26,6,0.78)", fontWeight: 500, letterSpacing: 0.4 }}>グループ相席のご参加に使えるポイント</div>
           </div>
-          <div style={{ width: 44, height: 44, borderRadius: 22, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(255,255,255,0.28)", border: "2px solid rgba(255,255,255,0.55)", color: "#ffffff" }}>
+          <div style={{ width: 44, height: 44, borderRadius: 22, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(36,26,6,0.14)", border: "1px solid rgba(36,26,6,0.28)", color: "#241a06" }}>
             <Gem size={20} strokeWidth={2} />
           </div>
         </div>
@@ -1064,7 +1064,7 @@ const PointsScreen = ({ user, checkoutResult, onCheckoutHandled }) => {
         <div className="fade" style={{
           display: "flex", alignItems: "flex-start", gap: 9, marginBottom: 16,
           borderRadius: 14, padding: "12px 15px", fontSize: 12, lineHeight: 1.7,
-          color: C.primaryDeep, background: "rgba(79,195,247,0.14)", border: `1px solid ${C.linePrimary}`,
+          color: C.primaryDeep, background: "rgba(232,201,135,0.12)", border: `1px solid ${C.linePrimary}`,
         }}>
           <Gem size={14} strokeWidth={1.9} color={C.primary} style={{ flexShrink: 0, marginTop: 2 }} />
           <span style={{ flex: 1 }}>{notice}</span>
@@ -1075,14 +1075,14 @@ const PointsScreen = ({ user, checkoutResult, onCheckoutHandled }) => {
       )}
 
       {/* segmented tabs */}
-      <div style={{ display: "flex", gap: 7, marginBottom: 18, background: "rgba(79,195,247,0.08)", padding: 4, borderRadius: 14, border: `1px solid ${C.lineSoft}` }}>
+      <div style={{ display: "flex", gap: 7, marginBottom: 18, background: "rgba(255,255,255,0.045)", padding: 4, borderRadius: 14, border: `1px solid ${C.lineSoft}` }}>
         {TABS.map((t) => {
           const on = tab === t.key;
           return (
             <button key={t.key} className="press" onClick={() => setTab(t.key)} style={{
               flex: 1, padding: "9px 0", borderRadius: 10, fontSize: 12.5, fontWeight: 700, cursor: "pointer", border: "none",
               display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
-              ...(on ? { background: C.primaryGrad, color: "#ffffff", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.5)" } : { background: "transparent", color: C.textSec }),
+              ...(on ? { background: C.primaryGrad, color: "#241a06", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.5)" } : { background: "transparent", color: C.textSec }),
             }}><t.icon size={14} strokeWidth={2} />{t.label}</button>
           );
         })}
@@ -1094,13 +1094,13 @@ const PointsScreen = ({ user, checkoutResult, onCheckoutHandled }) => {
           {POINT_PACKS.map((p, i, arr) => {
             const bonus = packBonus(p);
             return (
-              <div key={p.id} className="pop-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 6px", margin: "0 -6px", borderRadius: 10, borderBottom: i < arr.length - 1 ? `1px solid ${C.lineSoft}` : "none" }}>
+              <div key={p.id} className="lux-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 6px", margin: "0 -6px", borderRadius: 10, borderBottom: i < arr.length - 1 ? `1px solid ${C.lineSoft}` : "none" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap" }}>
                   <span style={{ fontSize: 17, fontWeight: 700, fontFamily: FONT_DISPLAY, color: C.text }}>{p.points.toLocaleString()}<span style={{ fontSize: 11, fontFamily: FONT_BODY, fontWeight: 600 }}> pt</span></span>
                   {bonus > 0 && <Tag>+{bonus.toLocaleString()} ボーナス</Tag>}
-                  {p.popular && <span style={{ fontSize: 10, fontWeight: 700, color: "#ffffff", background: C.primaryGrad, padding: "2px 9px", borderRadius: 20, boxShadow: "inset 0 1px 0 rgba(255,255,255,0.5)" }}>人気</span>}
+                  {p.popular && <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: 0.6, color: "#241a06", background: C.primaryGrad, padding: "2px 10px", borderRadius: 999, boxShadow: "inset 0 1px 0 rgba(255,255,255,0.5)" }}>人気</span>}
                 </div>
-                <button className="pop-cta" onClick={() => buy(p)} disabled={busy} style={{ ...popBtn, padding: "9px 17px", borderRadius: 999, fontSize: 13, opacity: busy ? 0.6 : 1 }}>¥{p.price.toLocaleString()}</button>
+                <button className="lux-cta" onClick={() => buy(p)} disabled={busy} style={{ ...popBtn, padding: "9px 17px", borderRadius: 999, fontSize: 13, opacity: busy ? 0.6 : 1 }}>¥{p.price.toLocaleString()}</button>
               </div>
             );
           })}
@@ -1117,7 +1117,7 @@ const PointsScreen = ({ user, checkoutResult, onCheckoutHandled }) => {
       {tab === "convert" && (
         <div className="fade" style={{ ...card, padding: 22 }}>
           <Eyebrow style={{ marginBottom: 16 }}>オリパpt 変換</Eyebrow>
-          <div style={{ background: "rgba(79,195,247,0.08)", border: `1px solid ${C.lineSoft}`, borderRadius: 15, padding: 18, marginBottom: 18 }}>
+          <div style={{ background: "rgba(255,255,255,0.045)", border: `1px solid ${C.lineSoft}`, borderRadius: 15, padding: 18, marginBottom: 18 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
               <div>
                 <div style={{ fontSize: 10.5, color: C.textMuted, letterSpacing: 0.5 }}>変換元</div>
@@ -1132,7 +1132,7 @@ const PointsScreen = ({ user, checkoutResult, onCheckoutHandled }) => {
             <div style={{ fontSize: 10.5, color: C.textMuted, textAlign: "center" }}>変換レート 1pt → 0.85オリパpt（手数料15%）</div>
           </div>
           <input type="range" min={100} max={Math.max(100, balance || 100)} step={50} value={convertAmt} onChange={(e) => setConvertAmt(Number(e.target.value))} style={{ width: "100%", marginBottom: 18 }} />
-          <button className="pop-cta" onClick={convert} disabled={busy} style={{ ...popBtn, width: "100%", padding: "15px 0", borderRadius: 999, fontSize: 15, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, opacity: busy ? 0.6 : 1 }}>
+          <button className="lux-cta" onClick={convert} disabled={busy} style={{ ...popBtn, width: "100%", padding: "15px 0", borderRadius: 999, fontSize: 15, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, opacity: busy ? 0.6 : 1 }}>
             <Repeat size={16} strokeWidth={2} /> 変換する
           </button>
         </div>
@@ -1145,7 +1145,7 @@ const PointsScreen = ({ user, checkoutResult, onCheckoutHandled }) => {
             const up = h.amount >= 0;
             const d = new Date(h.created_at);
             return (
-              <div key={h.id} className="pop-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "13px 6px", margin: "0 -6px", borderRadius: 10, borderBottom: i < arr.length - 1 ? `1px solid ${C.lineSoft}` : "none" }}>
+              <div key={h.id} className="lux-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "13px 6px", margin: "0 -6px", borderRadius: 10, borderBottom: i < arr.length - 1 ? `1px solid ${C.lineSoft}` : "none" }}>
                 <div>
                   <div style={{ fontSize: 13.5, fontWeight: 500, color: C.text }}>{h.description || h.type}</div>
                   <div style={{ fontSize: 10.5, color: C.textMuted, marginTop: 2 }}>{d.getMonth() + 1}月{d.getDate()}日</div>
@@ -1186,7 +1186,7 @@ const ChatScreen = ({ user, openRoom }) => {
       <div style={{
         display: "flex", gap: 8, alignItems: "flex-start", marginBottom: 16,
         borderRadius: 14, padding: "11px 14px",
-        background: "rgba(79,195,247,0.08)", border: `1px solid ${C.lineSoft}`,
+        background: "rgba(255,255,255,0.045)", border: `1px solid ${C.lineSoft}`,
       }}>
         <UsersRound size={14} strokeWidth={1.9} color={C.primary} style={{ flexShrink: 0, marginTop: 2 }} />
         <span style={{ fontSize: 11.5, color: C.textSec, lineHeight: 1.7 }}>
@@ -1195,12 +1195,12 @@ const ChatScreen = ({ user, openRoom }) => {
       </div>
       {loading ? <Spinner /> : rooms.length === 0 ? (
         <EmptyState icon={<MessageCircle size={24} strokeWidth={1.6} />}>
-          参加中の会がありません。<br />グループ飲み会を作るか、参加リクエストが承認されると<br />グループチャットが始まります。
+          参加中の会がありません。<br />会を主催するか、参加リクエストが承認されると<br />グループチャットが始まります。
         </EmptyState>
       ) : rooms.map((c, i) => {
         const matched = c.status === "matched";
         return (
-          <div key={c.id} className="pop-card" onClick={() => openRoom(c)} style={{ ...card, display: "flex", gap: 13, alignItems: "center", padding: 15, marginBottom: 11, cursor: "pointer", animationDelay: `${i * 50}ms` }}>
+          <div key={c.id} className="lux-card" onClick={() => openRoom(c)} style={{ ...card, display: "flex", gap: 13, alignItems: "center", padding: 15, marginBottom: 11, cursor: "pointer", animationDelay: `${i * 50}ms` }}>
             <AvatarBubble size={46}>{partyEmoji(c.id)}</AvatarBubble>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, gap: 8 }}>
@@ -1258,7 +1258,7 @@ const ChatRoom = ({ user, party, onBack }) => {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <div style={{ padding: "12px 16px", borderBottom: `1px solid ${C.line}`, display: "flex", alignItems: "center", gap: 11, background: "linear-gradient(180deg, rgba(79,195,247,0.07), transparent)" }}>
+      <div style={{ padding: "12px 16px", borderBottom: `1px solid ${C.line}`, display: "flex", alignItems: "center", gap: 11, background: "linear-gradient(180deg, rgba(232,201,135,0.06), transparent)" }}>
         <button className="press" onClick={onBack} style={{ background: "none", border: "none", color: C.primaryDeep, cursor: "pointer", padding: 4, display: "flex" }}><ChevronLeft size={22} strokeWidth={2} /></button>
         <AvatarBubble size={38}>{partyEmoji(party.id)}</AvatarBubble>
         <div style={{ minWidth: 0 }}>
@@ -1275,7 +1275,7 @@ const ChatRoom = ({ user, party, onBack }) => {
 
       <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: "16px 18px" }}>
         {loading ? <Spinner /> : messages.length === 0 ? (
-          <EmptyState icon={<MessageCircle size={22} strokeWidth={1.6} />}>まだメッセージはありません。<br />グループのみんなに最初のひとことを。</EmptyState>
+          <EmptyState icon={<MessageCircle size={22} strokeWidth={1.6} />}>まだメッセージはありません。<br />当日に向けて、最初のひとことを。</EmptyState>
         ) : messages.map((m) => {
           const mine = m.user_id === user.id;
           return (
@@ -1285,8 +1285,8 @@ const ChatRoom = ({ user, party, onBack }) => {
                 <div style={{
                   padding: "10px 14px", borderRadius: 16, fontSize: 13.5, lineHeight: 1.55, wordBreak: "break-word",
                   ...(mine
-                    ? { background: C.primaryGrad, color: "#ffffff", borderBottomRightRadius: 5, boxShadow: "inset 0 1px 0 rgba(255,255,255,0.4), 0 4px 12px rgba(41,182,246,0.25)" }
-                    : { background: "rgba(79,195,247,0.12)", color: C.text, border: `1px solid ${C.lineSoft}`, borderBottomLeftRadius: 5 }),
+                    ? { background: C.primaryGrad, color: "#241a06", borderBottomRightRadius: 5, boxShadow: "inset 0 1px 0 rgba(255,255,255,0.45), 0 6px 16px rgba(0,0,0,0.4)" }
+                    : { background: "rgba(255,255,255,0.06)", color: C.text, border: `1px solid ${C.lineSoft}`, borderBottomLeftRadius: 5 }),
                 }}>{m.content}</div>
               </div>
             </div>
@@ -1380,7 +1380,7 @@ const MyPageScreen = ({ user, onTerms }) => {
           </div>
           <div style={{ display: "flex", gap: 9 }}>
             <button className="press" onClick={() => setEditing(false)} style={{ ...ghostBtn, flex: 1, padding: "13px 0", borderRadius: 999, fontSize: 14 }}>キャンセル</button>
-            <button className="pop-cta" onClick={save} disabled={saving} style={{ ...popBtn, flex: 1, padding: "13px 0", borderRadius: 999, fontSize: 14, opacity: saving ? 0.6 : 1 }}>{saving ? "保存中…" : "保存する"}</button>
+            <button className="lux-cta" onClick={save} disabled={saving} style={{ ...popBtn, flex: 1, padding: "13px 0", borderRadius: 999, fontSize: 14, opacity: saving ? 0.6 : 1 }}>{saving ? "保存中…" : "保存する"}</button>
           </div>
         </div>
       </div>
@@ -1399,13 +1399,13 @@ const MyPageScreen = ({ user, onTerms }) => {
     <div style={{ padding: "16px 20px 24px" }}>
       {/* profile header */}
       <div className="fade" style={{ ...card, padding: 20, marginBottom: 16, position: "relative", overflow: "hidden" }}>
-        <div style={{ position: "absolute", inset: 0, background: "radial-gradient(120% 90% at 90% -20%, rgba(255,95,158,0.16), transparent 55%)", pointerEvents: "none" }} />
+        <div style={{ position: "absolute", inset: 0, background: "radial-gradient(120% 90% at 90% -20%, rgba(168,32,58,0.22), transparent 58%)", pointerEvents: "none" }} />
         <div style={{ display: "flex", alignItems: "center", gap: 15, position: "relative" }}>
-          <div style={{ width: 66, height: 66, borderRadius: 33, padding: 2, background: C.primaryGrad, boxShadow: "0 8px 22px rgba(41,182,246,0.16)", flexShrink: 0 }}>
+          <div style={{ width: 66, height: 66, borderRadius: 33, padding: 2, background: C.primaryGrad, boxShadow: "0 8px 22px rgba(0,0,0,0.5)", flexShrink: 0 }}>
             {profile?.avatar_url ? (
-              <img src={profile.avatar_url} alt={profile.username} style={{ width: "100%", height: "100%", borderRadius: 31, objectFit: "cover", display: "block", background: "#e3f6ff" }} />
+              <img src={profile.avatar_url} alt={profile.username} style={{ width: "100%", height: "100%", borderRadius: 31, objectFit: "cover", display: "block", background: "#141c33" }} />
             ) : (
-              <div style={{ width: "100%", height: "100%", borderRadius: 31, display: "flex", alignItems: "center", justifyContent: "center", background: "#eaf8ff", color: C.primaryDeep }}><User size={28} strokeWidth={1.6} /></div>
+              <div style={{ width: "100%", height: "100%", borderRadius: 31, display: "flex", alignItems: "center", justifyContent: "center", background: "#141c33", color: C.primaryDeep }}><User size={28} strokeWidth={1.6} /></div>
             )}
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -1414,7 +1414,7 @@ const MyPageScreen = ({ user, onTerms }) => {
               {profile?.age ? `${profile.age}歳` : "プロフィール未設定"}
             </div>
           </div>
-          <button className="press" onClick={() => setEditing(true)} style={{ fontSize: 12, color: C.primaryDeep, background: "rgba(79,195,247,0.10)", border: `1px solid ${C.linePrimary}`, borderRadius: 20, padding: "6px 15px", cursor: "pointer", fontWeight: 700, flexShrink: 0 }}>編集</button>
+          <button className="press" onClick={() => setEditing(true)} style={{ fontSize: 12, color: C.primaryDeep, background: "rgba(232,201,135,0.08)", border: `1px solid ${C.linePrimary}`, borderRadius: 20, padding: "6px 15px", cursor: "pointer", fontWeight: 700, flexShrink: 0 }}>編集</button>
         </div>
         {profile?.bio && (
           <div style={{ marginTop: 15, paddingTop: 15, borderTop: `1px solid ${C.lineSoft}`, fontSize: 13, color: C.textSec, lineHeight: 1.7, position: "relative" }}>{profile.bio}</div>
@@ -1423,7 +1423,7 @@ const MyPageScreen = ({ user, onTerms }) => {
 
       <div className="fade" style={{ ...card, overflow: "hidden" }}>
         {ROWS.map((item, i, arr) => (
-          <div key={i} className={item.action ? "pop-row" : ""} onClick={item.action} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "15px 18px", borderBottom: i < arr.length - 1 ? `1px solid ${C.lineSoft}` : "none", cursor: item.action ? "pointer" : "default" }}>
+          <div key={i} className={item.action ? "lux-row" : ""} onClick={item.action} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "15px 18px", borderBottom: i < arr.length - 1 ? `1px solid ${C.lineSoft}` : "none", cursor: item.action ? "pointer" : "default" }}>
             <div style={{ display: "flex", gap: 13, alignItems: "center" }}>
               <span style={{ display: "flex", color: item.highlight ? C.primary : item.danger ? C.accent : C.textSec }}><item.icon size={17} strokeWidth={1.8} /></span>
               <span style={{ fontSize: 14, color: item.danger ? C.accentDeep : C.text }}>{item.label}</span>
@@ -1433,7 +1433,7 @@ const MyPageScreen = ({ user, onTerms }) => {
         ))}
       </div>
 
-      <div style={{ textAlign: "center", marginTop: 22, fontSize: 9.5, color: C.textFaint, letterSpacing: 2, textTransform: "uppercase" }}>AISEKI · Group Dining Matching</div>
+      <div style={{ textAlign: "center", marginTop: 22, fontSize: 9.5, color: C.textFaint, letterSpacing: 2, textTransform: "uppercase" }}>AISEKI · PREMIUM GROUP MATCHING</div>
     </div>
   );
 };
@@ -1457,7 +1457,7 @@ const AppFooter = ({ onTerms }) => (
     {/* 法的表示 */}
     <div style={{
       marginTop: 12, padding: "12px 14px", borderRadius: 12,
-      background: "rgba(79,195,247,0.06)", border: `1px solid ${C.lineSoft}`,
+      background: "rgba(255,255,255,0.035)", border: `1px solid ${C.lineSoft}`,
       textAlign: "left",
     }}>
       {FOOTER_NOTICE.map((line, i) => (
@@ -1472,7 +1472,7 @@ const AppFooter = ({ onTerms }) => (
     </div>
 
     <div style={{ fontSize: 10, color: C.textMuted, letterSpacing: 0.2, marginTop: 11, lineHeight: 1.9, fontWeight: 500 }}>
-      グループ飲み会・相席マッチング
+      大人のグループ相席マッチング
       <br />
       © 2026 AISEKI
     </div>
@@ -1547,11 +1547,11 @@ export default function App() {
       maxWidth: 400, width: "100%", margin: "0 auto", minHeight: 720, height: 720, display: "flex", flexDirection: "column", overflow: "hidden",
       borderRadius: 34,
       background:
-        "radial-gradient(120% 70% at 88% -4%, rgba(255,138,172,0.18), transparent 56%)," +
-        "radial-gradient(100% 52% at 0% 4%, rgba(79,195,247,0.20), transparent 54%)," +
-        "linear-gradient(180deg, #ffffff 0%, #f2fbff 100%)",
-      border: `2px solid ${C.line}`,
-      boxShadow: "0 30px 70px rgba(41,182,246,0.28)",
+        "radial-gradient(120% 70% at 88% -4%, rgba(168,32,58,0.24), transparent 58%)," +
+        "radial-gradient(100% 52% at 0% 4%, rgba(232,201,135,0.13), transparent 56%)," +
+        "linear-gradient(180deg, #101830 0%, #070b16 100%)",
+      border: `1px solid ${C.line}`,
+      boxShadow: "0 34px 80px rgba(0,0,0,0.7)",
       fontFamily: FONT_BODY,
       color: C.text,
     }}>{children}</div>
@@ -1590,15 +1590,15 @@ export default function App() {
     <>
       <div style={{
         padding: "15px 20px 14px", display: "flex", justifyContent: "space-between", alignItems: "center",
-        borderBottom: `1.5px solid ${C.line}`, background: "linear-gradient(180deg, rgba(79,195,247,0.14), transparent)",
+        borderBottom: `1px solid ${C.line}`, background: "linear-gradient(180deg, rgba(232,201,135,0.09), transparent)",
       }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-          <span style={{ fontFamily: FONT_LOGO, fontSize: 26, fontWeight: 800, letterSpacing: 2, ...brandText }}>AISEKI</span>
-          <span style={{ fontFamily: FONT_HEAD, fontSize: 11, color: C.textMuted, letterSpacing: 0.4, fontWeight: 700 }}>グループ飲み会マッチング</span>
+          <span style={{ fontFamily: FONT_LOGO, fontSize: 26, fontWeight: 600, letterSpacing: 3.5, ...brandText }}>AISEKI</span>
+          <span style={{ fontFamily: FONT_HEAD, fontSize: 10.5, color: C.textMuted, letterSpacing: 1, fontWeight: 500 }}>大人のグループ相席</span>
         </div>
-        <button className="press" aria-label="お知らせ" style={{ background: "#ffffff", border: `1.5px solid ${C.line}`, borderRadius: 20, width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.primaryDeep, position: "relative", boxShadow: C.shadowSoft }}>
+        <button className="press" aria-label="お知らせ" style={{ background: "rgba(255,255,255,0.05)", border: `1px solid ${C.line}`, borderRadius: 20, width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.primaryDeep, position: "relative", boxShadow: C.shadowSoft }}>
           <Bell size={16} strokeWidth={1.8} />
-          <span style={{ position: "absolute", top: 8, right: 9, width: 6, height: 6, borderRadius: 3, background: C.accent, boxShadow: "0 0 0 2px #ffffff" }} />
+          <span style={{ position: "absolute", top: 8, right: 9, width: 6, height: 6, borderRadius: 3, background: C.accent, boxShadow: "0 0 0 2px #0d1224" }} />
         </button>
       </div>
       <div style={{ flex: 1, overflowY: "auto" }}>

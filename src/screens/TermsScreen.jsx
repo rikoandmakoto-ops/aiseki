@@ -61,7 +61,7 @@ const Article = ({ s }) => (
               flexShrink: 0, minWidth: 19, height: 19, borderRadius: 10, marginTop: 2,
               display: "inline-flex", alignItems: "center", justifyContent: "center",
               fontSize: 9.5, fontWeight: 700, color: C.primaryDeep,
-              background: "rgba(79,195,247,0.12)", border: `1px solid ${C.line}`,
+              background: "rgba(232,201,135,0.10)", border: `1px solid ${C.line}`,
             }}>{i + 1}</span>
             <span>{item}</span>
           </li>
@@ -94,7 +94,7 @@ export const TermsBody = () => {
         ...card, padding: 20, marginBottom: 14, position: "relative", overflow: "hidden",
         border: `1px solid ${C.linePrimary}`,
       }}>
-        <div style={{ position: "absolute", inset: 0, background: "radial-gradient(120% 90% at 88% -20%, rgba(79,195,247,0.16), transparent 58%)", pointerEvents: "none" }} />
+        <div style={{ position: "absolute", inset: 0, background: "radial-gradient(120% 90% at 88% -20%, rgba(232,201,135,0.14), transparent 58%)", pointerEvents: "none" }} />
         <div style={{ position: "relative" }}>
           <Eyebrow style={{ marginBottom: 8 }}>💡 本サービスについて</Eyebrow>
           <div style={{ fontFamily: FONT_HEAD, fontSize: 15.5, fontWeight: 600, color: C.text, lineHeight: 1.7, letterSpacing: 0.3 }}>
@@ -130,12 +130,12 @@ export const TermsBody = () => {
         {HIGHLIGHTS.map((h) => (
           <div key={h.title} style={{
             display: "flex", gap: 12, alignItems: "flex-start",
-            background: "rgba(79,195,247,0.08)", border: `1px solid ${C.lineSoft}`,
+            background: "rgba(255,255,255,0.045)", border: `1px solid ${C.lineSoft}`,
             borderRadius: 14, padding: "13px 15px",
           }}>
             <span style={{
               flexShrink: 0, width: 32, height: 32, borderRadius: 16, display: "flex", alignItems: "center", justifyContent: "center",
-              background: "rgba(79,195,247,0.12)", border: `1px solid ${C.linePrimary}`, color: C.primaryDeep,
+              background: "rgba(232,201,135,0.10)", border: `1px solid ${C.linePrimary}`, color: C.primaryDeep,
             }}><h.icon size={15} strokeWidth={1.9} /></span>
             <div style={{ minWidth: 0 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: C.text, letterSpacing: 0.3 }}>{h.title}</div>
@@ -147,7 +147,7 @@ export const TermsBody = () => {
 
       {/* 利用規約 / プライバシーポリシー 切替 */}
       <div style={{
-        display: "flex", gap: 6, marginBottom: 14, background: "rgba(79,195,247,0.08)",
+        display: "flex", gap: 6, marginBottom: 14, background: "rgba(255,255,255,0.045)",
         padding: 4, borderRadius: 13, border: `1px solid ${C.lineSoft}`,
       }}>
         {TABS.map((t) => {
@@ -158,7 +158,7 @@ export const TermsBody = () => {
               cursor: "pointer", border: "none",
               display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
               ...(on
-                ? { background: C.primaryGrad, color: "#ffffff", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.5)" }
+                ? { background: C.primaryGrad, color: "#241a06", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.5)" }
                 : { background: "transparent", color: C.textSec }),
             }}>
               <t.icon size={14} strokeWidth={2} />{t.label}

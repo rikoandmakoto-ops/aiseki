@@ -12,11 +12,11 @@ const shellStyle = {
   display: "flex", flexDirection: "column",
   borderRadius: 34, overflow: "hidden",
   background:
-    "radial-gradient(110% 60% at 88% -6%, rgba(255,164,110,0.16), transparent 58%)," +
-    "radial-gradient(110% 58% at 0% 2%, rgba(79,195,247,0.24), transparent 56%)," +
-    "linear-gradient(180deg, #ffffff 0%, #f2fbff 100%)",
-  border: `2px solid ${C.line}`,
-  boxShadow: "0 30px 70px rgba(41,182,246,0.28)",
+    "radial-gradient(110% 60% at 88% -6%, rgba(168,32,58,0.26), transparent 58%)," +
+    "radial-gradient(110% 58% at 0% 2%, rgba(232,201,135,0.14), transparent 56%)," +
+    "linear-gradient(180deg, #101830 0%, #070b16 100%)",
+  border: `1px solid ${C.line}`,
+  boxShadow: "0 34px 80px rgba(0,0,0,0.7)",
   fontFamily: FONT_BODY,
   color: C.text,
 };
@@ -106,25 +106,25 @@ export default function AuthScreen() {
       <div style={{ position: "relative", padding: "62px 30px 34px", textAlign: "center", overflow: "hidden" }}>
         {/* ambient glow */}
         <div style={{ position: "absolute", top: -40, left: "50%", transform: "translateX(-50%)", width: 240, height: 240, borderRadius: "50%",
-          background: "radial-gradient(circle, rgba(79,195,247,0.20), transparent 66%)", animation: "floatGlow 7s ease-in-out infinite", pointerEvents: "none" }} />
+          background: "radial-gradient(circle, rgba(232,201,135,0.18), transparent 66%)", animation: "floatGlow 7s ease-in-out infinite", pointerEvents: "none" }} />
 
         <div style={{ position: "relative" }}>
-          <div style={{ fontSize: 10, letterSpacing: 2.4, color: C.primaryDeep, fontWeight: 800, textTransform: "uppercase", marginBottom: 12 }}>Group Dining Matching</div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, justifyContent: "center" }}>
-            <span style={{ fontSize: 24 }}>🍻</span>
-            <span style={{ fontFamily: FONT_LOGO, fontSize: 50, fontWeight: 800, letterSpacing: 1.5, ...brandText, lineHeight: 1 }}>AISEKI</span>
-            <span style={{ fontSize: 24 }}>✨</span>
+          <div style={{ fontSize: 10, letterSpacing: 3.2, color: C.primaryDeep, fontWeight: 600, textTransform: "uppercase", marginBottom: 14 }}>Premium Group Matching</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 14, justifyContent: "center" }}>
+            <span style={{ width: 26, height: 1, background: `linear-gradient(90deg, transparent, ${C.primary})` }} />
+            <span style={{ fontFamily: FONT_LOGO, fontSize: 50, fontWeight: 600, letterSpacing: 5, ...brandText, lineHeight: 1 }}>AISEKI</span>
+            <span style={{ width: 26, height: 1, background: `linear-gradient(90deg, ${C.primary}, transparent)` }} />
           </div>
-          <div style={{ fontFamily: FONT_HEAD, fontSize: 15, color: C.text, fontWeight: 700, letterSpacing: 1.5, marginTop: 10 }}>グループ飲み会</div>
+          <div style={{ fontFamily: FONT_HEAD, fontSize: 13, color: C.textSec, fontWeight: 500, letterSpacing: 4, marginTop: 12 }}>大人のグループ相席</div>
           <div style={{
-            display: "inline-flex", alignItems: "center", gap: 6, marginTop: 14,
-            padding: "7px 15px", borderRadius: 999, fontSize: 11, fontWeight: 800, letterSpacing: 0.3,
-            color: C.primaryDeep, background: "#ffffff", border: `2px solid ${C.linePrimary}`, boxShadow: C.shadowSoft,
+            display: "inline-flex", alignItems: "center", gap: 6, marginTop: 18,
+            padding: "7px 16px", borderRadius: 999, fontSize: 10.5, fontWeight: 500, letterSpacing: 0.8,
+            color: C.primaryDeep, background: "rgba(232,201,135,0.08)", border: `1px solid ${C.linePrimary}`, boxShadow: C.shadowSoft,
           }}>
-            <Users size={13} strokeWidth={2.4} /> {MIN_GROUP_SIZE}名以上のグループ同士 · {MIN_AGE}歳以上限定
+            <Users size={13} strokeWidth={2} /> {MIN_GROUP_SIZE}名以上のグループ同士 · {MIN_AGE}歳以上限定
           </div>
-          <div style={{ fontFamily: FONT_HEAD, fontSize: 13.5, color: C.textSec, fontWeight: 500, letterSpacing: 0.3, marginTop: 16, lineHeight: 1.85 }}>
-            グループ同士で、気軽に乾杯。<br />はじめましてを、楽しい夜に。
+          <div style={{ fontFamily: FONT_HEAD, fontSize: 14, color: C.textSec, fontWeight: 500, letterSpacing: 1, marginTop: 18, lineHeight: 2 }}>
+            上質な夜を、グループでともに。<br />はじめましてを、特別な一夜に。
           </div>
         </div>
       </div>
@@ -135,18 +135,18 @@ export default function AuthScreen() {
             {mode === "login" ? "おかえりなさい" : "ようこそ"}
           </div>
           <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 20, letterSpacing: 0.3 }}>
-            {mode === "login" ? "アカウントにログインしてください" : "アカウントを作成して始めましょう"}
+            {mode === "login" ? "アカウントにログインしてください" : "アカウントを作成してはじめる"}
           </div>
 
           {/* タブ切替 */}
-          <div style={{ display: "flex", gap: 7, marginBottom: 22, background: "rgba(79,195,247,0.08)", padding: 4, borderRadius: 13, border: `1px solid ${C.lineSoft}` }}>
+          <div style={{ display: "flex", gap: 7, marginBottom: 22, background: "rgba(255,255,255,0.045)", padding: 4, borderRadius: 13, border: `1px solid ${C.lineSoft}` }}>
             {[{ k: "login", l: "ログイン" }, { k: "signup", l: "新規登録" }].map((t) => {
               const on = mode === t.k;
               return (
                 <button key={t.k} type="button" className="press" onClick={() => { setMode(t.k); setError(""); setNotice(""); }} style={{
                   flex: 1, padding: "10px 0", borderRadius: 10, fontSize: 13.5, fontWeight: 700, cursor: "pointer", border: "none",
                   ...(on
-                    ? { background: C.primaryGrad, color: "#ffffff", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.5)" }
+                    ? { background: C.primaryGrad, color: "#241a06", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.5)" }
                     : { background: "transparent", color: C.textSec }),
                 }}>{t.l}</button>
               );
@@ -182,7 +182,7 @@ export default function AuthScreen() {
                     value={birthDate}
                     max={maxBirthDate()}
                     onChange={(e) => setBirthDate(e.target.value)}
-                    style={{ ...fieldStyle, colorScheme: "light" }}
+                    style={{ ...fieldStyle, colorScheme: "dark" }}
                   />
                   <div style={{ display: "flex", alignItems: "flex-start", gap: 6, marginTop: 8, fontSize: 10.5, lineHeight: 1.65, color: birthDate && !adult ? C.accentDeep : C.textMuted }}>
                     <ShieldCheck size={12} strokeWidth={1.9} color={birthDate && !adult ? C.accent : C.primary} style={{ flexShrink: 0, marginTop: 1 }} />
@@ -202,7 +202,7 @@ export default function AuthScreen() {
                   style={{
                     display: "flex", gap: 11, alignItems: "flex-start", cursor: "pointer", marginBottom: 16,
                     padding: "13px 15px", borderRadius: 14,
-                    background: agreed ? "rgba(79,195,247,0.12)" : "rgba(79,195,247,0.08)",
+                    background: agreed ? "rgba(232,201,135,0.10)" : "rgba(255,255,255,0.045)",
                     border: `1px solid ${agreed ? C.linePrimary : C.lineSoft}`,
                     transition: "background .2s ease, border-color .2s ease",
                   }}
@@ -212,9 +212,9 @@ export default function AuthScreen() {
                     display: "flex", alignItems: "center", justifyContent: "center",
                     ...(agreed
                       ? { background: C.primaryGrad, boxShadow: "inset 0 1px 0 rgba(255,255,255,0.5)" }
-                      : { background: "rgba(79,195,247,0.11)", border: `1px solid ${C.lineSoft}` }),
+                      : { background: "rgba(232,201,135,0.09)", border: `1px solid ${C.lineSoft}` }),
                   }}>
-                    {agreed && <Check size={13} strokeWidth={3} color="#ffffff" />}
+                    {agreed && <Check size={13} strokeWidth={3} color="#241a06" />}
                   </span>
                   <span style={{ fontSize: 11.5, color: C.textSec, lineHeight: 1.75 }}>
                     私は<b style={{ color: C.text, fontWeight: 700 }}>{MIN_AGE}歳以上</b>であり、
@@ -230,17 +230,17 @@ export default function AuthScreen() {
             )}
 
             {error && (
-              <div style={{ fontSize: 12, color: C.accentDeep, background: "rgba(255,95,158,0.14)", border: "1px solid rgba(255,95,158,0.35)", borderRadius: 11, padding: "10px 13px", marginBottom: 14, lineHeight: 1.5 }}>{error}</div>
+              <div style={{ fontSize: 12, color: C.accentDeep, background: "rgba(168,32,58,0.18)", border: "1px solid rgba(200,56,79,0.42)", borderRadius: 11, padding: "10px 13px", marginBottom: 14, lineHeight: 1.5 }}>{error}</div>
             )}
             {notice && (
-              <div style={{ fontSize: 12, color: C.primaryDeep, background: "rgba(79,195,247,0.14)", border: `1px solid ${C.linePrimary}`, borderRadius: 11, padding: "10px 13px", marginBottom: 14, lineHeight: 1.5 }}>{notice}</div>
+              <div style={{ fontSize: 12, color: C.primaryDeep, background: "rgba(232,201,135,0.12)", border: `1px solid ${C.linePrimary}`, borderRadius: 11, padding: "10px 13px", marginBottom: 14, lineHeight: 1.5 }}>{notice}</div>
             )}
 
             {(() => {
               // 20歳未満・年齢未確認・規約未同意では登録ボタンを押せない
               const blocked = loading || (mode === "signup" && (!agreed || !adult));
               return (
-            <button type="submit" className="pop-cta" disabled={blocked} style={{
+            <button type="submit" className="lux-cta" disabled={blocked} style={{
               ...popBtn, width: "100%", padding: "15px 0", borderRadius: 999, fontSize: 15,
               opacity: blocked ? 0.5 : 1, cursor: blocked ? "default" : "pointer",
             }}>
