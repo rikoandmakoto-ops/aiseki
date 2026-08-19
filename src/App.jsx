@@ -3,11 +3,12 @@ import {
   Home, MessageCircle, Plus, Gem, User, MapPin, Clock, Users, Bell,
   Crown, ChevronLeft, Send, ArrowRight, Check, Sparkles, Settings,
   Mail, LogOut, Wine, Repeat, History, Wallet, ShieldCheck, Lock, FileText, UsersRound,
-  Ticket, Copy, DoorClosed, Ban, CreditCard, Camera, Trash2, LifeBuoy, ShieldAlert, XCircle,
+  Ticket, Copy, DoorClosed, Ban, CreditCard, LifeBuoy, ShieldAlert, XCircle,
+  Search, SlidersHorizontal, CalendarDays, Gift, Star,
 } from "lucide-react";
 import { supabase, configError } from "./lib/supabase";
 import * as api from "./lib/api";
-import { POINT_PACKS, packBonus } from "./lib/packs.js";
+import { POINT_PACKS, packDiscount, packSeats, packUnitPrice } from "./lib/packs.js";
 import { FOOTER_NOTICE } from "./lib/legal.js";
 import {
   C, FONT_LOGO, FONT_DISPLAY, FONT_HEAD, FONT_BODY,
@@ -27,6 +28,15 @@ const AuthScreen = lazy(() => import("./screens/AuthScreen.jsx"));
 const NotificationsScreen = lazy(() => import("./screens/NotificationsScreen.jsx"));
 const SupportScreen = lazy(() => import("./screens/SupportScreen.jsx"));
 const ResetPasswordScreen = lazy(() => import("./screens/ResetPasswordScreen.jsx"));
+const ProfileEditScreen = lazy(() => import("./screens/ProfileEditScreen.jsx"));
+/* 充実度バーは編集画面と同じ計算を使うので、同じチャンクから名前付きで取り出す
+   （マイページで先に読み込まれる分、編集画面を開くときには手元に揃っている） */
+const CompletionMeter = lazy(() =>
+  import("./screens/ProfileEditScreen.jsx").then((m) => ({ default: m.CompletionMeter }))
+);
+const ReferralScreen = lazy(() => import("./screens/ReferralScreen.jsx"));
+const SafetyScreen = lazy(() => import("./screens/SafetyScreen.jsx"));
+const MemberSheet = lazy(() => import("./screens/MemberSheet.jsx"));
 
 /* 分割した画面を読み込んでいる間のつなぎ */
 const Loading = ({ label }) => (
@@ -109,7 +119,7 @@ const TabBar = ({ active, onTab }) => (
       }
 
       return (
-        <button key={t.key} className="nav-btn" onClick={() => onTab(t.key)} style={{
+        <button key={t.key} className="nav-btn" data-active={on} onClick={() => onTab(t.key)} style={{
           flex: 1, background: "none", border: "none", padding: "4px 0 2px", cursor: "pointer",
           display: "flex", flexDirection: "column", alignItems: "center", gap: 5,
           color: on ? C.primary : C.textMuted,
@@ -259,6 +269,7 @@ const FeaturedCard = ({ p, onTap }) => (
           <MetaLine icon={MapPin}>{[p.location, p.area].filter(Boolean).join(" · ")}</MetaLine>
         )}
         <MetaLine icon={Users}>{p.current_members}/{p.max_members}名</MetaLine>
+        {api.formatPartyDate(p.party_date) && <MetaLine icon={CalendarDays}>{api.formatPartyDate(p.party_date)}</MetaLine>}
         {p.party_time && <MetaLine icon={Clock}>{p.party_time}</MetaLine>}
       </div>
       <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginTop: 11 }}>
@@ -304,8 +315,9 @@ const PartyCard = ({ p, onTap }) => {
         </div>
       )}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 11, borderTop: `1px solid ${C.lineSoft}` }}>
-        <div style={{ display: "flex", gap: 15 }}>
+        <div style={{ display: "flex", gap: 13, flexWrap: "wrap" }}>
           <MetaLine icon={Users}>{p.current_members}/{p.max_members}名</MetaLine>
+          {api.formatPartyDate(p.party_date) && <MetaLine icon={CalendarDays}>{api.formatPartyDate(p.party_date)}</MetaLine>}
           {p.party_time && <MetaLine icon={Clock}>{p.party_time}</MetaLine>}
         </div>
         <div style={{ fontSize: 15, fontWeight: 700, fontFamily: FONT_DISPLAY, ...brandText }}>{feeText()}<span style={{ fontSize: 10.5, fontFamily: FONT_BODY, fontWeight: 600 }}> pt</span></div>
@@ -314,22 +326,147 @@ const PartyCard = ({ p, onTap }) => {
   );
 };
 
+/* ══════════════════════════════════════════════ 絞り込みの部品
+   横に並ぶ選択肢。押した状態が一目で分かるよう、
+   選択中だけゴールドの箔押しにする。 */
+const ChipRow = ({ label, options, value, onChange }) => (
+  <div style={{ marginBottom: 11 }}>
+    <div style={{ fontSize: 10, fontWeight: 700, color: C.textMuted, letterSpacing: 1, marginBottom: 7 }}>{label}</div>
+    <div className="scroll-x" style={{ display: "flex", gap: 7, paddingBottom: 2 }}>
+      {options.map((o) => {
+        const on = value === o.key;
+        return (
+          <button key={o.key} className="chip" onClick={() => onChange(o.key)} style={{
+            padding: "7px 14px", borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
+            ...(on
+              ? { ...popBtn, borderRadius: 999, boxShadow: "0 5px 14px rgba(176,138,60,0.36), inset 0 1px 0 rgba(255,255,255,0.55)" }
+              : { background: "rgba(255,255,255,0.05)", border: `1px solid ${C.lineSoft}`, color: C.textSec }),
+          }}>{o.label}</button>
+        );
+      })}
+    </div>
+  </div>
+);
+
+/* エリア・日付・時間帯・人数・キーワードでの絞り込み。
+   よく使うエリアだけを常時表示し、細かい条件は開いたときに出す
+   （最初から全部出すと、探す前に選ばせることになるため）。 */
+const FilterPanel = ({ filters, onChange, count, loading }) => {
+  const [open, setOpen] = useState(false);
+  const [keyword, setKeyword] = useState(filters.keyword ?? "");
+
+  const set = (patch) => onChange({ ...filters, ...patch });
+
+  /* 既定値から動いている条件の数。開かなくても絞り込み中だと分かるようにする。 */
+  const active =
+    (filters.area ? 1 : 0) +
+    (filters.date && filters.date !== "all" ? 1 : 0) +
+    (filters.time && filters.time !== "all" ? 1 : 0) +
+    (filters.size && filters.size !== "all" ? 1 : 0) +
+    (filters.keyword ? 1 : 0);
+
+  const submitKeyword = () => set({ keyword: keyword.trim() || null });
+
+  return (
+    <div style={{ padding: "12px 20px 0" }}>
+      {/* キーワード */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 11 }}>
+        <div style={{ position: "relative", flex: 1 }}>
+          <Search size={15} strokeWidth={2} color={C.textMuted} style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} />
+          <input
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            onBlur={submitKeyword}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) { e.preventDefault(); submitKeyword(); } }}
+            placeholder="会の名前・お店・エリアで探す"
+            aria-label="キーワードで探す"
+            style={{ ...fieldStyle, paddingLeft: 38, borderRadius: 999, fontSize: 13 }}
+          />
+          {keyword && (
+            <button className="press" onClick={() => { setKeyword(""); set({ keyword: null }); }} aria-label="キーワードを消す" style={{
+              position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)",
+              background: "none", border: "none", cursor: "pointer", color: C.textMuted, display: "flex", padding: 2,
+            }}><XCircle size={15} strokeWidth={2} /></button>
+          )}
+        </div>
+        <button className="press" onClick={() => setOpen((v) => !v)} aria-label="絞り込み" style={{
+          ...(open || active > 0 ? popBtn : ghostBtn), padding: "0 15px", borderRadius: 999, flexShrink: 0,
+          display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5,
+        }}>
+          <SlidersHorizontal size={14} strokeWidth={2.1} />
+          {active > 0 ? active : "絞込"}
+        </button>
+      </div>
+
+      {/* エリア（常時表示） */}
+      <div className="scroll-x" style={{ display: "flex", gap: 7, paddingBottom: 8 }}>
+        {["すべて", ...AREAS].map((a) => {
+          const on = (a === "すべて" && !filters.area) || filters.area === a;
+          return (
+            <button key={a} className="chip" onClick={() => set({ area: a === "すべて" ? null : a })} style={{
+              padding: "7px 16px", borderRadius: 999, fontSize: 12.5, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
+              ...(on
+                ? { ...popBtn, borderRadius: 999, boxShadow: "0 6px 16px rgba(176,138,60,0.4), inset 0 1px 0 rgba(255,255,255,0.55)" }
+                : { background: "rgba(255,255,255,0.05)", border: `1px solid ${C.lineSoft}`, color: C.textSec }),
+            }}>{a}</button>
+          );
+        })}
+      </div>
+
+      {/* 詳細（日付・時間帯・人数） */}
+      {open && (
+        <div className="rise" style={{
+          marginTop: 6, marginBottom: 4, padding: "14px 15px 6px", borderRadius: 16,
+          background: "rgba(255,255,255,0.04)", border: `1px solid ${C.lineSoft}`,
+        }}>
+          <ChipRow label="開催日" options={api.DATE_FILTERS} value={filters.date ?? "all"} onChange={(date) => set({ date })} />
+          <ChipRow label="時間帯" options={api.TIME_FILTERS} value={filters.time ?? "all"} onChange={(time) => set({ time })} />
+          <ChipRow label="募集グループの人数" options={api.SIZE_FILTERS} value={filters.size ?? "all"} onChange={(size) => set({ size })} />
+          {active > 0 && (
+            <button className="press" onClick={() => { setKeyword(""); onChange({}); }} style={{
+              width: "100%", background: "none", border: "none", cursor: "pointer",
+              padding: "8px 0 10px", fontSize: 11.5, color: C.textMuted,
+              display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
+            }}>
+              <XCircle size={12} strokeWidth={2} /> 絞り込みをすべて解除
+            </button>
+          )}
+          <div style={{ fontSize: 10, color: C.textFaint, lineHeight: 1.7, paddingBottom: 8 }}>
+            開催日が未設定の会は「すべて」にのみ表示されます。
+          </div>
+        </div>
+      )}
+
+      {/* 件数 */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 4 }}>
+        <Eyebrow style={{ color: C.textMuted }}>
+          {active > 0 ? "絞り込みの結果" : "本日の募集中の会"}
+        </Eyebrow>
+        <span style={{ fontSize: 11.5, color: C.textFaint, fontFamily: FONT_DISPLAY, fontWeight: 600, letterSpacing: 0.5 }}>
+          {loading ? "…" : `${count} groups`}
+        </span>
+      </div>
+    </div>
+  );
+};
+
 /* ═══════════════════════════════════════════════════════ Home */
 const HomeScreen = ({ user, onDetail, onCreate }) => {
   const { toast, confirm } = useToast();
-  const [area, setArea] = useState(null);
+  const [filters, setFilters] = useState({});
   const [parties, setParties] = useState([]);
   const [incoming, setIncoming] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [busyReq, setBusyReq] = useState(null);
+  const area = filters.area ?? null;
 
   const load = useCallback(async () => {
     setLoading(true);
     setLoadError("");
     try {
       const [ps, reqs] = await Promise.all([
-        api.listParties(area),
+        api.listParties(filters),
         api.listIncomingRequests(user.id),
       ]);
       setParties(ps.filter((p) => p.host_id !== user.id));
@@ -344,7 +481,7 @@ const HomeScreen = ({ user, onDetail, onCreate }) => {
     } finally {
       setLoading(false);
     }
-  }, [area, user.id]);
+  }, [filters, user.id]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -392,23 +529,6 @@ const HomeScreen = ({ user, onDetail, onCreate }) => {
         <InviteCodeCard onJoined={(id) => { if (id) onDetail(id); else load(); }} />
       </div>
 
-      {/* area filter */}
-      <div style={{ padding: "12px 20px 4px" }}>
-        <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 8 }}>
-          {["すべて", ...AREAS].map((a) => {
-            const on = (a === "すべて" && !area) || area === a;
-            return (
-              <button key={a} className="chip" onClick={() => setArea(a === "すべて" ? null : a)} style={{
-                padding: "7px 16px", borderRadius: 22, fontSize: 12.5, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
-                ...(on
-                  ? { ...popBtn, borderRadius: 999, boxShadow: "0 6px 16px rgba(176,138,60,0.4), inset 0 1px 0 rgba(255,255,255,0.55)" }
-                  : { background: "rgba(255,255,255,0.05)", border: `1px solid ${C.lineSoft}`, color: C.textSec }),
-              }}>{a}</button>
-            );
-          })}
-        </div>
-      </div>
-
       {/* incoming join requests (host inbox) */}
       {incoming.length > 0 && (
         <div style={{ padding: "8px 20px 0" }}>
@@ -454,12 +574,11 @@ const HomeScreen = ({ user, onDetail, onCreate }) => {
         </div>
       )}
 
+      {/* 探す */}
+      <FilterPanel filters={filters} onChange={setFilters} count={parties.length} loading={loading} />
+
       {/* feed */}
-      <div style={{ padding: "12px 20px 24px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 14 }}>
-          <Eyebrow style={{ color: C.textMuted }}>本日の募集中の会</Eyebrow>
-          <span style={{ fontSize: 11.5, color: C.textFaint, fontFamily: FONT_DISPLAY, fontWeight: 600, letterSpacing: 0.5 }}>{loading ? "…" : `${parties.length} groups`}</span>
-        </div>
+      <div style={{ padding: "14px 20px 24px" }}>
         {loading ? <SkeletonList count={3} /> : loadError ? (
           <EmptyState
             icon={<XCircle size={24} strokeWidth={1.6} />}
@@ -475,16 +594,27 @@ const HomeScreen = ({ user, onDetail, onCreate }) => {
           <EmptyState
             icon={<Wine size={24} strokeWidth={1.6} />}
             action={
-              <button className="lux-cta" onClick={onCreate} style={{
-                ...popBtn, padding: "12px 26px", fontSize: 13.5,
-                display: "inline-flex", alignItems: "center", gap: 7,
-              }}>
-                <Plus size={15} strokeWidth={2.4} /> 会を主催する
-              </button>
+              <div style={{ display: "flex", gap: 9, justifyContent: "center", flexWrap: "wrap" }}>
+                {Object.values(filters).some(Boolean) && (
+                  <button className="press" onClick={() => setFilters({})} style={{
+                    ...ghostBtn, padding: "12px 22px", fontSize: 13,
+                    display: "inline-flex", alignItems: "center", gap: 7,
+                  }}>
+                    <XCircle size={14} strokeWidth={2} /> 絞り込みを解除
+                  </button>
+                )}
+                <button className="lux-cta" onClick={onCreate} style={{
+                  ...popBtn, padding: "12px 26px", fontSize: 13.5,
+                  display: "inline-flex", alignItems: "center", gap: 7,
+                }}>
+                  <Plus size={15} strokeWidth={2.4} /> 会を主催する
+                </button>
+              </div>
             }
           >
-            {area ? `${area}で募集中の会は、いまのところありません。` : "募集中の会はまだありません。"}
-            <br />あなたの会を主催してみませんか。
+            {Object.values(filters).some(Boolean)
+              ? <>この条件に合う会は、いまのところありません。<br />条件を広げるか、あなたの会を主催してみませんか。</>
+              : <>募集中の会はまだありません。<br />あなたの会を主催してみませんか。</>}
           </EmptyState>
         ) : (
           <>
@@ -504,7 +634,7 @@ const HomeScreen = ({ user, onDetail, onCreate }) => {
 };
 
 /* ═══════════════════════════════════════════════════════ Detail */
-const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled }) => {
+const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport }) => {
   const { toast, confirm } = useToast();
   const [party, setParty] = useState(null);
   const [members, setMembers] = useState([]);
@@ -517,6 +647,7 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled }) => {
   const [groupSize, setGroupSize] = useState(MIN_GROUP); // 申し込むグループの人数（2名以上）
   const [guestNames, setGuestNames] = useState([]);      // 同伴者のニックネーム
   const [cancelling, setCancelling] = useState(false);
+  const [openMember, setOpenMember] = useState(null);    // プロフィールを開いているメンバー
 
   const load = useCallback(async () => {
     const [p, ms, bal, req] = await Promise.all([
@@ -660,6 +791,7 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled }) => {
   const hasGuests = members.some((m) => m.side === "guest");
   const INFO = [
     { label: "場所", value: [party.location, party.area && `（${party.area}）`].filter(Boolean).join("") || "未定", icon: MapPin },
+    { label: "開催日", value: api.formatPartyDate(party.party_date) || "未定", icon: CalendarDays },
     { label: "時間", value: party.party_time || "未定", icon: Clock },
     { label: "参加人数", value: `${party.current_members}/${party.max_members}名`, icon: Users },
     { label: "グループ構成", value: `ホスト${hostGroup}名 × 募集${guestGroup}名`, icon: UsersRound },
@@ -722,17 +854,26 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled }) => {
 
           {canSeeMembers && members.length > 0 && (
             <div style={{ marginBottom: 24 }}>
-              <Eyebrow style={{ marginBottom: 14 }}>
+              <Eyebrow style={{ marginBottom: 6 }}>
                 参加メンバー（{members.length}名）
               </Eyebrow>
-              <div style={{ display: "flex", gap: 14, overflowX: "auto", paddingBottom: 4 }}>
+              <div style={{ fontSize: 10.5, color: C.textMuted, marginBottom: 12, lineHeight: 1.7 }}>
+                タップすると、その方のプロフィールを見られます。
+              </div>
+              <div className="scroll-x" style={{ display: "flex", gap: 14, paddingBottom: 4 }}>
                 {members.map((m) => {
                   const prof = m.profiles || {};
                   // user_id が null の席 = まだアプリに登録していない同伴者
                   const claimed = !!m.user_id;
                   const name = prof.username || m.display_name || "メンバー";
                   return (
-                    <div key={m.id} style={{ textAlign: "center", flexShrink: 0, width: 74 }}>
+                    <button
+                      key={m.id}
+                      className="press"
+                      onClick={() => setOpenMember(m)}
+                      aria-label={`${name}さんのプロフィールを見る`}
+                      style={{ textAlign: "center", flexShrink: 0, width: 74, background: "none", border: "none", padding: 0, cursor: "pointer" }}
+                    >
                       <div style={{
                         position: "relative", width: 68, height: 68, margin: "0 auto", borderRadius: 34, padding: 2,
                         background: claimed ? C.primaryGrad : "rgba(232,201,135,0.14)",
@@ -760,7 +901,7 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled }) => {
                       <div style={{ fontSize: 10.5, color: C.textMuted }}>
                         {!claimed ? "招待中" : prof.age ? `${prof.age}歳` : (m.role === "host" ? "ホスト" : "")}
                       </div>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
@@ -942,6 +1083,32 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled }) => {
           )}
         </div>
       </div>
+
+      {/* 気になることがあったときの入口。目立たせすぎず、必ず見つかる場所に置く。 */}
+      {!isHost && (
+        <div style={{ display: "flex", justifyContent: "center", gap: 14, marginTop: 16 }}>
+          <button className="press" onClick={() => onReport?.(party.host_id)} style={{
+            background: "none", border: "none", cursor: "pointer", padding: "6px 10px",
+            fontSize: 11, color: C.textMuted, letterSpacing: 0.4,
+            display: "inline-flex", alignItems: "center", gap: 6,
+          }}>
+            <ShieldAlert size={12} strokeWidth={1.9} /> この会を通報する
+          </button>
+        </div>
+      )}
+
+      {/* メンバーのプロフィール（承認後のみ開ける） */}
+      {openMember && (
+        <Suspense fallback={null}>
+          <MemberSheet
+            member={openMember}
+            isSelf={openMember.user_id === user.id}
+            onClose={() => setOpenMember(null)}
+            onBlocked={() => { setOpenMember(null); onBack(); }}
+            onReport={onReport}
+          />
+        </Suspense>
+      )}
     </div>
   );
 };
@@ -955,6 +1122,8 @@ const CreateScreen = ({ user, onCreated }) => {
   const [hostGroup, setHostGroup] = useState(MIN_GROUP);   // ホスト側グループの人数（2名以上）
   const [hostNames, setHostNames] = useState([]);          // ホスト側同伴者のニックネーム
   const [guestGroup, setGuestGroup] = useState(MIN_GROUP); // 募集するグループの人数（2名以上）
+  // 開催日。既定は今日（当日の会がいちばん多いため）。過去日は選べない。
+  const [date, setDate] = useState(() => api.toDateString(new Date()));
   const [time, setTime] = useState("20:00");
   const [saving, setSaving] = useState(false);
   // 席の種別は「オープンスペース」固定。個室は選択できない（変更不可）。
@@ -982,6 +1151,7 @@ const CreateScreen = ({ user, onCreated }) => {
         host_group_size: hostGroup,
         host_member_names: hostNames,
         guest_group_size: guestGroup,
+        party_date: date || null,
         party_time: time,
         room_type: roomType,
       });
@@ -1126,6 +1296,36 @@ const CreateScreen = ({ user, onCreated }) => {
           </div>
         </div>
 
+        {/* 開催日 … 探す側は日付で絞り込む。よく使う日はボタンでも選べるようにする。 */}
+        <div style={{ marginBottom: 17 }}>
+          <label style={labelStyle}>開催日</label>
+          <div style={{ display: "flex", gap: 7, marginBottom: 9 }}>
+            {[
+              { label: "今日", offset: 0 },
+              { label: "明日", offset: 1 },
+              { label: "明後日", offset: 2 },
+            ].map((q) => {
+              const d = new Date();
+              d.setDate(d.getDate() + q.offset);
+              const value = api.toDateString(d);
+              const on = date === value;
+              return (
+                <button key={q.label} type="button" className="chip" onClick={() => setDate(value)} style={{
+                  flex: 1, padding: "9px 0", borderRadius: 999, fontSize: 12.5, fontWeight: 700, cursor: "pointer",
+                  ...(on ? popBtn : ghostBtn),
+                }}>{q.label}</button>
+              );
+            })}
+          </div>
+          <input
+            type="date"
+            value={date}
+            min={api.toDateString(new Date())}
+            onChange={(e) => setDate(e.target.value)}
+            style={{ ...fieldStyle, colorScheme: "dark" }}
+          />
+        </div>
+
         <div style={{ marginBottom: 17 }}>
           <label style={labelStyle}>時間</label>
           <input type="time" value={time} onChange={(e) => setTime(e.target.value)} style={{ ...fieldStyle, colorScheme: "dark" }} />
@@ -1176,7 +1376,7 @@ const CreateScreen = ({ user, onCreated }) => {
 /* 変換できる最小単位。スライダーの下限でもある。 */
 const CONVERT_MIN = 100;
 
-const PointsScreen = ({ user, checkoutResult, onCheckoutHandled }) => {
+const PointsScreen = ({ user, checkoutResult, onCheckoutHandled, onInvite }) => {
   const { toast, confirm } = useToast();
   const [tab, setTab] = useState("buy");
   const [balance, setBalance] = useState(null);
@@ -1185,6 +1385,14 @@ const PointsScreen = ({ user, checkoutResult, onCheckoutHandled }) => {
   const [convertAmt, setConvertAmt] = useState(1000);
   const canConvert = (balance ?? 0) >= CONVERT_MIN;
   const [notice, setNotice] = useState("");
+  /* 決済が使えるか。null = 確認中。false のあいだは「準備中」を出す。 */
+  const [payEnabled, setPayEnabled] = useState(null);
+
+  useEffect(() => {
+    let alive = true;
+    api.paymentsEnabled().then((v) => { if (alive) setPayEnabled(v); });
+    return () => { alive = false; };
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -1320,27 +1528,120 @@ const PointsScreen = ({ user, checkoutResult, onCheckoutHandled }) => {
       </div>
 
       {tab === "buy" && (
-        <div className="fade" style={{ ...card, padding: 22 }}>
-          <Eyebrow style={{ marginBottom: 8 }}>Buy Points</Eyebrow>
-          {POINT_PACKS.map((p, i, arr) => {
-            const bonus = packBonus(p);
-            return (
-              <div key={p.id} className="lux-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 6px", margin: "0 -6px", borderRadius: 10, borderBottom: i < arr.length - 1 ? `1px solid ${C.lineSoft}` : "none" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 17, fontWeight: 700, fontFamily: FONT_DISPLAY, color: C.text }}>{p.points.toLocaleString()}<span style={{ fontSize: 11, fontFamily: FONT_BODY, fontWeight: 600 }}> pt</span></span>
-                  {bonus > 0 && <Tag>+{bonus.toLocaleString()} ボーナス</Tag>}
-                  {p.popular && <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: 0.6, color: "#241a06", background: C.primaryGrad, padding: "2px 10px", borderRadius: 999, boxShadow: "inset 0 1px 0 rgba(255,255,255,0.5)" }}>人気</span>}
+        <div className="fade">
+          {/* 決済がまだ使えないあいだの案内。
+              押しても何も起きないボタンを黙って置くより、先に伝える。 */}
+          {payEnabled === false && (
+            <div style={{
+              display: "flex", gap: 11, alignItems: "flex-start", marginBottom: 14,
+              borderRadius: 16, padding: "15px 16px",
+              background: "linear-gradient(135deg, rgba(232,201,135,0.13), rgba(168,32,58,0.12))",
+              border: `1px solid ${C.linePrimary}`,
+            }}>
+              <span style={{
+                flexShrink: 0, width: 32, height: 32, borderRadius: 16, display: "flex", alignItems: "center", justifyContent: "center",
+                background: "rgba(232,201,135,0.12)", border: `1px solid ${C.linePrimary}`, color: C.primaryDeep,
+              }}><Clock size={15} strokeWidth={1.9} /></span>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: C.text, letterSpacing: 0.3 }}>
+                  ポイントの購入は準備中です
                 </div>
-                <button className="lux-cta" onClick={() => buy(p)} disabled={busy} style={{ ...popBtn, padding: "9px 17px", borderRadius: 999, fontSize: 13, opacity: busy ? 0.6 : 1 }}>¥{p.price.toLocaleString()}</button>
+                <div style={{ fontSize: 11.5, color: C.textSec, lineHeight: 1.85, marginTop: 4 }}>
+                  クレジットカード決済の開始までもうしばらくお待ちください。
+                  それまでは、新規登録ボーナスと友達招待のボーナスでご参加いただけます。
+                </div>
+                {onInvite && (
+                  <button className="press" onClick={onInvite} style={{
+                    ...ghostBtn, marginTop: 11, padding: "9px 16px", fontSize: 12,
+                    display: "inline-flex", alignItems: "center", gap: 7,
+                  }}>
+                    <Gift size={13} strokeWidth={2} /> 友達を招待して {api.REFERRAL_BONUS.toLocaleString()}pt もらう
+                  </button>
+                )}
               </div>
-            );
-          })}
-          <div style={{ display: "flex", alignItems: "flex-start", gap: 6, fontSize: 10.5, color: C.textMuted, marginTop: 14, lineHeight: 1.7 }}>
-            <CreditCard size={13} strokeWidth={1.8} style={{ flexShrink: 0, marginTop: 2 }} />
-            <span>
-              お支払いは Stripe の決済ページで行います。カード情報が AISEKI に保存されることはありません。
-              支払いが完了すると、自動でポイントが追加されます。
-            </span>
+            </div>
+          )}
+
+          <div style={{ ...card, padding: 22 }}>
+            <Eyebrow style={{ marginBottom: 5 }}>Buy Points</Eyebrow>
+            <div style={{ fontSize: 10.5, color: C.textMuted, lineHeight: 1.75, marginBottom: 16 }}>
+              参加は1名あたり一律 {feeText()}pt です。まとめてお求めいただくほど、1ptあたりの単価が下がります。
+            </div>
+
+            <div style={{ display: "grid", gap: 10 }}>
+              {POINT_PACKS.map((p) => {
+                const off = packDiscount(p);
+                const seats = packSeats(p);
+                const disabled = busy || payEnabled === false;
+                return (
+                  <div key={p.id} className="lux-card" style={{
+                    borderRadius: 16, padding: "15px 16px", position: "relative", overflow: "hidden",
+                    background: p.popular
+                      ? "linear-gradient(135deg, rgba(232,201,135,0.14), rgba(168,32,58,0.12))"
+                      : "rgba(255,255,255,0.04)",
+                    border: `1px solid ${p.popular ? C.linePrimary : C.lineSoft}`,
+                    opacity: payEnabled === false ? 0.72 : 1,
+                  }}>
+                    {p.popular && (
+                      <span style={{
+                        position: "absolute", top: 0, right: 14, fontSize: 9.5, fontWeight: 700, letterSpacing: 0.8,
+                        padding: "3px 11px", borderBottomLeftRadius: 9, borderBottomRightRadius: 9,
+                        color: "#241a06", background: C.primaryGrad, boxShadow: "inset 0 1px 0 rgba(255,255,255,0.5)",
+                        display: "inline-flex", alignItems: "center", gap: 4,
+                      }}><Star size={9} strokeWidth={2.6} /> 人気</span>
+                    )}
+
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 12 }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                          <span style={{ fontSize: 22, fontWeight: 700, fontFamily: FONT_DISPLAY, ...brandText, lineHeight: 1 }}>
+                            {p.points.toLocaleString()}
+                            <span style={{ fontSize: 11.5, fontFamily: FONT_BODY, fontWeight: 600 }}> pt</span>
+                          </span>
+                          {off > 0 && (
+                            <span style={{
+                              fontSize: 10, fontWeight: 700, letterSpacing: 0.4, padding: "2px 9px", borderRadius: 999,
+                              color: C.accentDeep, background: "rgba(168,32,58,0.24)", border: "1px solid rgba(200,56,79,0.38)",
+                            }}>{off}% お得</span>
+                          )}
+                        </div>
+                        <div style={{ display: "flex", gap: 12, marginTop: 7, flexWrap: "wrap" }}>
+                          <span style={{ fontSize: 10.5, color: C.textSec, display: "inline-flex", alignItems: "center", gap: 4 }}>
+                            <UsersRound size={11} strokeWidth={1.9} color={C.primary} /> 参加 {seats}名分
+                          </span>
+                          <span style={{ fontSize: 10.5, color: C.textMuted }}>
+                            1ptあたり ¥{packUnitPrice(p)}
+                          </span>
+                        </div>
+                      </div>
+
+                      <button
+                        className="lux-cta"
+                        onClick={() => buy(p)}
+                        disabled={disabled}
+                        style={{
+                          ...popBtn, padding: "11px 18px", borderRadius: 999, fontSize: 13.5, flexShrink: 0,
+                          opacity: disabled ? 0.45 : 1, cursor: disabled ? "not-allowed" : "pointer",
+                          minWidth: 96, textAlign: "center",
+                        }}
+                      >
+                        {payEnabled === false ? "準備中" : `¥${p.price.toLocaleString()}`}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 7, fontSize: 10.5, color: C.textMuted, marginTop: 16, lineHeight: 1.8 }}>
+              <CreditCard size={13} strokeWidth={1.8} style={{ flexShrink: 0, marginTop: 2 }} />
+              <span>
+                お支払いは Stripe の決済ページで行います。カード情報が AISEKI に保存されることはありません。
+                支払いが完了すると、自動でポイントが追加されます。
+                <br />
+                ポイントは前払式支払手段には該当せず、払い戻しはできません（利用規約 第9条）。
+              </span>
+            </div>
           </div>
         </div>
       )}
@@ -1590,17 +1891,12 @@ const ChatRoom = ({ user, party, onBack }) => {
 };
 
 /* ═══════════════════════════════════════════════════════ MyPage */
-const MyPageScreen = ({ user, onTerms, onSupport, onReport }) => {
+const MyPageScreen = ({ user, onTerms, onSupport, onReport, onInvite, onSafety }) => {
   const { toast, confirm } = useToast();
   const [profile, setProfile] = useState(null);
   const [balance, setBalance] = useState(null);
   const [editing, setEditing] = useState(false);
-  // 性別は取り扱わない（性別による制限を設けないため、入力・表示ともに行わない）
-  const [form, setForm] = useState({ username: "", age: "", bio: "", avatar_url: "" });
-  const [saving, setSaving] = useState(false);
-  const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(true);
-  const fileRef = useRef(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1608,56 +1904,11 @@ const MyPageScreen = ({ user, onTerms, onSupport, onReport }) => {
       const [p, b] = await Promise.all([api.getProfile(user.id), api.getBalance(user.id)]);
       setProfile(p);
       setBalance(b);
-      if (p) setForm({ username: p.username || "", age: p.age || "", bio: p.bio || "", avatar_url: p.avatar_url || "" });
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   }, [user.id]);
 
   useEffect(() => { load(); }, [load]);
-
-  /* 顔写真のアップロード。
-     選んだ画像をそのまま avatars バケットへ上げ、返ってきた公開URLを
-     フォームに入れる（保存ボタンを押した時点でプロフィールに反映される）。 */
-  const pickPhoto = async (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";           // 同じファイルを選び直せるようにする
-    if (!file) return;
-    setUploading(true);
-    try {
-      const url = await api.uploadAvatar(user.id, file);
-      const previous = form.avatar_url;
-      setForm((f) => ({ ...f, avatar_url: url }));
-      // 直前にこの画面で上げた写真が残っていれば消す（保存前の上げ直し分）
-      if (previous && previous !== profile?.avatar_url) {
-        api.removeAvatar(user.id, previous);
-      }
-      toast.success("写真をアップロードしました。「保存する」で反映されます。");
-    } catch (err) {
-      toast.error(err.message);
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const save = async () => {
-    setSaving(true);
-    try {
-      const updated = await api.updateProfile(user.id, {
-        username: form.username,
-        age: form.age === "" ? null : form.age,
-        bio: form.bio,
-        avatar_url: form.avatar_url,
-      });
-      // 差し替え前の写真がストレージ上のものなら消しておく（容量を無駄にしない）
-      if (profile?.avatar_url && profile.avatar_url !== updated.avatar_url) {
-        api.removeAvatar(user.id, profile.avatar_url);
-      }
-      setProfile(updated);
-      setEditing(false);
-      toast.success("プロフィールを保存しました。");
-    } catch (e) { toast.error("保存に失敗しました: " + e.message); }
-    finally { setSaving(false); }
-  };
 
   const logout = async () => {
     const ok = await confirm({
@@ -1718,131 +1969,24 @@ const MyPageScreen = ({ user, onTerms, onSupport, onReport }) => {
 
   if (editing) {
     return (
-      <div style={{ padding: "16px 20px 24px" }}>
-        <SectionTitle sub="Edit profile">プロフィール編集</SectionTitle>
-        <div className="fade" style={{ ...card, padding: 22 }}>
-          {/* ── 顔写真 ── */}
-          <div style={{ marginBottom: 20 }}>
-            <label style={labelStyle}>顔写真</label>
-            <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-              <div style={{
-                width: 78, height: 78, borderRadius: 39, padding: 2, flexShrink: 0,
-                background: C.primaryGrad, boxShadow: "0 8px 22px rgba(0,0,0,0.5)", position: "relative",
-              }}>
-                {form.avatar_url ? (
-                  <img
-                    src={form.avatar_url}
-                    alt="プロフィール写真"
-                    style={{ width: "100%", height: "100%", borderRadius: 37, objectFit: "cover", display: "block", background: "#141c33" }}
-                  />
-                ) : (
-                  <div style={{
-                    width: "100%", height: "100%", borderRadius: 37, display: "flex", alignItems: "center", justifyContent: "center",
-                    background: "#141c33", color: C.primaryDeep,
-                  }}><User size={32} strokeWidth={1.6} /></div>
-                )}
-                {uploading && (
-                  <div style={{
-                    position: "absolute", inset: 2, borderRadius: 37, display: "flex", alignItems: "center", justifyContent: "center",
-                    background: "rgba(5,8,15,0.72)",
-                  }}>
-                    <div style={{
-                      width: 22, height: 22, borderRadius: "50%",
-                      border: `2px solid ${C.tintStrong}`, borderTopColor: C.primary,
-                      animation: "spin 0.85s linear infinite",
-                    }} />
-                  </div>
-                )}
-              </div>
-
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept={api.AVATAR_MIME.join(",")}
-                  onChange={pickPhoto}
-                  style={{ display: "none" }}
-                />
-                <button
-                  type="button"
-                  className="press"
-                  disabled={uploading}
-                  onClick={() => fileRef.current?.click()}
-                  style={{
-                    ...ghostBtn, width: "100%", padding: "11px 0", fontSize: 13,
-                    display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7,
-                    opacity: uploading ? 0.6 : 1,
-                  }}
-                >
-                  <Camera size={15} strokeWidth={2} />
-                  {uploading ? "アップロード中…" : form.avatar_url ? "写真を変更" : "写真を選ぶ"}
-                </button>
-                {form.avatar_url && (
-                  <button
-                    type="button"
-                    className="press"
-                    onClick={() => setForm({ ...form, avatar_url: "" })}
-                    style={{
-                      width: "100%", background: "none", border: "none", cursor: "pointer",
-                      padding: "9px 0 0", fontSize: 11.5, color: C.textMuted,
-                      display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
-                    }}
-                  >
-                    <Trash2 size={12} strokeWidth={1.9} /> 写真を削除
-                  </button>
-                )}
-              </div>
-            </div>
-            <div style={{ display: "flex", alignItems: "flex-start", gap: 6, marginTop: 12, fontSize: 10.5, color: C.textMuted, lineHeight: 1.65 }}>
-              <Lock size={12} strokeWidth={1.9} color={C.primary} style={{ flexShrink: 0, marginTop: 1 }} />
-              JPEG・PNG・WebP、2MBまで。写真・名前・年齢は一覧には表示されず、同じ会に参加が承認されたメンバーにのみ公開されます。
-            </div>
-          </div>
-
-          <div style={{ marginBottom: 16 }}>
-            <label style={labelStyle}>ニックネーム</label>
-            <input
-              value={form.username}
-              maxLength={api.LIMITS.username}
-              onChange={(e) => setForm({ ...form, username: e.target.value })}
-              style={fieldStyle}
-            />
-          </div>
-          <div style={{ marginBottom: 16 }}>
-            <label style={labelStyle}>年齢（{MIN_AGE}歳以上）</label>
-            <input type="number" min={MIN_AGE} max={99} inputMode="numeric" value={form.age} onChange={(e) => setForm({ ...form, age: e.target.value })} style={fieldStyle} />
-            <div style={{ display: "flex", alignItems: "flex-start", gap: 6, marginTop: 8, fontSize: 10.5, color: C.textMuted, lineHeight: 1.65 }}>
-              <ShieldCheck size={12} strokeWidth={1.9} color={C.primary} style={{ flexShrink: 0, marginTop: 1 }} />
-              本サービスは飲酒を伴うため{MIN_AGE}歳以上限定です。登録時の生年月日で年齢を確認しています。
-            </div>
-          </div>
-          <div style={{ marginBottom: 22 }}>
-            <label style={labelStyle}>自己紹介</label>
-            <textarea
-              value={form.bio}
-              rows={3}
-              maxLength={api.LIMITS.bio}
-              onChange={(e) => setForm({ ...form, bio: e.target.value })}
-              placeholder="ひとこと"
-              style={{ ...fieldStyle, resize: "vertical", lineHeight: 1.8 }}
-            />
-            <div style={{ textAlign: "right", fontSize: 10, color: C.textFaint, marginTop: 5 }}>
-              {form.bio.length} / {api.LIMITS.bio}
-            </div>
-          </div>
-          <div style={{ display: "flex", gap: 9 }}>
-            <button className="press" onClick={() => { setEditing(false); load(); }} style={{ ...ghostBtn, flex: 1, padding: "13px 0", borderRadius: 999, fontSize: 14 }}>キャンセル</button>
-            <button className="lux-cta" onClick={save} disabled={saving || uploading} style={{ ...popBtn, flex: 1, padding: "13px 0", borderRadius: 999, fontSize: 14, opacity: saving || uploading ? 0.6 : 1 }}>{saving ? "保存中…" : "保存する"}</button>
-          </div>
-        </div>
-      </div>
+      <Suspense fallback={<Loading label="読み込み中…" />}>
+        <ProfileEditScreen
+          user={user}
+          profile={profile}
+          onBack={() => setEditing(false)}
+          onSaved={(updated) => { setProfile(updated); setEditing(false); }}
+        />
+      </Suspense>
     );
   }
+
 
   const ROWS = [
     { icon: Gem, label: "ポイント残高", value: `${(balance ?? 0).toLocaleString()} pt`, highlight: true },
     { icon: Mail, label: "メール", value: user.email },
     { icon: Settings, label: "プロフィール編集", action: () => setEditing(true) },
+    { icon: Gift, label: "友達を招待する", value: `+${api.REFERRAL_BONUS.toLocaleString()} pt`, action: onInvite, accent: true },
+    { icon: ShieldCheck, label: "安心してご利用いただくために", action: onSafety },
     { icon: LifeBuoy, label: "お問い合わせ・ご意見", action: onSupport },
     { icon: ShieldAlert, label: "通報・違反の報告", action: onReport },
     { icon: FileText, label: "利用規約・プライバシーポリシー", action: onTerms },
@@ -1871,18 +2015,30 @@ const MyPageScreen = ({ user, onTerms, onSupport, onReport }) => {
           <button className="press" onClick={() => setEditing(true)} style={{ fontSize: 12, color: C.primaryDeep, background: "rgba(232,201,135,0.08)", border: `1px solid ${C.linePrimary}`, borderRadius: 20, padding: "6px 15px", cursor: "pointer", fontWeight: 700, flexShrink: 0 }}>編集</button>
         </div>
         {profile?.bio && (
-          <div style={{ marginTop: 15, paddingTop: 15, borderTop: `1px solid ${C.lineSoft}`, fontSize: 13, color: C.textSec, lineHeight: 1.7, position: "relative" }}>{profile.bio}</div>
+          <div style={{ marginTop: 15, paddingTop: 15, borderTop: `1px solid ${C.lineSoft}`, fontSize: 13, color: C.textSec, lineHeight: 1.7, position: "relative", whiteSpace: "pre-wrap" }}>{profile.bio}</div>
         )}
+        {(profile?.hobbies?.length ?? 0) > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 13, position: "relative" }}>
+            {profile.hobbies.map((h) => <Tag key={h}>{h}</Tag>)}
+          </div>
+        )}
+      </div>
+
+      {/* プロフィールの充実度。承認後に相手へ伝わる中身が、どれだけ揃っているか。 */}
+      <div className="fade" style={{ marginBottom: 16 }}>
+        <Suspense fallback={null}>
+          <CompletionMeter profile={profile} onJump={() => setEditing(true)} />
+        </Suspense>
       </div>
 
       <div className="fade" style={{ ...card, overflow: "hidden" }}>
         {ROWS.map((item, i, arr) => (
           <div key={i} className={item.action ? "lux-row" : ""} onClick={item.action} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "15px 18px", borderBottom: i < arr.length - 1 ? `1px solid ${C.lineSoft}` : "none", cursor: item.action ? "pointer" : "default" }}>
             <div style={{ display: "flex", gap: 13, alignItems: "center" }}>
-              <span style={{ display: "flex", color: item.highlight ? C.primary : item.danger ? C.accent : C.textSec }}><item.icon size={17} strokeWidth={1.8} /></span>
+              <span style={{ display: "flex", color: item.highlight || item.accent ? C.primary : item.danger ? C.accent : C.textSec }}><item.icon size={17} strokeWidth={1.8} /></span>
               <span style={{ fontSize: 14, color: item.danger ? C.accentDeep : C.text }}>{item.label}</span>
             </div>
-            {item.value && <span style={{ fontSize: 13, fontWeight: 700, fontFamily: item.highlight ? FONT_DISPLAY : FONT_BODY, ...(item.highlight ? brandText : { color: C.textSec }), maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.value}</span>}
+            {item.value && <span style={{ fontSize: 13, fontWeight: 700, fontFamily: item.highlight ? FONT_DISPLAY : FONT_BODY, ...(item.highlight || item.accent ? brandText : { color: C.textSec }), maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.value}</span>}
           </div>
         ))}
       </div>
@@ -2063,7 +2219,9 @@ export default function App() {
   const [detailId, setDetailId] = useState(null);
   const [chatRoom, setChatRoom] = useState(null);
   const [chatRoomId, setChatRoomId] = useState(null); // 通知から開くとき（会の実体は後から引く）
-  const [overlay, setOverlay] = useState(null);       // 'terms' | 'notifications' | 'support' | 'report'
+  // 'terms' | 'notifications' | 'support' | 'report' | 'invite' | 'safety'
+  const [overlay, setOverlay] = useState(null);
+  const [reportTarget, setReportTarget] = useState(null);  // 通報の対象ユーザー（あれば）
   const [notifyKey, setNotifyKey] = useState(0);      // ベルの再計算トリガ
 
   useEffect(() => {
@@ -2209,6 +2367,17 @@ export default function App() {
           user={user}
           onBack={backToApp}
           initialKind={overlay === "report" ? "report" : "question"}
+          targetUserId={reportTarget}
+        />
+      );
+    }
+    if (overlay === "invite") return <ReferralScreen onBack={backToApp} />;
+    if (overlay === "safety") {
+      return (
+        <SafetyScreen
+          onBack={backToApp}
+          onReport={() => { setReportTarget(null); setOverlay("report"); }}
+          onTerms={() => setOverlay("terms")}
         />
       );
     }
@@ -2220,6 +2389,7 @@ export default function App() {
           onBack={() => setDetailId(null)}
           onGoPoints={() => { setDetailId(null); setTab("points"); }}
           onCancelled={() => { setDetailId(null); setTab("home"); }}
+          onReport={(targetId) => { setReportTarget(targetId ?? null); setOverlay("report"); }}
         />
       );
     }
@@ -2232,6 +2402,7 @@ export default function App() {
           user={user}
           checkoutResult={checkoutResult}
           onCheckoutHandled={clearCheckoutParams}
+          onInvite={() => setOverlay("invite")}
         />
       );
       case "mypage": return (
@@ -2239,7 +2410,9 @@ export default function App() {
           user={user}
           onTerms={() => setOverlay("terms")}
           onSupport={() => setOverlay("support")}
-          onReport={() => setOverlay("report")}
+          onReport={() => { setReportTarget(null); setOverlay("report"); }}
+          onInvite={() => setOverlay("invite")}
+          onSafety={() => setOverlay("safety")}
         />
       );
       default: return <HomeScreen user={user} onDetail={setDetailId} onCreate={() => setTab("create")} />;
@@ -2267,8 +2440,11 @@ export default function App() {
         <NotificationBell user={user} refreshKey={notifyKey} onOpen={() => { setDetailId(null); setOverlay("notifications"); }} />
       </div>
 
+      {/* key を切り替えて、タブや画面が変わるたびに入場アニメーションを走らせる */}
       <div className="app-body">
-        <Suspense fallback={<Loading label="読み込み中…" />}>{renderScreen()}</Suspense>
+        <div key={`${overlay ?? ""}:${detailId ?? ""}:${tab}`} className="screen-enter">
+          <Suspense fallback={<Loading label="読み込み中…" />}>{renderScreen()}</Suspense>
+        </div>
         {overlay !== "terms" && <AppFooter onTerms={() => setOverlay("terms")} onSupport={() => setOverlay("support")} />}
       </div>
 

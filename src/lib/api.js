@@ -21,6 +21,21 @@ export const MIN_GROUP_SIZE = 2;
    ================================================================= */
 export const JOIN_FEE_PER_PERSON = 3800;
 
+/* ===================== ボーナスポイント =====================
+   新規登録ボーナス。参加が1人あたり 3,800pt のため、
+   1,000pt では登録直後に一度も参加できなかった。
+   10,000pt にして「登録したその日にグループで参加できる」状態にする。
+   DB 側は supabase/migration_launch2.sql の signup_bonus() が出典。
+   ここを変えるときは必ず両方を合わせること。
+   ========================================================== */
+export const SIGNUP_BONUS = 10000;
+
+/* 友達紹介ボーナス（紹介した側・された側の双方に付与）。参加1名分。 */
+export const REFERRAL_BONUS = 3800;
+
+/* 新規登録ボーナスで何名分の参加ができるか（LP・登録画面の訴求に使う） */
+export const SIGNUP_BONUS_SEATS = Math.floor(SIGNUP_BONUS / JOIN_FEE_PER_PERSON);
+
 /* お会計の区分。ホストは必ずおごられるため、これ以外は保存できない。 */
 export const TREAT_TYPE_GUEST_TREATS = "ゲストのおごり";
 
@@ -58,7 +73,28 @@ export const LIMITS = {
   message: 2000,
   inquiry: 4000,
   inquirySubject: 120,
+  favoriteFood: 60,
+  favoriteDrink: 60,
+  occupation: 40,
+  homeArea: 40,
+  hobby: 20,
 };
+
+/* プロフィール写真の枚数。
+   メイン（avatar_url）1枚＋サブ（photos）最大5枚で、合わせて最大6枚。
+   DB 側の profiles_photos_len 制約も同じ上限を持つ。 */
+export const MAX_SUB_PHOTOS = 5;
+export const MAX_PHOTOS = MAX_SUB_PHOTOS + 1;
+
+/* 趣味は自由入力だが、候補を出して選びやすくする（最大8個） */
+export const MAX_HOBBIES = 8;
+export const HOBBY_SUGGESTIONS = [
+  "食べ歩き", "お酒", "ワイン", "日本酒", "クラフトビール", "カフェ巡り",
+  "旅行", "映画", "音楽", "ライブ", "フェス", "読書",
+  "カメラ", "アート", "サウナ", "筋トレ", "ランニング", "ゴルフ",
+  "サーフィン", "スノーボード", "ダーツ", "ビリヤード", "料理", "ドライブ",
+  "ペット", "ファッション", "ゲーム", "アニメ", "スポーツ観戦", "投資",
+];
 
 export function isValidEmail(v) {
   const s = String(v || "").trim();
@@ -263,7 +299,9 @@ export async function deleteAccount() {
    生年月日（birth_date）と年齢確認日時（age_verified_at）は、
    本人にも返さない（DB 側で列単位に SELECT を遮断している）。
    そのため列は明示的に指定する（"*" は権限エラーになる）。 */
-const PROFILE_COLUMNS = "id, username, avatar_url, age, bio, created_at";
+const PROFILE_COLUMNS =
+  "id, username, avatar_url, age, bio, created_at, " +
+  "photos, hobbies, favorite_food, favorite_drink, occupation, home_area";
 
 export async function getProfile(userId) {
   const { data, error } = await supabase
@@ -279,7 +317,11 @@ export async function getProfile(userId) {
 // 生年月日は年齢確認の根拠のため、ここからは変更できない。
 // 文字数・画像URLのスキームはここで正規化してから送る。
 export async function updateProfile(userId, fields) {
-  const { birth_date, age, username, bio, avatar_url, ...rest } = fields;
+  const {
+    birth_date, age, username, bio, avatar_url,
+    photos, hobbies, favorite_food, favorite_drink, occupation, home_area,
+    ...rest
+  } = fields;
 
   const patch = { ...rest };
 
@@ -310,6 +352,33 @@ export async function updateProfile(userId, fields) {
       patch.avatar_url = safe;
     }
   }
+
+  /* サブ写真。avatar_url と同じく、自前のストレージに上げた画像だけを通す。
+     混ざっていたら黙って落とす（不正なURLを保存させない）。 */
+  if (photos !== undefined) {
+    patch.photos = (Array.isArray(photos) ? photos : [])
+      .map((u) => safeImageUrl(u))
+      .filter(Boolean)
+      .slice(0, MAX_SUB_PHOTOS);
+  }
+
+  if (hobbies !== undefined) {
+    /* 重複と空欄を落として上限で切る */
+    const seen = new Set();
+    patch.hobbies = (Array.isArray(hobbies) ? hobbies : [])
+      .map((h) => trimTo(h, LIMITS.hobby))
+      .filter((h) => {
+        if (!h || seen.has(h)) return false;
+        seen.add(h);
+        return true;
+      })
+      .slice(0, MAX_HOBBIES);
+  }
+
+  if (favorite_food !== undefined) patch.favorite_food = trimTo(favorite_food, LIMITS.favoriteFood);
+  if (favorite_drink !== undefined) patch.favorite_drink = trimTo(favorite_drink, LIMITS.favoriteDrink);
+  if (occupation !== undefined) patch.occupation = trimTo(occupation, LIMITS.occupation);
+  if (home_area !== undefined) patch.home_area = trimTo(home_area, LIMITS.homeArea);
 
   const { data, error } = await supabase
     .from("profiles")
@@ -378,6 +447,46 @@ export async function removeAvatar(userId, url) {
   await supabase.storage.from("avatars").remove([path]).catch(() => {});
 }
 
+/* ==================== プロフィールの充実度 ====================
+   「あと何を書けば伝わるか」を本人に示すための指標。
+   会の一覧には出ない情報なので、承認後に相手へ伝わる中身が
+   どれだけ揃っているかだけを見る。
+
+   重みは「相手が知りたい順」に置く。写真とひとことが最も効くので厚く、
+   細かい項目は軽く数える。合計を 100 に正規化する。
+   ============================================================== */
+const COMPLETION_ITEMS = [
+  { key: "avatar_url", label: "メインの写真", weight: 26, done: (p) => !!p?.avatar_url },
+  { key: "photos", label: "サブの写真（1枚以上）", weight: 12, done: (p) => (p?.photos?.length ?? 0) > 0 },
+  { key: "username", label: "ニックネーム", weight: 10, done: (p) => !!p?.username },
+  { key: "bio", label: "自己紹介（20文字以上）", weight: 20, done: (p) => (p?.bio?.trim().length ?? 0) >= 20 },
+  { key: "hobbies", label: "趣味（2つ以上）", weight: 12, done: (p) => (p?.hobbies?.length ?? 0) >= 2 },
+  { key: "favorite_food", label: "好きな食べもの", weight: 6, done: (p) => !!p?.favorite_food },
+  { key: "favorite_drink", label: "好きなお酒・飲みもの", weight: 6, done: (p) => !!p?.favorite_drink },
+  { key: "occupation", label: "お仕事", weight: 4, done: (p) => !!p?.occupation },
+  { key: "home_area", label: "よく行くエリア", weight: 4, done: (p) => !!p?.home_area },
+];
+
+export function profileCompletion(profile) {
+  const total = COMPLETION_ITEMS.reduce((s, i) => s + i.weight, 0);
+  const items = COMPLETION_ITEMS.map((i) => ({ key: i.key, label: i.label, done: i.done(profile) }));
+  const earned = COMPLETION_ITEMS.reduce((s, i) => s + (i.done(profile) ? i.weight : 0), 0);
+  return {
+    percent: Math.round((earned / total) * 100),
+    items,
+    missing: items.filter((i) => !i.done),
+  };
+}
+
+/* 充実度に応じた呼び名。数字だけだと「まだ足りない」しか伝わらないため。 */
+export function completionRank(percent) {
+  if (percent >= 100) return { label: "完璧です", tone: "gold" };
+  if (percent >= 80) return { label: "とても充実", tone: "gold" };
+  if (percent >= 55) return { label: "もう少し", tone: "mid" };
+  if (percent >= 25) return { label: "書きかけ", tone: "low" };
+  return { label: "はじめましょう", tone: "low" };
+}
+
 /* ========================== Points =========================== */
 export async function getBalance(userId) {
   const { data, error } = await supabase
@@ -442,16 +551,135 @@ export async function convertPoints(amount, description) {
 // 一覧・詳細では会の情報（場所・時間・人数・ポイント）と
 // ホストのニックネーム（parties.host_name）だけを取得する。
 // 参加者個人のプロフィールは join せず、承認後に getPartyMembers() でのみ取得する。
-export async function listParties(area) {
+/* ======================== 絞り込み ========================
+   エリア・開催日・時間帯・募集グループ人数で絞り込む。
+
+   日付と人数は DB 側で絞り、時間帯だけは手元で絞る
+   （party_time は 'HH:MM' の文字列なので、範囲比較は
+     文字列の大小で正しく効くが、旧データに書式のゆれが
+     残っている可能性があるため手元で解釈する）。
+   ======================================================== */
+export const DATE_FILTERS = [
+  { key: "all", label: "すべて" },
+  { key: "today", label: "今日" },
+  { key: "tomorrow", label: "明日" },
+  { key: "weekend", label: "今週末" },
+  { key: "week", label: "1週間以内" },
+];
+
+export const TIME_FILTERS = [
+  { key: "all", label: "すべて" },
+  { key: "early", label: "〜19:59", from: 0, to: 19 * 60 + 59 },
+  { key: "prime", label: "20:00〜21:59", from: 20 * 60, to: 21 * 60 + 59 },
+  { key: "late", label: "22:00〜", from: 22 * 60, to: 24 * 60 },
+];
+
+export const SIZE_FILTERS = [
+  { key: "all", label: "すべて" },
+  { key: "2", label: "2名", size: 2 },
+  { key: "3", label: "3名", size: 3 },
+  { key: "4+", label: "4名以上", size: 4 },
+];
+
+/* ローカル日付を YYYY-MM-DD で返す（toISOString は UTC 変換で日がずれる） */
+export function toDateString(d) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/* 絞り込みキーから [開始日, 終了日] を求める（両端を含む） */
+export function dateRangeFor(key, now = new Date()) {
+  const day = (offset) => {
+    const d = new Date(now);
+    d.setDate(d.getDate() + offset);
+    return d;
+  };
+  switch (key) {
+    case "today": return [toDateString(now), toDateString(now)];
+    case "tomorrow": return [toDateString(day(1)), toDateString(day(1))];
+    case "weekend": {
+      // 今日から見て次に来る金曜〜日曜（今日が週末ならその週末）
+      const dow = now.getDay();                 // 0=日 … 6=土
+      const toFri = dow === 0 ? 0 : (5 - dow + 7) % 7;
+      const start = dow === 0 || dow === 6 ? now : day(toFri);
+      const end = new Date(start);
+      end.setDate(end.getDate() + (start.getDay() === 0 ? 0 : 7 - start.getDay()));
+      return [toDateString(start), toDateString(end)];
+    }
+    case "week": return [toDateString(now), toDateString(day(7))];
+    default: return null;
+  }
+}
+
+/* 'HH:MM' を「その日の何分目か」に変換する。読めなければ null。 */
+function minutesOfDay(text) {
+  const m = /^(\d{1,2}):(\d{2})/.exec(String(text ?? "").trim());
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (!Number.isFinite(h) || !Number.isFinite(min) || h > 23 || min > 59) return null;
+  return h * 60 + min;
+}
+
+export async function listParties(filters) {
+  // 旧来の呼び出し（エリア文字列をそのまま渡す形）にも対応する
+  const f = typeof filters === "string" || filters == null ? { area: filters } : filters;
+
   let q = supabase
     .from("parties")
     .select("*")
     .eq("status", "recruiting")
     .order("created_at", { ascending: false });
-  if (area) q = q.eq("area", area);
+
+  if (f.area) q = q.eq("area", f.area);
+
+  const range = dateRangeFor(f.date);
+  if (range) q = q.gte("party_date", range[0]).lte("party_date", range[1]);
+
+  const size = SIZE_FILTERS.find((s) => s.key === f.size)?.size;
+  if (size) {
+    if (f.size === "4+") q = q.gte("guest_group_size", 4);
+    else q = q.eq("guest_group_size", size);
+  }
+
+  if (f.keyword) {
+    const kw = String(f.keyword).trim().replace(/[%,]/g, " ");
+    if (kw) q = q.or(`title.ilike.%${kw}%,location.ilike.%${kw}%,area.ilike.%${kw}%`);
+  }
+
   const { data, error } = await q;
   if (error) throw error;
-  return data ?? [];
+
+  let rows = data ?? [];
+
+  const time = TIME_FILTERS.find((t) => t.key === f.time && t.key !== "all");
+  if (time) {
+    rows = rows.filter((p) => {
+      const m = minutesOfDay(p.party_time);
+      return m !== null && m >= time.from && m <= time.to;
+    });
+  }
+
+  // 満席の会は絞り込みに関わらず後ろに回す（見に行っても申し込めないため）
+  return rows.sort((a, b) => {
+    const openA = a.max_members - a.current_members >= MIN_GROUP_SIZE ? 0 : 1;
+    const openB = b.max_members - b.current_members >= MIN_GROUP_SIZE ? 0 : 1;
+    return openA - openB;
+  });
+}
+
+/* 会の開催日を人が読む形にする（今日・明日は言葉で返す） */
+export function formatPartyDate(value) {
+  if (!value) return null;
+  const d = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  const today = new Date();
+  const diff = Math.round((d - new Date(today.getFullYear(), today.getMonth(), today.getDate())) / 86400000);
+  if (diff === 0) return "今日";
+  if (diff === 1) return "明日";
+  if (diff === 2) return "明後日";
+  const dow = ["日", "月", "火", "水", "木", "金", "土"][d.getDay()];
+  return `${d.getMonth() + 1}/${d.getDate()}（${dow}）`;
 }
 
 export async function getParty(id) {
@@ -474,7 +702,10 @@ export async function getParty(id) {
    PostgREST が「関係を特定できない」（PGRST201）で失敗する。
    重複そのものは migration_launch.sql で解消するが、
    未適用の環境でも動くよう、こちら側でも関係を一意に指定しておく。 */
-const MEMBER_PROFILE = "profiles!party_members_user_id_fkey(username, avatar_url, age)";
+const MEMBER_PROFILE =
+  "profiles!party_members_user_id_fkey(" +
+  "id, username, avatar_url, age, bio, photos, hobbies, " +
+  "favorite_food, favorite_drink, occupation, home_area)";
 
 export async function getPartyMembers(partyId) {
   const { data, error } = await supabase
@@ -834,6 +1065,93 @@ export async function listNotifications(userId) {
 
   items.sort((a, b) => new Date(b.at) - new Date(a.at));
   return items.slice(0, 30);
+}
+
+/* =========================== ブロック ===========================
+   ブロックすると、相手が主催する会は一覧・詳細から消え、
+   相手の会へ参加を申し込むこともできなくなる（逆向きも同じ）。
+
+   すでに同じ会に参加が承認されているグループチャットは残す。
+   当日の待ち合わせの最中に会話が消えると、かえって困るため。
+   その場合は通報（お問い合わせ画面）からの対応になる。
+   ================================================================ */
+export async function blockUser(userId, reason) {
+  const { error } = await supabase
+    .from("blocks")
+    .insert({ blocked_id: userId, reason: trimTo(reason, 200) });
+  if (error) {
+    if (/duplicate key/i.test(error.message || "")) return;   // すでにブロック済み
+    throw wrapLaunch2Error(error);
+  }
+}
+
+export async function unblockUser(userId) {
+  const { error } = await supabase.from("blocks").delete().eq("blocked_id", userId);
+  if (error) throw wrapLaunch2Error(error);
+}
+
+export async function listBlocks() {
+  const { data, error } = await supabase.rpc("my_blocks");
+  if (error) throw wrapLaunch2Error(error);
+  return data ?? [];
+}
+
+/* ========================= 友達紹介 =========================
+   自分の招待コードを友達に渡し、友達が登録後にそのコードを
+   入力すると、双方に REFERRAL_BONUS が入る。
+   コードは総当たりされないよう RPC 経由でのみ返す。
+   ============================================================ */
+export async function getReferralStats() {
+  const { data, error } = await supabase.rpc("my_referral_stats");
+  if (error) throw wrapLaunch2Error(error);
+  return data ?? null;   // { code, count, used, bonus }
+}
+
+export async function applyReferralCode(code) {
+  const value = String(code || "").trim().toUpperCase();
+  if (!value) throw new Error("招待コードを入力してください。");
+  const { data, error } = await supabase.rpc("apply_referral_code", { p_code: value });
+  if (error) throw wrapLaunch2Error(error);
+  return data;           // { bonus, host_name }
+}
+
+/* 招待の共有文面。SNS・メッセージアプリのどれに貼っても成立する短さにする。 */
+export function referralShareText(code) {
+  const url = typeof window === "undefined" ? "https://aiseki.jp" : window.location.origin;
+  return (
+    "AISEKI（大人のグループ相席）に一緒に登録しませんか。\n" +
+    `招待コード「${code}」を入れると、二人とも${REFERRAL_BONUS.toLocaleString()}ptもらえます。\n` +
+    url
+  );
+}
+
+/* migration_launch2.sql が未適用のときに分かりやすいエラーへ変換する */
+function wrapLaunch2Error(error) {
+  const msg = error?.message || "";
+  if (/blocks|my_blocks|is_blocked|referral|photos|hobbies|party_date|does not exist|schema cache/i.test(msg)) {
+    return new Error(
+      "この機能に必要なデータベースの更新がまだ適用されていません。" +
+      "supabase/migration_launch2.sql を実行してください。"
+    );
+  }
+  return error;
+}
+
+/* ======================= 決済が使えるか =======================
+   Stripe のキーが未設定のあいだは、購入ボタンを押しても
+   503 が返るだけになる。先に確認して画面に「準備中」と出す。
+   /api が無い環境（vite dev）では HTML が返るので、
+   JSON でない時点で「準備中」と判断する。
+   ============================================================ */
+export async function paymentsEnabled() {
+  try {
+    const res = await fetch("/api/stripe/status", { headers: { accept: "application/json" } });
+    if (!res.headers.get("content-type")?.includes("application/json")) return false;
+    const body = await res.json();
+    return body?.enabled === true;
+  } catch {
+    return false;
+  }
 }
 
 // Realtime 購読。unsubscribe 関数を返す。

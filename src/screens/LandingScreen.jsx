@@ -22,7 +22,10 @@ import {
   C, FONT_LOGO, FONT_HEAD, FONT_DISPLAY, FONT_BODY,
   brandText, card, popBtn, ghostBtn, Eyebrow,
 } from "../lib/theme.jsx";
-import { MIN_AGE, MIN_GROUP_SIZE, JOIN_FEE_PER_PERSON as JOIN_FEE } from "../lib/api";
+import {
+  MIN_AGE, MIN_GROUP_SIZE, JOIN_FEE_PER_PERSON as JOIN_FEE,
+  SIGNUP_BONUS, SIGNUP_BONUS_SEATS, REFERRAL_BONUS,
+} from "../lib/api";
 import { FOOTER_NOTICE, LEGAL_UPDATED, CONTACT_EMAIL } from "../lib/legal.js";
 import { POINT_PACKS, packBonus } from "../lib/packs.js";
 
@@ -313,7 +316,7 @@ export default function LandingScreen({ onStart }) {
               fontSize: 11.5, color: C.textMuted, letterSpacing: 0.4,
             }}>
               <Gem size={13} strokeWidth={1.9} color={C.primary} />
-              新規登録で <b style={{ color: C.primaryDeep, fontWeight: 700 }}>1,000pt</b> プレゼント · 登録は無料です
+              新規登録で <b style={{ color: C.primaryDeep, fontWeight: 700 }}>{SIGNUP_BONUS.toLocaleString()}pt</b> プレゼント · そのまま参加できます
             </div>
           </div>
 
@@ -620,8 +623,9 @@ export default function LandingScreen({ onStart }) {
               はじめましてを、<span style={brandText}>特別な一夜に。</span>
             </div>
             <p style={{ fontSize: 13.5, color: C.textSec, lineHeight: 2, margin: "18px auto 0", maxWidth: 460 }}>
-              登録は無料。今なら新規登録で 1,000pt を差し上げています。
-              友人を誘って、今週末の予定を決めませんか。
+              登録は無料。いま登録すると {SIGNUP_BONUS.toLocaleString()}pt を差し上げています
+              （参加{SIGNUP_BONUS_SEATS}名分。買い足さずに、そのまま今週末の会へ）。
+              友人を招待すると、お二人ともさらに {REFERRAL_BONUS.toLocaleString()}pt です。
             </p>
             <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap", marginTop: 30 }}>
               <button className="lux-cta" onClick={() => go("signup")} style={{

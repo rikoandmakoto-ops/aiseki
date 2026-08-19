@@ -5,6 +5,7 @@ import {
 } from "../lib/theme.jsx";
 import {
   signIn, signUp, sendPasswordReset, MIN_AGE, MIN_GROUP_SIZE, ageFromBirthDate, maxBirthDate, LIMITS,
+  SIGNUP_BONUS, SIGNUP_BONUS_SEATS,
 } from "../lib/api";
 import { FOOTER_NOTICE } from "../lib/legal.js";
 import { TermsBody } from "./TermsScreen.jsx";
@@ -343,7 +344,7 @@ export default function AuthScreen({ initialMode = "login", onBack }) {
           {!isForgot && (
             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 11, color: C.textMuted, textAlign: "center", marginTop: 18, lineHeight: 1.6 }}>
               {mode === "signup"
-                ? <><Sparkles size={13} strokeWidth={1.8} color={C.primary} /> 新規登録で <b style={{ color: C.primaryDeep, fontWeight: 700 }}>1,000pt</b> プレゼント</>
+                ? <><Sparkles size={13} strokeWidth={1.8} color={C.primary} /> 新規登録で <b style={{ color: C.primaryDeep, fontWeight: 700 }}>{SIGNUP_BONUS.toLocaleString()}pt</b> プレゼント（参加{SIGNUP_BONUS_SEATS}名分）</>
                 : "アカウントをお持ちでない方は「新規登録」から"}
             </div>
           )}

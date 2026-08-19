@@ -153,12 +153,14 @@ begin
   )
   on conflict (id) do nothing;
 
+  -- 新規登録ボーナス。金額は migration_launch2.sql の signup_bonus() が正。
+  -- ここは旧マイグレーションを単体で流したときの値なので、同じ額に揃えてある。
   insert into public.point_balances (user_id, balance)
-  values (new.id, 1000)
+  values (new.id, 10000)
   on conflict (user_id) do nothing;
 
   insert into public.points (user_id, amount, type, description)
-  values (new.id, 1000, 'earn', '新規登録ボーナス')
+  values (new.id, 10000, 'earn', '新規登録ボーナス')
   on conflict do nothing;
 
   return new;

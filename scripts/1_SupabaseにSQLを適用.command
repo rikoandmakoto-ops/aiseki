@@ -16,6 +16,7 @@ cd "$(dirname "$0")/.." || exit 1
 SQL_FILES=(
   "supabase/migration_launch.sql"
   "supabase/migration_fixed_join_fee.sql"
+  "supabase/migration_launch2.sql"
 )
 # 接続先は .env から読む（プロジェクトを作り直しても書き換え不要にするため）
 PROJECT_REF=""

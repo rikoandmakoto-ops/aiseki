@@ -29,7 +29,14 @@ const KIND_HINT = {
     "対象の会の名前と、いつ・何があったかを具体的にご記入いただけると調査が早く進みます。",
 };
 
-export default function SupportScreen({ user, onBack, initialKind = "question" }) {
+/* 通報のあと、運営が何をするか。送る前に見えていないと、通報しづらい。 */
+const REPORT_STEPS = [
+  "24時間以内に内容を確認します",
+  "誰が通報したかは、通報された方に伝えません",
+  "違反が確認できた場合は、警告・会の取り消し・利用停止のいずれかを行います",
+];
+
+export default function SupportScreen({ user, onBack, initialKind = "question", targetUserId = null }) {
   const { toast } = useToast();
   const [kind, setKind] = useState(initialKind);
   const [subject, setSubject] = useState("");
@@ -60,6 +67,8 @@ export default function SupportScreen({ user, onBack, initialKind = "question" }
         subject,
         body,
         replyEmail,
+        // 会の画面から通報したときは、対象の方を添えて送る（調査が早く進む）
+        targetUserId: kind === "report" ? targetUserId : null,
       });
       setSubject("");
       setBody("");
@@ -127,6 +136,32 @@ export default function SupportScreen({ user, onBack, initialKind = "question" }
           <div style={{ fontSize: 10.5, color: C.textMuted, lineHeight: 1.7, marginTop: 9 }}>
             {KIND_HINT[kind]}
           </div>
+
+          {/* 通報したあとの流れ。送る前に見えているほうが、ためらわずに済む。 */}
+          {kind === "report" && (
+            <div className="rise" style={{
+              marginTop: 11, borderRadius: 14, padding: "13px 15px",
+              background: "rgba(168,32,58,0.14)", border: "1px solid rgba(200,56,79,0.34)",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 8 }}>
+                <ShieldAlert size={13} strokeWidth={2.1} color={C.accentDeep} />
+                <span style={{ fontSize: 11.5, fontWeight: 700, color: C.text, letterSpacing: 0.3 }}>
+                  ご報告のあとの流れ
+                </span>
+              </div>
+              {REPORT_STEPS.map((s) => (
+                <div key={s} style={{ display: "flex", gap: 7, alignItems: "flex-start", fontSize: 10.5, color: C.textSec, lineHeight: 1.8, marginTop: 4 }}>
+                  <Check size={11} strokeWidth={2.6} color={C.accentDeep} style={{ flexShrink: 0, marginTop: 3 }} />
+                  <span>{s}</span>
+                </div>
+              ))}
+              {targetUserId && (
+                <div style={{ fontSize: 10, color: C.textMuted, marginTop: 9, paddingTop: 8, borderTop: "1px solid rgba(200,56,79,0.24)", lineHeight: 1.7 }}>
+                  会の画面から開いたため、対象の方の情報が自動で添えられます。
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div style={{ marginBottom: 16 }}>

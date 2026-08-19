@@ -343,7 +343,8 @@ create index if not exists messages_party_idx on public.messages(party_id, creat
 
 -- =====================================================================
 --  新規ユーザー登録時に profile / 残高を自動作成するトリガー
---  （初回登録ボーナスとして 1,000pt 付与）
+--  （初回登録ボーナスとして 10,000pt 付与。参加は1人あたり 3,800pt のため、
+--    登録したその日にグループで参加できる額にしてある）
 --  ここで年齢確認（20歳以上）を強制する。生年月日が無い、または
 --  20歳未満の場合は登録自体を失敗させる。
 -- =====================================================================
@@ -381,11 +382,11 @@ begin
   on conflict (id) do nothing;
 
   insert into public.point_balances (user_id, balance)
-  values (new.id, 1000)
+  values (new.id, 10000)
   on conflict (user_id) do nothing;
 
   insert into public.points (user_id, amount, type, description)
-  values (new.id, 1000, 'earn', '新規登録ボーナス')
+  values (new.id, 10000, 'earn', '新規登録ボーナス')
   on conflict do nothing;
 
   return new;
