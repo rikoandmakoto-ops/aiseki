@@ -1,11 +1,11 @@
 # AISEKI 引き継ぎ書
 
-最終更新: 2026-08-20 / 対象コミット: `f3ba04b`（`main`）/ 作業ツリー: **クリーン（未コミット変更なし）**
+最終更新: 2026-08-20 / 対象コミット: `2927e64`（`main`）/ 作業ツリー: **クリーン（未コミット変更なし）**
 
-> 本文中の「対象コミット `4240e9d`」の記述は、この引き継ぎ書自体をコミットする前の値。
-> 内容の対象は `4240e9d` のままで正しい（`f3ba04b` は本ファイルの追加のみ）。
-> なお **2026-08-20 時点でも本番配信 JS には `support@aiseki.app` が残っており、下記「最新コミットは未デプロイ」は依然として有効**。
-> Git リモートは未設定（30 コミットがローカルのみ。バックアップ無し）。
+> **2026-08-20 に本番デプロイ済み**（`vercel deploy --prod`、deployment id `dpl_Guofb4TN17gib5zPnCtNfDmggh98`）。
+> 本番配信 JS は `assets/index-BKEnrNQn.js` で、問い合わせ窓口は `theoffzaki@gmail.com`。
+> 旧アドレス `support@aiseki.app` は**もう含まれていない**（P0-3 は完了）。
+> Git リモートは未設定（32 コミットがローカルのみ。バックアップ無し）。
 
 このファイルは「このプロジェクトを初めて触る人が、まず読むもの」。
 **ローンチまでの手順そのものは `LAUNCH.md` が正**。ここは全体像と現状を書く。
@@ -62,10 +62,10 @@
 | Vercel orgId | `team_r5d4Rpbmwu5q0EryE985968c` |
 | 独自ドメイン | **未取得**。`aiseki.app` は DNS が引けない（A も MX も無し） |
 
-> **⚠️ 最新コミットは未デプロイ。**
-> 本番が配信している JS には、まだ古い `support@aiseki.app` が入っている
-> （`curl https://aiseki-xi.vercel.app/assets/index-*.js` で確認済み）。
-> `4240e9d` を反映するには**デプロイが必要**。
+> ✅ **最新コミットはデプロイ済み**（2026-08-20）。
+> 本番配信 JS（`assets/index-BKEnrNQn.js`）に `theoffzaki@gmail.com` が入っていること、
+> 旧 `support@aiseki.app` が消えていることを `curl` で確認済み。
+> Supabase の接続先も現行 ref（`tvydtsqirogdxglkoicz`）のみで、旧 ref は含まれない。
 
 ---
 
@@ -133,7 +133,9 @@ postgresql://postgres:<DBパスワード>@db.tvydtsqirogdxglkoicz.supabase.co:54
 - **過去の重大バグ** — 2件とも修正済み（§7）。
 - **Vercel 環境変数の整理**（2026-08-20）— Preview に接続情報を追加、Development を
   旧プロジェクトから現行へ入れ替え、未使用の `NEXT_PUBLIC_*` を削除。
-- **問い合わせ窓口** — `theoffzaki@gmail.com` に変更（コミット済み・**未デプロイ**）。
+- **問い合わせ窓口** — `theoffzaki@gmail.com` に変更（コミット済み・**2026-08-20 デプロイ済み**）。
+- **本番デプロイ**（2026-08-20）— `vercel deploy --prod` を実行し `https://aiseki-xi.vercel.app` に alias 済み。
+  HTTP 200 / `/api/stripe/status` = `{"enabled":false}` / セキュリティヘッダ（CSP・HSTS・X-Frame-Options）配信を確認。
 
 ### ⛔ 完了していないもの
 
@@ -143,7 +145,7 @@ postgresql://postgres:<DBパスワード>@db.tvydtsqirogdxglkoicz.supabase.co:54
 | **Redirect URLs の登録** | 未設定。パスワード再設定リンクが機能しない |
 | 独自SMTP | 未設定。標準SMTPは1時間に数通しか送れない |
 | メール本文の日本語化 | 未対応（英語のまま） |
-| 最新コミットのデプロイ | 未実施 |
+| ~~最新コミットのデプロイ~~ | ✅ 2026-08-20 実施済み |
 | Production の `SUPABASE_SERVICE_ROLE_KEY` | 旧プロジェクトのものの可能性が高い |
 | Stripe決済 | placeholder のまま（意図的。無効でもアプリは動く） |
 | 独自ドメイン | 未取得 |
@@ -168,8 +170,8 @@ postgresql://postgres:<DBパスワード>@db.tvydtsqirogdxglkoicz.supabase.co:54
    > 順番が逆だと、Site URL が既定値（`http://localhost:3000`）のまま確認メールが飛び、
    > **その間に登録した人全員のリンクが開けなくなる。**
 
-3. **最新コミットをデプロイする**
-   問い合わせ窓口の変更が本番に反映されていない。規約に書いた窓口に**メールが届かない状態**。
+3. ~~**最新コミットをデプロイする**~~ ✅ **2026-08-20 完了。**
+   問い合わせ窓口の変更は本番に反映済み。以降コードを変えたら `vercel deploy --prod` を忘れないこと。
 
 ### 🟠 P1 — 公開直後に困るもの
 
