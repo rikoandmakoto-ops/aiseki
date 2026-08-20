@@ -190,25 +190,74 @@ AISEKI_DB_PASSWORD='<DBのパスワード>' node scripts/apply_sql.mjs supabase/
 上の `https://aiseki-xi.vercel.app/**` は必ず入れること。
 独自ドメインに移すときは、そのドメインもここに追加する。
 
-### 2-3. 送信元メールの設定 ⛔ **必須に格上げ（2026-08-20）**
+### 2-3. 送信元メールの設定 ⛔ **半分だけ完了（2026-08-21）**
 
 > **2-1 でメール確認を ON にしたことで、これは「推奨」ではなく「公開の前提条件」になった。**
-> 新プロジェクトの設定を確認したところ:
->
-> | 項目 | 現在の値 | 意味 |
-> |---|---|---|
-> | `smtp_host` | `None` | 独自SMTP未設定 → Supabase 標準の送信サービスを使っている |
-> | `rate_limit_email_sent` | `2` | **1時間あたり2通しか送れない** |
->
-> Supabase 標準の送信サービスは、新規プロジェクトでは
-> **組織のメンバーとして登録済みのアドレス宛にしか配信されない**。
-> つまり今のままだと、**一般ユーザーは確認メールを受け取れず登録を完了できない**。
-> **一般公開の前に必ずここを設定すること。**
 
-**Project Settings → Authentication → SMTP Settings** で
-独自のSMTP（Resend / SendGrid / Amazon SES など）を設定する。
-設定後、`rate_limit_email_sent` も実運用に合わせて引き上げる
-（Management API の `PATCH /v1/projects/{ref}/config/auth` で変更できる）。
+**✅ 2026-08-21: Resend の SMTP を Management API で設定済み。**
+
+```bash
+curl -X PATCH "https://api.supabase.com/v1/projects/melfyxfvhyknqhruytms/config/auth" \
+  -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" \
+  -d '{"smtp_host":"smtp.resend.com","smtp_port":"465","smtp_user":"resend",
+       "smtp_pass":"<Resend APIキー>","smtp_admin_email":"theoffzaki@gmail.com",
+       "smtp_sender_name":"AISEKI","rate_limit_email_sent":30}'
+```
+
+> **`PUT` ではなく `PATCH`。`PUT` は `Cannot PUT /v1/projects/.../config/auth` で落ちる。**
+> HANDOFF/LAUNCH の旧記述「SMTP は API に項目が無いので手作業」は**誤り**。
+> `config/auth` には `smtp_host` / `smtp_port` / `smtp_user` / `smtp_pass` /
+> `smtp_admin_email` / `smtp_sender_name` / `smtp_max_frequency` が全部ある。
+
+| 項目 | 現在の値 |
+|---|---|
+| `smtp_host` / `smtp_port` | `smtp.resend.com` / `465` |
+| `smtp_user` | `resend` |
+| `smtp_pass` | 設定済み（GET ではハッシュが返る） |
+| `smtp_admin_email` | `theoffzaki@gmail.com` |
+| `smtp_sender_name` | `AISEKI` |
+| `rate_limit_email_sent` | `2` → **`30`**（1時間あたり30通） |
+| `smtp_max_frequency` | `60`（同一宛先へ60秒に1通） |
+
+SMTP 認証そのものは疎通確認済み（`smtp.resend.com:465` に TLS 接続 → `AUTH LOGIN` →
+`235 Authentication successful`）。
+
+#### ⛔ 残っているブロッカー: Resend に検証済みドメインが1つも無い
+
+Resend は **検証済みドメインのアドレスからしか送信できない**。
+`smtp_admin_email` が `theoffzaki@gmail.com`（= gmail.com）なので、Resend が送信を拒否する。
+
+```
+$ curl -X POST .../auth/v1/signup -d '{"email":"...","password":"..."}'
+{"code":500,"error_code":"unexpected_failure","msg":"Error sending confirmation email"}
+```
+
+Resend API での直接検証結果（2026-08-21）:
+
+| From | 結果 |
+|---|---|
+| `theoffzaki@gmail.com` | ❌ `The gmail.com domain is not verified` |
+| `noreply@aiseki.app` / `@aiseki.jp` / `@aiseki.com` / `@aiseki-xi.vercel.app` | ❌ 同上（**検証済みドメインはゼロ**） |
+| `onboarding@resend.dev` | ⚠️ 送れるが **`riko.and.makoto@gmail.com` 宛のみ**（Resendアカウント所有者） |
+
+**やること（人の手が要る）**
+
+1. ドメインを取得する（`aiseki.app` は未登録。§独自ドメインの項を参照）。
+2. https://resend.com/domains でそのドメインを追加し、表示された
+   **DKIM（TXT）+ SPF（TXT/MX）+ DMARC** を DNS に登録して Verified にする。
+3. `smtp_admin_email` を `noreply@<そのドメイン>` に変え直す:
+
+```bash
+curl -X PATCH "https://api.supabase.com/v1/projects/melfyxfvhyknqhruytms/config/auth" \
+  -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" \
+  -d '{"smtp_admin_email":"noreply@<取得したドメイン>"}'
+```
+
+4. `POST /auth/v1/signup` を実アドレスで叩いて 200 が返り、メールが届くことを確認する。
+
+> **3 を終えるまで、一般ユーザーは新規登録できない**（signup が必ず 500 になる）。
+> 手元の Resend APIキーは **送信専用キー**（`/domains` は `restricted_api_key` で 401）なので、
+> ドメイン追加はダッシュボードから行うこと。
 
 ### 2-4. メール本文の日本語化（推奨）
 

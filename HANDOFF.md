@@ -165,7 +165,7 @@ postgresql://postgres:<DBパスワード>@db.melfyxfvhyknqhruytms.supabase.co:54
 |---|---|
 | ~~メール確認（Confirm email）~~ | ✅ 2026-08-20 に ON（`mailer_autoconfirm: false`） |
 | ~~Redirect URLs の登録~~ | ✅ 2026-08-20 に登録済み |
-| **独自SMTP** | ⛔ **未設定。メール確認を ON にしたので、いまや公開の前提条件**（`LAUNCH.md` §2-3） |
+| **独自SMTP** | 🟡 **半分完了（2026-08-21）。** Resend SMTP は Supabase 側に設定済み・SMTP認証も疎通確認済み。ただし **Resend に検証済みドメインが無く、送信は全部拒否される**（`LAUNCH.md` §2-3） |
 | メール本文の日本語化 | 未対応（英語のまま） |
 | ~~最新コミットのデプロイ~~ | ✅ 2026-08-20 実施済み |
 | ~~Production の `SUPABASE_SERVICE_ROLE_KEY`~~ | ✅ 2026-08-20 に新プロジェクトの secret キーへ入れ替え済み |
@@ -189,12 +189,19 @@ postgresql://postgres:<DBパスワード>@db.melfyxfvhyknqhruytms.supabase.co:54
 3. ~~**最新コミットをデプロイする**~~ ✅ **2026-08-20 完了。**
    以降コードを変えたら `vercel deploy --prod` を忘れないこと。
 
-4. ⛔ **独自SMTPを設定する（新たな P0）** — Resend / SendGrid / SES など。
-   Project Settings → Authentication → SMTP Settings。
-   **2 でメール確認を ON にしたことで、これが公開の前提条件になった。**
-   いまは `smtp_host` 未設定・`rate_limit_email_sent: 2`（1時間2通）で、
-   Supabase 標準の送信サービスは組織メンバー宛にしか配信しない。
-   **このままだと一般ユーザーは確認メールを受け取れず、登録を完了できない。**
+4. 🟡 **独自SMTP** — **2026-08-21 に Resend SMTP を設定済み**（`smtp.resend.com:465` /
+   user `resend` / sender name `AISEKI`、`rate_limit_email_sent` を 2 → 30 に引き上げ）。
+   Management API の **`PATCH /v1/projects/{ref}/config/auth`** で全項目入る
+   （`PUT` は 404。旧記述の「SMTP は API に項目が無い」は誤りだった）。
+
+   ⛔ **ただし残ブロッカーあり: Resend に検証済みドメインが1つも無い。**
+   Resend は検証済みドメインのアドレスからしか送信できないため、
+   `smtp_admin_email: theoffzaki@gmail.com` は `The gmail.com domain is not verified` で拒否され、
+   `POST /auth/v1/signup` は `500 Error sending confirmation email` になる（2026-08-21 に実測）。
+   `aiseki.app` / `aiseki.jp` / `aiseki.com` / `aiseki-xi.vercel.app` もすべて未検証。
+   **→ ドメイン取得 → resend.com/domains で DKIM/SPF/DMARC を検証 →
+   `smtp_admin_email` を `noreply@<そのドメイン>` に変更、が公開の前提条件。**
+   手順は `LAUNCH.md` §2-3。
 
 ### 🟠 P1 — 公開直後に困るもの
 
@@ -332,7 +339,19 @@ SUPABASE_ACCESS_TOKEN=sbp_xxxx node scripts/apply_auth_config.mjs
 ```
 
 正しい順番（Redirect URLs → メール確認）で流し、`/auth/v1/settings` で反映確認までやる。
-SMTP（2-3）とメール本文（2-4）は **API に項目が無いので手作業**。
+
+**SMTP も API から設定できる（2026-08-21 に判明。旧記述の「手作業」は誤り）。**
+メソッドは **`PATCH`**（`PUT` は `Cannot PUT ...` で落ちる）。
+
+```bash
+curl -X PATCH "https://api.supabase.com/v1/projects/melfyxfvhyknqhruytms/config/auth" \
+  -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" \
+  -d '{"smtp_host":"smtp.resend.com","smtp_port":"465","smtp_user":"resend",
+       "smtp_pass":"<APIキー>","smtp_admin_email":"noreply@<検証済みドメイン>",
+       "smtp_sender_name":"AISEKI","rate_limit_email_sent":30}'
+```
+
+メール本文（2-4）は Email Templates なので引き続き手作業。
 
 ### テストユーザーの作成 — service_role が要る（2026-08-20 以降）
 
