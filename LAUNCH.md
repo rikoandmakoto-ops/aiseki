@@ -11,7 +11,8 @@
 
 `supabase/migration_launch.sql` を Supabase に適用する。
 
-> **本番（`tvydtsqirogdxglkoicz`）には 2026-08-19 に適用済み。**
+> **本番（`melfyxfvhyknqhruytms`）には 2026-08-20 に適用済み。**
+> （2026-08-19 に旧 `tvydtsqirogdxglkoicz` へ適用したものを、移管先にも同順で適用した）
 > 重複外部キー2本（`party_members_user_id_fkey_profiles` /
 > `messages_user_id_fkey_profiles`）の削除まで完了している。
 > 以下の手順は、別環境を立てたときのために残してある。
@@ -53,7 +54,8 @@
 `supabase/migration_fixed_join_fee.sql` を Supabase に適用する。
 `migration_launch.sql` のあとに実行すること（何度実行しても安全）。
 
-> **本番（`tvydtsqirogdxglkoicz`）には 2026-08-19 に適用済み。**
+> **本番（`melfyxfvhyknqhruytms`）には 2026-08-20 に適用済み。**
+> （2026-08-19 に旧 `tvydtsqirogdxglkoicz` へ適用したものを、移管先にも同順で適用した）
 
 **このSQLで入るもの**
 
@@ -74,7 +76,8 @@
 `supabase/migration_launch2.sql` を Supabase に適用する。
 `migration_fixed_join_fee.sql` のあとに実行すること（何度実行しても安全）。
 
-> **本番（`tvydtsqirogdxglkoicz`）には 2026-08-19 に適用済み。**
+> **本番（`melfyxfvhyknqhruytms`）には 2026-08-20 に適用済み。**
+> （2026-08-19 に旧 `tvydtsqirogdxglkoicz` へ適用したものを、移管先にも同順で適用した）
 
 **このSQLで入るもの**
 
@@ -104,7 +107,7 @@ AISEKI_DB_PASSWORD='<DBのパスワード>' node scripts/apply_sql.mjs supabase/
 
 ---
 
-## 2. Supabase の設定（必須）— ⛔ 2026-08-20 時点で未着手
+## 2. Supabase の設定（必須）— ✅ 2-1 / 2-2 は 2026-08-20 に適用済み（2-3 が未了・後述）
 
 ダッシュボードでの設定。コードからは変えられない。
 
@@ -132,28 +135,45 @@ AISEKI_DB_PASSWORD='<DBのパスワード>' node scripts/apply_sql.mjs supabase/
 >
 > つまり **PAT の発行だけは人間がダッシュボードでやるしかない**。
 > anon キー・service_role キー・DBパスワードのどれでも代用できない。
+>
+> **2026-08-20: PAT を受領し、上記スクリプトで 2-2 → 2-1 を適用済み。**
+> ただし受け取った PAT は旧プロジェクト `tvydtsqirogdxglkoicz` とは**別アカウント**
+> （org `zack` / `riko.and.makoto@gmail.com`）のもので、旧 ref には 403 で触れなかった。
+> そのため同アカウントに新プロジェクト `melfyxfvhyknqhruytms` を作り、
+> スキーマとデータを移管したうえで、新プロジェクトに Auth 設定を適用した。
+> **PAT は今後もこのアカウントのものを使うこと。**
 
 > **順番を守ること。2-2（リダイレクト先）を先にやってから 2-1（メール確認）を ON にする。**
 > 逆にすると、Site URL が既定値（`http://localhost:3000`）のまま確認メールが飛び、
 > **その間に登録した人全員のリンクが開けなくなる**。
 > 先に 2-2 を入れておけば、この事故は起きない。
 
-### 2-1. メール確認を有効にする ★重要（2-2 のあとで）
+### 2-1. メール確認を有効にする ★重要（2-2 のあとで）— ✅ 2026-08-20 適用済み
 
 **Authentication → Providers → Email → "Confirm email" を ON**
 
-現在は `mailer_autoconfirm: true`（＝確認なしで登録完了）になっている。
-2026-08-20 時点で `/auth/v1/settings` を確認したところ、まだ `true` のまま。
-このままだと、**自分のものではないメールアドレスでも登録できてしまう**。
+> **2026-08-20 に適用済み。** `melfyxfvhyknqhruytms` の `/auth/v1/settings` および
+> Management API の両方で `mailer_autoconfirm: false` を確認した。
+>
+> **副作用: テストユーザーを anon キーだけで作る手順は、もう使えない。**
+> `mailer_autoconfirm` が false になったため、`scripts/create_test_user.mjs` の
+> 素の signup では確認済みユーザーにならない。以降は service_role で
+> `POST /auth/v1/admin/users`（`email_confirm: true`）を使うこと。
+
+これを ON にしないと、**自分のものではないメールアドレスでも登録できてしまう**。
 
 - 本人に連絡が取れない（規約 第20条で通知手段として登録メールを指定している）
 - 他人のメールアドレスで先に登録される（占拠）
 
 開発中は確認なしのほうが楽なので、**公開の直前に切り替える**こと。
 
-### 2-2. リダイレクト先の登録
+### 2-2. リダイレクト先の登録 — ✅ 2026-08-20 適用済み
 
 **Authentication → URL Configuration**
+
+> **2026-08-20 に適用済み。** Management API で以下を確認した。
+> `site_url = https://aiseki-xi.vercel.app` /
+> `uri_allow_list = https://aiseki-xi.vercel.app,https://aiseki-xi.vercel.app/**`
 
 | 項目 | 値 |
 |---|---|
@@ -170,13 +190,25 @@ AISEKI_DB_PASSWORD='<DBのパスワード>' node scripts/apply_sql.mjs supabase/
 上の `https://aiseki-xi.vercel.app/**` は必ず入れること。
 独自ドメインに移すときは、そのドメインもここに追加する。
 
-### 2-3. 送信元メールの設定（推奨）
+### 2-3. 送信元メールの設定 ⛔ **必須に格上げ（2026-08-20）**
 
-Supabase 標準のSMTPは**1時間に数通**しか送れない。
-公開後に登録が集中すると「確認メールが届かない」が多発する。
+> **2-1 でメール確認を ON にしたことで、これは「推奨」ではなく「公開の前提条件」になった。**
+> 新プロジェクトの設定を確認したところ:
+>
+> | 項目 | 現在の値 | 意味 |
+> |---|---|---|
+> | `smtp_host` | `None` | 独自SMTP未設定 → Supabase 標準の送信サービスを使っている |
+> | `rate_limit_email_sent` | `2` | **1時間あたり2通しか送れない** |
+>
+> Supabase 標準の送信サービスは、新規プロジェクトでは
+> **組織のメンバーとして登録済みのアドレス宛にしか配信されない**。
+> つまり今のままだと、**一般ユーザーは確認メールを受け取れず登録を完了できない**。
+> **一般公開の前に必ずここを設定すること。**
 
 **Project Settings → Authentication → SMTP Settings** で
 独自のSMTP（Resend / SendGrid / Amazon SES など）を設定する。
+設定後、`rate_limit_email_sent` も実運用に合わせて引き上げる
+（Management API の `PATCH /v1/projects/{ref}/config/auth` で変更できる）。
 
 ### 2-4. メール本文の日本語化（推奨）
 
@@ -191,7 +223,7 @@ Supabase 標準のSMTPは**1時間に数通**しか送れない。
 
 | 変数名 | 値 | 必須 |
 |---|---|---|
-| `VITE_SUPABASE_URL` | `https://tvydtsqirogdxglkoicz.supabase.co` | ✅ |
+| `VITE_SUPABASE_URL` | `https://melfyxfvhyknqhruytms.supabase.co` | ✅ |
 | `VITE_SUPABASE_ANON_KEY` | `sb_publishable_...` | ✅ |
 | `SUPABASE_SERVICE_ROLE_KEY` | service_role キー | 決済を使うなら |
 | `STRIPE_SECRET_KEY` | `sk_live_...` | 決済を使うなら |
@@ -205,7 +237,7 @@ Supabase 標準のSMTPは**1時間に数通**しか送れない。
 
 | 環境 | 状態 |
 |---|---|
-| Production | `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` あり。配信物が `tvydtsqirogdxglkoicz` を向いていることを確認済み |
+| Production | `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` を 2026-08-20 に `melfyxfvhyknqhruytms` の値へ入れ替え。配信物が新 ref を向いていることを確認済み |
 | Preview | ✅ `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` を追加（2026-08-20）。以前は空で、プレビュー配信が止まっていた |
 | Development | ✅ 現行プロジェクトの値に入れ替え（2026-08-20）。以前は**旧プロジェクト `lryjlxsfvzgtdxdjtemy` を向いていた** |
 

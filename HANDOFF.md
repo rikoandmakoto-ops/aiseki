@@ -1,11 +1,25 @@
 # AISEKI 引き継ぎ書
 
-最終更新: 2026-08-20 / 対象コミット: `2927e64`（`main`）/ 作業ツリー: **クリーン（未コミット変更なし）**
+最終更新: 2026-08-20（Supabase 移管後）
 
-> **2026-08-20 に本番デプロイ済み**（`vercel deploy --prod`、deployment id `dpl_Guofb4TN17gib5zPnCtNfDmggh98`）。
-> 本番配信 JS は `assets/index-BKEnrNQn.js` で、問い合わせ窓口は `theoffzaki@gmail.com`。
-> 旧アドレス `support@aiseki.app` は**もう含まれていない**（P0-3 は完了）。
-> Git リモートは未設定（32 コミットがローカルのみ。バックアップ無し）。
+> ## ⚠️ まずこれを読む — Supabase プロジェクトが変わった（2026-08-20）
+>
+> 受け取った Personal Access Token が **旧プロジェクト `tvydtsqirogdxglkoicz` とは別アカウント**
+> （org `zack` / owner `riko.and.makoto@gmail.com`）のものだったため、旧 ref には 403 で触れなかった。
+> Auth 設定は PAT でしか変えられないので、**同アカウントに新プロジェクトを作って移管した。**
+>
+> | | 旧 | 新（現行） |
+> |---|---|---|
+> | project ref | `tvydtsqirogdxglkoicz` | **`melfyxfvhyknqhruytms`** |
+> | アカウント | 触れない（PAT が無い） | `riko.and.makoto@gmail.com` / org `zack` |
+>
+> スキーマ・データ・Vercel 環境変数・本番デプロイまで切り替え済み。
+> **旧プロジェクトはまだ生きているが、もう接続先ではない。**
+>
+> **2026-08-20 に本番デプロイ済み**（deployment id `dpl_7UqausiqusHiVF7TcEsVUBKrkVqn`）。
+> 本番配信 JS は `assets/index-B1I0jCrz.js`。新 ref のみを向いており、旧 ref は含まれない。
+> 問い合わせ窓口は `theoffzaki@gmail.com`。
+> Git リモートは未設定（バックアップ無し）。
 
 このファイルは「このプロジェクトを初めて触る人が、まず読むもの」。
 **ローンチまでの手順そのものは `LAUNCH.md` が正**。ここは全体像と現状を書く。
@@ -75,18 +89,19 @@
 
 | 項目 | 値 |
 |---|---|
-| project ref | `tvydtsqirogdxglkoicz` |
+| project ref | `melfyxfvhyknqhruytms` |
+| 所属アカウント | `riko.and.makoto@gmail.com` / org `zack`（Free） |
 | リージョン | ap-northeast-1 |
-| API URL | `https://tvydtsqirogdxglkoicz.supabase.co` |
-| anon（publishable）キー | `sb_publishable_2mA7W9xs1RH50b4EKhBKmg_F-mQ-ipX` |
-| DB ホスト | `db.tvydtsqirogdxglkoicz.supabase.co:5432` |
+| API URL | `https://melfyxfvhyknqhruytms.supabase.co` |
+| anon（publishable）キー | `.env` の `VITE_SUPABASE_ANON_KEY` を見る（`sb_publishable_...`） |
+| DB ホスト | `db.melfyxfvhyknqhruytms.supabase.co:5432` |
 | DB ユーザー / DB名 | `postgres` / `postgres` |
 | DB パスワード | **このファイルには書かない**（下記参照） |
 
 DB接続文字列の形:
 
 ```
-postgresql://postgres:<DBパスワード>@db.tvydtsqirogdxglkoicz.supabase.co:5432/postgres
+postgresql://postgres:<DBパスワード>@db.melfyxfvhyknqhruytms.supabase.co:5432/postgres
 ```
 
 > **DBパスワードの在り処: リポジトリ直下の `apply_migrations.command` の `DB_URL` 行。**
@@ -104,15 +119,22 @@ postgresql://postgres:<DBパスワード>@db.tvydtsqirogdxglkoicz.supabase.co:54
 
 ### 旧プロジェクト（触らないこと）
 
-`lryjlxsfvzgtdxdjtemy` — 2026-08-18 に現行へ移行した旧 Supabase プロジェクト。**まだ生きている。**
-環境変数にこの ref が出てきたら、それは事故（開発環境が旧DBに繋がる）。
+いずれも**まだ生きている**。環境変数や配信物にこの ref が出てきたら、それは事故。
+
+| ref | 何だったか |
+|---|---|
+| `tvydtsqirogdxglkoicz` | 2026-08-20 まで本番。PAT が無いアカウントにあるため Auth 設定を変えられず、移管元になった |
+| `lryjlxsfvzgtdxdjtemy` | 2026-08-18 まで本番 |
+
+> `tvydtsqirogdxglkoicz` の DB パスワードは `apply_migrations.command` の
+> コメントに参照用として残してある（接続はしないこと）。
 
 ### 現在保持していない資格情報
 
 | 種類 | 状況 |
 |---|---|
-| Supabase Personal Access Token（`sbp_...`） | **未発行。** Auth設定の変更に必須（§6参照） |
-| Supabase service_role キー | 手元には無い。`.env` は placeholder。Vercel 側は Sensitive で読み出し不可 |
+| Supabase Personal Access Token（`sbp_...`） | ✅ 受領済み（org `zack`）。**旧 ref には使えない**（403） |
+| Supabase secret（service_role 相当）キー | ✅ 新プロジェクトのものを `.env` と Vercel Production に設定済み |
 | Stripe の各キー | すべて placeholder（意図的） |
 
 ---
@@ -141,12 +163,12 @@ postgresql://postgres:<DBパスワード>@db.tvydtsqirogdxglkoicz.supabase.co:54
 
 | 項目 | 現状 |
 |---|---|
-| **メール確認（Confirm email）** | **OFF のまま**。`mailer_autoconfirm: true` を 2026-08-20 に再確認 |
-| **Redirect URLs の登録** | 未設定。パスワード再設定リンクが機能しない |
-| 独自SMTP | 未設定。標準SMTPは1時間に数通しか送れない |
+| ~~メール確認（Confirm email）~~ | ✅ 2026-08-20 に ON（`mailer_autoconfirm: false`） |
+| ~~Redirect URLs の登録~~ | ✅ 2026-08-20 に登録済み |
+| **独自SMTP** | ⛔ **未設定。メール確認を ON にしたので、いまや公開の前提条件**（`LAUNCH.md` §2-3） |
 | メール本文の日本語化 | 未対応（英語のまま） |
 | ~~最新コミットのデプロイ~~ | ✅ 2026-08-20 実施済み |
-| Production の `SUPABASE_SERVICE_ROLE_KEY` | 旧プロジェクトのものの可能性が高い |
+| ~~Production の `SUPABASE_SERVICE_ROLE_KEY`~~ | ✅ 2026-08-20 に新プロジェクトの secret キーへ入れ替え済み |
 | Stripe決済 | placeholder のまま（意図的。無効でもアプリは動く） |
 | 独自ドメイン | 未取得 |
 | 実機での動作確認 | 未実施（チェックリストは `LAUNCH.md` §5） |
@@ -158,26 +180,23 @@ postgresql://postgres:<DBパスワード>@db.tvydtsqirogdxglkoicz.supabase.co:54
 
 ### 🔴 P0 — これをやらないと公開できない
 
-1. **Supabase Personal Access Token を発行する**
-   ダッシュボード右上 → Account → Access Tokens → Generate new token（`sbp_` で始まる）。
-   **人間がダッシュボードでやるしかない**（§6参照）。
+1. ~~**Supabase Personal Access Token を発行する**~~ ✅ **2026-08-20 完了。**
+   ただし別アカウント（org `zack`）のものだったため、新プロジェクトへ移管して使った。
 
-2. **Auth設定を適用する** — PAT が取れたら1コマンド。
-   ```bash
-   SUPABASE_ACCESS_TOKEN=sbp_xxxx node scripts/apply_auth_config.mjs
-   ```
-   Redirect URLs → メール確認 の**順番**で流し、反映確認までやる。
-   > 順番が逆だと、Site URL が既定値（`http://localhost:3000`）のまま確認メールが飛び、
-   > **その間に登録した人全員のリンクが開けなくなる。**
+2. ~~**Auth設定を適用する**~~ ✅ **2026-08-20 完了。**
+   `melfyxfvhyknqhruytms` に対し Redirect URLs → メール確認 の順で適用し、反映確認済み。
 
 3. ~~**最新コミットをデプロイする**~~ ✅ **2026-08-20 完了。**
-   問い合わせ窓口の変更は本番に反映済み。以降コードを変えたら `vercel deploy --prod` を忘れないこと。
+   以降コードを変えたら `vercel deploy --prod` を忘れないこと。
+
+4. ⛔ **独自SMTPを設定する（新たな P0）** — Resend / SendGrid / SES など。
+   Project Settings → Authentication → SMTP Settings。
+   **2 でメール確認を ON にしたことで、これが公開の前提条件になった。**
+   いまは `smtp_host` 未設定・`rate_limit_email_sent: 2`（1時間2通）で、
+   Supabase 標準の送信サービスは組織メンバー宛にしか配信しない。
+   **このままだと一般ユーザーは確認メールを受け取れず、登録を完了できない。**
 
 ### 🟠 P1 — 公開直後に困るもの
-
-4. **独自SMTPを設定する**（Resend / SendGrid / SES）
-   Project Settings → Authentication → SMTP Settings。
-   標準SMTPのままだと登録が集中した時点で確認メールが届かなくなる。
 
 5. **実機で動作確認する** — チェックリストは `LAUNCH.md` §5。
 
@@ -213,6 +232,12 @@ postgresql://postgres:<DBパスワード>@db.tvydtsqirogdxglkoicz.supabase.co:54
 
 ### Auth設定は PAT でしか変えられない（2026-08-20 に全経路検証済み・再調査不要）
 
+> **さらに: PAT は「そのプロジェクトを持つアカウント」のものでなければ効かない。**
+> 別アカウントの PAT だと `GET /v1/projects/{ref}` の時点で 403 になり、
+> `GET /v1/projects` にもそのプロジェクトが出てこない。
+> 新しい PAT を渡されたら、まず `curl -H "Authorization: Bearer $PAT" https://api.supabase.com/v1/projects`
+> で**対象プロジェクトが一覧に出るか**を確認すること。出なければ設定は変えられない。
+
 | 試したもの | 結果 |
 |---|---|
 | DBに直接SQL（`auth.config`） | ❌ `auth` スキーマに config テーブルが**存在しない**。ホスト版 GoTrue は設定をコンテナの環境変数から読む |
@@ -233,6 +258,8 @@ DB到達性と Auth 設定変更は別レイヤー。
   `SUPABASE_SERVICE_ROLE_KEY` と `STRIPE_SECRET_KEY` に **絶対に付けない**。
 - **`npm run dev` では `/api` が動かない**（Vite にサーバー関数は無い）。決済を触るなら `vercel dev`。
 - **このMacに `psql` は入っていない。** SQLを流すなら §8 の方法。
+- **`supabase db dump` も使えない**（Docker が入っていないため `LegacyDockerRunError` になる）。
+  スキーマを移すときはリポジトリの SQL を順に流す。
 - **Vercel CLI 53.1.1 では `vercel env add <name> preview` が非対話で通らない**
   （ブランチを聞かれ `--value` も効かない）。`POST /v10/projects/{id}/env` を直接叩く。
   ※ CLI 自体も古い（最新は 59.x）。
@@ -282,6 +309,10 @@ DB到達性と Auth 設定変更は別レイヤー。
 AISEKI_DB_PASSWORD='<DBパスワード>' node scripts/apply_sql.mjs supabase/migration_launch2.sql
 ```
 
+> スキーマを一から作り直すときの順番:
+> `schema.sql` → `migration_launch.sql` → `migration_fixed_join_fee.sql` → `migration_launch2.sql`。
+> 2026-08-20 の移管ではこの順で流し、旧DBとスキーマを機械的に突き合わせて一致を確認した。
+
 接続先は `.env` の `VITE_SUPABASE_URL` から組み立てる（誤爆防止。実行時に接続先が表示される）。
 
 自分で書く場合のポイント:
@@ -303,19 +334,23 @@ SUPABASE_ACCESS_TOKEN=sbp_xxxx node scripts/apply_auth_config.mjs
 正しい順番（Redirect URLs → メール確認）で流し、`/auth/v1/settings` で反映確認までやる。
 SMTP（2-3）とメール本文（2-4）は **API に項目が無いので手作業**。
 
-### テストユーザーの作成 — 現在は anon キーだけで作れる
+### テストユーザーの作成 — service_role が要る（2026-08-20 以降）
 
-`mailer_autoconfirm: true` なので、公開キーで `POST /auth/v1/signup` すると
-**その場で確認済みユーザーが作れる**。service_role も DB パスワードも要らない。
+メール確認を ON にしたので、**anon キーの signup では確認済みユーザーは作れない。**
+`.env` の `SUPABASE_SERVICE_ROLE_KEY` に新プロジェクトの secret キーが入っているので、
+そのまま次で作れる（Admin API を使うため確認メールは飛ばず、SMTP のレート制限も踏まない）。
 
 ```bash
-node scripts/create_test_user.mjs
+node scripts/create_test_user.mjs --email you+test1@gmail.com --password Test123456!
 ```
 
-- **`options.data` に `birth_date` を必ず入れる。** `handle_new_user()` トリガーがそれを見て
-  profiles 行とボーナスポイントを作る。無いと「年齢確認のため生年月日の登録が必要です」で登録ごと失敗する。
-- **P0-2 でメール確認を ON にすると、この手順は使えなくなる。** 以降は service_role が要る。
-- 作る前に `curl $URL/auth/v1/settings -H "apikey: $KEY"` で `mailer_autoconfirm` を確認するのが確実。
+2026-08-20 に実行して、作成 → ログイン → `profiles` 生成 → 紹介コード発行 →
+登録ボーナス 10,000pt の付与まで通ることを確認済み（確認用ユーザーは削除済み）。
+
+- **`birth_date` を必ず入れる**（スクリプトの既定値に入っている）。`handle_new_user()` トリガーが
+  それを見て profiles 行とボーナスポイントを作る。無いと登録ごと失敗する。
+- メールアドレスは **MX レコードのあるドメイン**にする。`example.com` は
+  Supabase 側の検証で `email_address_invalid` になる。
 
 ### ポイント仕様のテスト
 

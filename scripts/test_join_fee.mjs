@@ -15,9 +15,23 @@
    すべての操作はトランザクション内で行い、最後に必ず ROLLBACK する。
    本番のデータは一切変わらない。
    ===================================================================== */
+import fs from "node:fs";
+import path from "node:path";
 import pg from "pg";
 
-const HOST = "db.tvydtsqirogdxglkoicz.supabase.co";
+/* 接続先は .env の VITE_SUPABASE_URL から組み立てる。
+   ここに ref を直書きすると、プロジェクトを移したときに
+   古いDBへ繋ぎに行って気づけない（apply_sql.mjs と同じ方針）。 */
+const root = path.resolve(import.meta.dirname, "..");
+const env = fs.readFileSync(path.join(root, ".env"), "utf8");
+const ref = env.match(/^VITE_SUPABASE_URL=.*https:\/\/([a-z0-9]+)\.supabase\.co/m)?.[1];
+if (!ref) {
+  console.error(".env の VITE_SUPABASE_URL からプロジェクトIDを読み取れませんでした。");
+  process.exit(2);
+}
+const HOST = `db.${ref}.supabase.co`;
+console.log(`接続先: ${HOST}`);
+
 const PASSWORD = process.env.DB_PASSWORD;
 if (!PASSWORD) {
   console.error("DB_PASSWORD を環境変数で渡してください。");
