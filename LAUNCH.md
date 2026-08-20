@@ -104,9 +104,34 @@ AISEKI_DB_PASSWORD='<DBのパスワード>' node scripts/apply_sql.mjs supabase/
 
 ---
 
-## 2. Supabase の設定（必須）
+## 2. Supabase の設定（必須）— ⛔ 2026-08-20 時点で未着手
 
 ダッシュボードでの設定。コードからは変えられない。
+
+> **CLI / Management API で自動化したい場合**
+> Personal Access Token が要る。形式は `sbp_` で始まる40文字前後。
+> ダッシュボード右上のアカウントメニュー → **Account → Access Tokens → Generate new token**
+> で発行する。
+>
+> ```bash
+> SUPABASE_ACCESS_TOKEN=sbp_xxxxxxxx node scripts/apply_auth_config.mjs
+> ```
+>
+> このスクリプトが 2-2（戻り先URL）→ 2-1（メール確認）を正しい順番で流し、
+> 最後に `/auth/v1/settings` を叩いて反映を確認するところまでやる。
+> 2-3（SMTP）と 2-4（メール本文）はAPIに項目が無いので手作業のまま。
+>
+> **★ 代用できるものは無い（2026-08-20 に一通り試して確認済み）**
+>
+> | 試したもの | 結果 |
+> |---|---|
+> | DBに直接SQL（`auth.config` を書き換え） | ❌ `auth` スキーマに config テーブルが存在しない。GoTrue は設定をコンテナの環境変数から読むので、DB経由では変えられない |
+> | service_role キー + GoTrue Admin API | ❌ `/auth/v1/admin/` はユーザー操作専用。設定を書き換えるエンドポイント自体が無い |
+> | Vercel から service_role キーを取得 | ❌ Sensitive 指定のため書き込み専用。`vercel env pull` では空文字が返る |
+> | `~/.supabase/` のトークン流用 | ❌ 未ログイン。keychain・環境変数にも無い |
+>
+> つまり **PAT の発行だけは人間がダッシュボードでやるしかない**。
+> anon キー・service_role キー・DBパスワードのどれでも代用できない。
 
 > **順番を守ること。2-2（リダイレクト先）を先にやってから 2-1（メール確認）を ON にする。**
 > 逆にすると、Site URL が既定値（`http://localhost:3000`）のまま確認メールが飛び、
@@ -118,7 +143,7 @@ AISEKI_DB_PASSWORD='<DBのパスワード>' node scripts/apply_sql.mjs supabase/
 **Authentication → Providers → Email → "Confirm email" を ON**
 
 現在は `mailer_autoconfirm: true`（＝確認なしで登録完了）になっている。
-2026-08-19 時点で `/auth/v1/settings` を確認したところ、まだ `true` のまま。
+2026-08-20 時点で `/auth/v1/settings` を確認したところ、まだ `true` のまま。
 このままだと、**自分のものではないメールアドレスでも登録できてしまう**。
 
 - 本人に連絡が取れない（規約 第20条で通知手段として登録メールを指定している）
@@ -176,19 +201,30 @@ Supabase 標準のSMTPは**1時間に数通**しか送れない。
 `VITE_` が付く変数はブラウザに埋め込まれる。
 **`SUPABASE_SERVICE_ROLE_KEY` と `STRIPE_SECRET_KEY` には絶対に `VITE_` を付けないこと。**
 
-**2026-08-19 時点の状態（`vercel env ls` で確認）**
+**2026-08-20 時点の状態（整理済み）**
 
 | 環境 | 状態 |
 |---|---|
-| Production | `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` あり。本番の配信物が `tvydtsqirogdxglkoicz` を向いていることまで確認済み |
-| Preview | **1つも入っていない。** このままだとプレビュー配信は「接続先が設定されていません」で止まる |
+| Production | `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` あり。配信物が `tvydtsqirogdxglkoicz` を向いていることを確認済み |
+| Preview | ✅ `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` を追加（2026-08-20）。以前は空で、プレビュー配信が止まっていた |
+| Development | ✅ 現行プロジェクトの値に入れ替え（2026-08-20）。以前は**旧プロジェクト `lryjlxsfvzgtdxdjtemy` を向いていた** |
 
-また、`NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` /
-`SUPABASE_SERVICE_ROLE_KEY` が Production に残っている（10日前に登録されたもの）。
-前者2つはこのアプリ（Vite）では読まれないので消してよい。
-`SUPABASE_SERVICE_ROLE_KEY` は**作り直す前のプロジェクトのキーの可能性がある**ので、
-決済を有効にする前に現行プロジェクトのものへ入れ直すこと
-（古いままだと Webhook がポイントを付与できない）。
+2026-08-20 に削除したもの:
+
+- `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY`（Production / Development）
+  … このアプリ（Vite）はどこからも読んでいない
+- `SUPABASE_SERVICE_ROLE_KEY`（Development）
+  … **旧プロジェクト `lryjlxsfvzgtdxdjtemy` の service_role キーだった。**
+  旧プロジェクトはまだ生きているので、`vercel env pull` で手元の `.env` を
+  上書きすると開発環境が旧DBに繋がる事故になっていた
+
+> **⚠️ 残っている宿題: Production の `SUPABASE_SERVICE_ROLE_KEY`**
+> 11日前に、上の Development のものと同じ回で登録されている。
+> Development 側が旧プロジェクトのキーだったので、**これも旧プロジェクトのものと考えてよい。**
+> Vercel は登録済みの値を復号して返さないため中身は確認できなかった。
+> いま Stripe が無効なので実害は無い（`/api/stripe/status` は `enabled:false`）が、
+> **決済を有効にする前に、現行プロジェクトの service_role キーへ必ず入れ直すこと。**
+> 古いままだと Webhook がポイントを付与できない。
 
 ---
 
@@ -250,14 +286,13 @@ Supabase 標準のSMTPは**1時間に数通**しか送れない。
 
 ### 運営体制
 
-- [ ] `support@aiseki.app` が受信できる（規約・プライバシーポリシーに記載している窓口）
-      ★ **2026-08-19 時点で `aiseki.app` は DNS が引けない**（A も MX も無し）。
-      ドメイン未取得か、DNS 未設定。**このままだと規約に書いた窓口にメールが届かない。**
-      対応はどちらか:
-      (a) `aiseki.app` を取得して MX を設定する（独自ドメイン運用に寄せるならこちら）
-      (b) 実際に受信できるアドレスに変える →
-          `src/lib/legal.js` の `CONTACT_EMAIL` 1箇所を直せば、
-          規約・プライバシーポリシー・お問い合わせ画面すべてに反映される
+- [x] 問い合わせ窓口が受信できる（規約・プライバシーポリシーに記載している窓口）
+      ✅ **2026-08-20 に上記 (b) を採用**。`src/lib/legal.js` の `CONTACT_EMAIL` を
+      `support@aiseki.app`（`aiseki.app` は DNS が引けなかった）から
+      `theoffzaki@gmail.com` に変更した。規約・プライバシーポリシー・
+      お問い合わせ画面・ランディングのフッターすべてに反映される。
+      ※ この変更は**デプロイして初めて本番に反映される**。
+      独自ドメインを取ってメール運用に移すときは、この1箇所を戻せばよい。
 - [ ] 通報が届いたときに誰が見るか決まっている
       （`inquiries` テーブルを Supabase の Table Editor で確認する）
 - [ ] 提携店舗の飲食店営業許可・深夜酒類提供飲食店営業の届出を確認済み

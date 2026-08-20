@@ -19,7 +19,7 @@
 export const LEGAL_UPDATED = "2026年8月19日";
 export const LEGAL_VERSION = "2.0";
 export const SERVICE_URL = "https://aiseki-xi.vercel.app";
-export const CONTACT_EMAIL = "support@aiseki.app";
+export const CONTACT_EMAIL = "theoffzaki@gmail.com";
 
 /* 利用資格年齢（飲酒を伴うため20歳以上限定）。
    バリデーションの実装は lib/api.js の MIN_AGE を参照。 */
