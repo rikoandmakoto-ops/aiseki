@@ -237,10 +237,17 @@ export async function signUp({ email, password, username, birthDate, ageConfirme
   if (age < MIN_AGE) {
     throw new Error(`本サービスは${MIN_AGE}歳未満の方はご利用いただけません。`);
   }
+  /* メール確認を有効にすると、確認リンクの戻り先は Supabase の Site URL になる。
+     Site URL の設定漏れ（既定は localhost）で全員のリンクが死ぬのを避けるため、
+     パスワード再設定と同じく、戻り先をこちらから明示する。
+     ※ この戻り先は Supabase の Redirect URLs に登録されている必要がある。 */
+  const emailRedirectTo =
+    typeof window === "undefined" ? undefined : `${window.location.origin}/`;
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
     options: {
+      emailRedirectTo,
       data: {
         username,
         birth_date: birthDate,

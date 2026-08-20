@@ -108,11 +108,17 @@ AISEKI_DB_PASSWORD='<DBのパスワード>' node scripts/apply_sql.mjs supabase/
 
 ダッシュボードでの設定。コードからは変えられない。
 
-### 2-1. メール確認を有効にする ★重要
+> **順番を守ること。2-2（リダイレクト先）を先にやってから 2-1（メール確認）を ON にする。**
+> 逆にすると、Site URL が既定値（`http://localhost:3000`）のまま確認メールが飛び、
+> **その間に登録した人全員のリンクが開けなくなる**。
+> 先に 2-2 を入れておけば、この事故は起きない。
+
+### 2-1. メール確認を有効にする ★重要（2-2 のあとで）
 
 **Authentication → Providers → Email → "Confirm email" を ON**
 
 現在は `mailer_autoconfirm: true`（＝確認なしで登録完了）になっている。
+2026-08-19 時点で `/auth/v1/settings` を確認したところ、まだ `true` のまま。
 このままだと、**自分のものではないメールアドレスでも登録できてしまう**。
 
 - 本人に連絡が取れない（規約 第20条で通知手段として登録メールを指定している）
@@ -131,6 +137,13 @@ AISEKI_DB_PASSWORD='<DBのパスワード>' node scripts/apply_sql.mjs supabase/
 
 これが無いとパスワード再設定メールのリンクが機能しない
 （リンクを開いても再設定画面に入れない）。
+
+アプリ側は、登録の確認メール・再設定メールのどちらについても
+戻り先を `window.location.origin` から明示して送っている
+（`signUp` の `emailRedirectTo` / `resetPasswordForEmail` の `redirectTo`）。
+そのため **Redirect URLs に登録されていない戻り先は弾かれる**。
+上の `https://aiseki-xi.vercel.app/**` は必ず入れること。
+独自ドメインに移すときは、そのドメインもここに追加する。
 
 ### 2-3. 送信元メールの設定（推奨）
 
@@ -162,6 +175,20 @@ Supabase 標準のSMTPは**1時間に数通**しか送れない。
 
 `VITE_` が付く変数はブラウザに埋め込まれる。
 **`SUPABASE_SERVICE_ROLE_KEY` と `STRIPE_SECRET_KEY` には絶対に `VITE_` を付けないこと。**
+
+**2026-08-19 時点の状態（`vercel env ls` で確認）**
+
+| 環境 | 状態 |
+|---|---|
+| Production | `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` あり。本番の配信物が `tvydtsqirogdxglkoicz` を向いていることまで確認済み |
+| Preview | **1つも入っていない。** このままだとプレビュー配信は「接続先が設定されていません」で止まる |
+
+また、`NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` /
+`SUPABASE_SERVICE_ROLE_KEY` が Production に残っている（10日前に登録されたもの）。
+前者2つはこのアプリ（Vite）では読まれないので消してよい。
+`SUPABASE_SERVICE_ROLE_KEY` は**作り直す前のプロジェクトのキーの可能性がある**ので、
+決済を有効にする前に現行プロジェクトのものへ入れ直すこと
+（古いままだと Webhook がポイントを付与できない）。
 
 ---
 
@@ -224,6 +251,13 @@ Supabase 標準のSMTPは**1時間に数通**しか送れない。
 ### 運営体制
 
 - [ ] `support@aiseki.app` が受信できる（規約・プライバシーポリシーに記載している窓口）
+      ★ **2026-08-19 時点で `aiseki.app` は DNS が引けない**（A も MX も無し）。
+      ドメイン未取得か、DNS 未設定。**このままだと規約に書いた窓口にメールが届かない。**
+      対応はどちらか:
+      (a) `aiseki.app` を取得して MX を設定する（独自ドメイン運用に寄せるならこちら）
+      (b) 実際に受信できるアドレスに変える →
+          `src/lib/legal.js` の `CONTACT_EMAIL` 1箇所を直せば、
+          規約・プライバシーポリシー・お問い合わせ画面すべてに反映される
 - [ ] 通報が届いたときに誰が見るか決まっている
       （`inquiries` テーブルを Supabase の Table Editor で確認する）
 - [ ] 提携店舗の飲食店営業許可・深夜酒類提供飲食店営業の届出を確認済み
