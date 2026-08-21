@@ -39,7 +39,10 @@ if (!ref) {
   process.exit(1);
 }
 
-const SITE_URL = "https://aiseki-xi.vercel.app";
+const SITE_URL = "https://aisekimatch.com";
+/* 旧 Vercel ドメインも残す。独自ドメイン移行前に送った確認メール／
+   パスワード再設定リンクが、まだ有効期限内なら開けるようにするため。 */
+const LEGACY_URLS = ["https://aiseki-xi.vercel.app"];
 const endpoint = `https://api.supabase.com/v1/projects/${ref}/config/auth`;
 
 console.log(`接続先: ${ref}`);
@@ -65,7 +68,9 @@ async function patch(label, body) {
 /* 1. 戻り先URL を先に入れる（順番を入れ替えないこと） */
 await patch("戻り先URL（Site URL / Redirect URLs）", {
   site_url: SITE_URL,
-  uri_allow_list: `${SITE_URL},${SITE_URL}/**`,
+  uri_allow_list: [SITE_URL, `${SITE_URL}/**`, ...LEGACY_URLS.flatMap((u) => [u, `${u}/**`])].join(
+    ","
+  ),
 });
 
 /* 2. そのうえでメール確認を ON にする */

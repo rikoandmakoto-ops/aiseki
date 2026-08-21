@@ -7,4 +7,4 @@ User-agent: *
 Allow: /
 Disallow: /api/
 
-Sitemap: https://aiseki-xi.vercel.app/sitemap.xml
+Sitemap: https://aisekimatch.com/sitemap.xml
