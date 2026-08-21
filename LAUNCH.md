@@ -107,7 +107,7 @@ AISEKI_DB_PASSWORD='<DBのパスワード>' node scripts/apply_sql.mjs supabase/
 
 ---
 
-## 2. Supabase の設定（必須）— ✅ 2-1 / 2-2 は 2026-08-20 に適用済み（2-3 が未了・後述）
+## 2. Supabase の設定（必須）— ✅ 2-1 / 2-2 / 2-3 適用済み（残るは 2-4 メール本文の日本語化のみ）
 
 ダッシュボードでの設定。コードからは変えられない。
 
@@ -122,7 +122,8 @@ AISEKI_DB_PASSWORD='<DBのパスワード>' node scripts/apply_sql.mjs supabase/
 >
 > このスクリプトが 2-2（戻り先URL）→ 2-1（メール確認）を正しい順番で流し、
 > 最後に `/auth/v1/settings` を叩いて反映を確認するところまでやる。
-> 2-3（SMTP）と 2-4（メール本文）はAPIに項目が無いので手作業のまま。
+> 2-3（SMTP）も **Management API の `PATCH .../config/auth` で入る**（§2-3 のコマンド）。
+> API に項目が無いのは 2-4（メール本文）だけで、これはダッシュボードでの手作業。
 >
 > **★ 代用できるものは無い（2026-08-20 に一通り試して確認済み）**
 >
@@ -195,30 +196,51 @@ AISEKI_DB_PASSWORD='<DBのパスワード>' node scripts/apply_sql.mjs supabase/
 上の `https://aiseki-xi.vercel.app/**` は必ず入れること。
 独自ドメインに移すときは、そのドメインもここに追加する。
 
-### 2-3. 送信元メールの設定 ⛔ **未設定に戻っている（2026-08-22 に判明）**
+### 2-3. 送信元メールの設定 ✅ **設定済み（2026-08-22）**
 
 > **2-1 でメール確認を ON にしたことで、これは「推奨」ではなく「公開の前提条件」になった。**
 
-#### ⚠️ 2026-08-22: 2026-08-21 に入れた SMTP 設定が消えていた
+**Resend の SMTP を Management API（`PATCH /v1/projects/{ref}/config/auth`）で設定済み。**
+Resend 側のドメイン `aisekimatch.com` も **verified**（`GET https://api.resend.com/domains` で確認）。
 
-ドメイン取得後に `smtp_admin_email` を `noreply@aisekimatch.com` へ変えようとして発覚。
-`GET /v1/projects/melfyxfvhyknqhruytms/config/auth` の実測値:
+| 項目 | 値（2026-08-22 に GET で実値確認済み） |
+|---|---|
+| `smtp_host` / `smtp_port` | `smtp.resend.com` / `465` |
+| `smtp_user` | `resend` |
+| `smtp_pass` | Resend APIキー（GET では64文字のハッシュが返る。生キーは返らない） |
+| `smtp_admin_email` | `noreply@aisekimatch.com` |
+| `smtp_sender_name` | `相席マッチ` |
+| `rate_limit_email_sent` | `30`（1時間あたり30通。Resend Free は100通/日） |
+| `smtp_max_frequency` | `60`（同一宛先へ60秒に1通） |
 
+```bash
+curl -X PATCH "https://api.supabase.com/v1/projects/melfyxfvhyknqhruytms/config/auth" \
+  -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" \
+  -d '{"smtp_host":"smtp.resend.com","smtp_port":"465","smtp_user":"resend",
+       "smtp_pass":"<Resend APIキー>","smtp_admin_email":"noreply@aisekimatch.com",
+       "smtp_sender_name":"相席マッチ","rate_limit_email_sent":30}'
 ```
-smtp_host = None   smtp_port = None   smtp_user = None
-smtp_pass = None   smtp_admin_email = None   smtp_sender_name = None
-rate_limit_email_sent = 2        ← 30 に上げたはずが既定値に戻っている
-```
 
-**SMTP ブロックが丸ごと消え、レート制限も既定値に戻っている**（= 内蔵SMTPの状態）。
-原因は未特定。**同じ PAT・同じエンドポイントで `site_url` の変更は即座に反映されたので、
-トークンや権限の問題ではない。**（Free プランのプロジェクト一時停止／復帰で
-Auth のコンテナ環境変数が初期化された、というのが今のところ最有力の仮説。）
+> **`PUT` ではなく `PATCH`。`PUT` は `Cannot PUT /v1/projects/.../config/auth` で落ちる。**
+> `config/auth` には `smtp_host` / `smtp_port` / `smtp_user` / `smtp_pass` /
+> `smtp_admin_email` / `smtp_sender_name` / `smtp_max_frequency` が全部ある。
 
-> **教訓: SMTP は「一度入れたら入りっぱなし」と思わないこと。**
-> ローンチ直前と、Supabase 側で何か起きた後は、必ず GET で実値を確認する。
+**Resend APIキーはリポジトリにも `.env` にも保存していない**（Supabase 側にだけ入っている）。
+必要になったら https://resend.com/api-keys で作り直す。
 
-#### ⛔ さらに: `smtp_admin_email` だけの PATCH は 200 を返すが反映されない
+#### ⛔ ここで2回ハマっている。次に触るときは必ず読むこと
+
+**(1) 設定は消えることがある。**
+2026-08-21 に入れた SMTP が、2026-08-22 には**丸ごと消えていた**
+（SMTP 全項目 `null` / `rate_limit_email_sent` も 30 → 2 の既定値 = 内蔵SMTPの状態）。
+同じ PAT・同じエンドポイントで `site_url` の変更は即反映されたので、
+**トークンや権限の問題ではない。** 原因は未特定
+（Free プランの一時停止／復帰で Auth コンテナの環境変数が初期化された、が最有力の仮説）。
+
+> **「一度入れたら入りっぱなし」と思わないこと。**
+> ローンチ直前と、Supabase 側で何かあった後は、必ず GET で実値を確認する。
+
+**(2) 一部だけの PATCH は 200 を返すのに保存されない。**
 
 ```bash
 $ curl -X PATCH .../config/auth -d '{"smtp_admin_email":"noreply@aisekimatch.com"}'
@@ -226,80 +248,11 @@ HTTP 200
 # ただしレスポンスが echo し返す値は smtp_admin_email = None
 ```
 
-Supabase の custom SMTP は **全部そろって初めて有効になる（all-or-nothing）**。
-`smtp_host` / `smtp_user` / `smtp_pass` が空のまま送信元アドレスだけ入れても、
-「その差出人で送る SMTP」が存在しないので黙って捨てられる。**エラーにはならない。**
+custom SMTP は **all-or-nothing**。`smtp_host` / `smtp_user` / `smtp_pass` が空のまま
+送信元アドレスだけ入れても、「その差出人で送る SMTP」が存在しないので黙って捨てられる。
+**エラーにはならない。** → **必ずフルセットで PATCH し、GET で実値を確認する。**
 
-→ **復旧には Resend の APIキーが要る。** リポジトリにも `.env` にも保存されていない
-（前回セッションでコマンドラインに直接渡された）。下のフルセットで入れ直すこと。
-
----
-
-**（参考）2026-08-21 に成功したときのコマンド。これをそのまま流し直す:**
-
-```bash
-curl -X PATCH "https://api.supabase.com/v1/projects/melfyxfvhyknqhruytms/config/auth" \
-  -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" \
-  -d '{"smtp_host":"smtp.resend.com","smtp_port":"465","smtp_user":"resend",
-       "smtp_pass":"<Resend APIキー>","smtp_admin_email":"noreply@aisekimatch.com",
-       "smtp_sender_name":"AISEKI","rate_limit_email_sent":30}'
-```
-
-> 送信元は **`noreply@aisekimatch.com`**（旧 `theoffzaki@gmail.com` は gmail.com が
-> 未検証ドメインなので Resend に拒否される）。流したあと必ず GET で実値を確認すること。
-
-> **`PUT` ではなく `PATCH`。`PUT` は `Cannot PUT /v1/projects/.../config/auth` で落ちる。**
-> HANDOFF/LAUNCH の旧記述「SMTP は API に項目が無いので手作業」は**誤り**。
-> `config/auth` には `smtp_host` / `smtp_port` / `smtp_user` / `smtp_pass` /
-> `smtp_admin_email` / `smtp_sender_name` / `smtp_max_frequency` が全部ある。
-
-| 項目 | 入れるべき値 | 2026-08-22 時点の実値 |
-|---|---|---|
-| `smtp_host` / `smtp_port` | `smtp.resend.com` / `465` | ⛔ `null` |
-| `smtp_user` | `resend` | ⛔ `null` |
-| `smtp_pass` | Resend APIキー | ⛔ `null` |
-| `smtp_admin_email` | `noreply@aisekimatch.com` | ⛔ `null` |
-| `smtp_sender_name` | `AISEKI` | ⛔ `null` |
-| `rate_limit_email_sent` | `30`（1時間あたり30通） | ⛔ `2`（既定値に戻っている） |
-| `smtp_max_frequency` | `60`（同一宛先へ60秒に1通） | `60` |
-
-SMTP 認証そのものは疎通確認済み（`smtp.resend.com:465` に TLS 接続 → `AUTH LOGIN` →
-`235 Authentication successful`）。
-
-#### ⛔ ブロッカー2: Resend 側でドメインが検証済みか未確認
-
-**2026-08-22 に `aisekimatch.com` を取得し、Vercel（`aiseki` プロジェクト）に接続済み。
-ただし Resend の `/domains` に登録・検証されているかは未確認**
-（手元の Resend APIキーが送信専用で `/domains` を読めず、キー自体も今は手元に無い）。
-
-Resend は **検証済みドメインのアドレスからしか送信できない**。
-以前は `smtp_admin_email` が `theoffzaki@gmail.com`（= gmail.com）で、Resend が送信を拒否していた。
-
-```
-$ curl -X POST .../auth/v1/signup -d '{"email":"...","password":"..."}'
-{"code":500,"error_code":"unexpected_failure","msg":"Error sending confirmation email"}
-```
-
-Resend API での直接検証結果（2026-08-21）:
-
-| From | 結果 |
-|---|---|
-| `theoffzaki@gmail.com` | ❌ `The gmail.com domain is not verified` |
-| `noreply@aiseki.app` / `@aiseki.jp` / `@aiseki.com` / `@aiseki-xi.vercel.app` | ❌ 同上（**検証済みドメインはゼロ**） |
-| `onboarding@resend.dev` | ⚠️ 送れるが **`riko.and.makoto@gmail.com` 宛のみ**（Resendアカウント所有者） |
-
-**やること（人の手が要る）**
-
-1. ~~ドメインを取得する~~ ✅ **2026-08-22 完了（`aisekimatch.com`）。**
-2. https://resend.com/domains で `aisekimatch.com` を追加し、表示された
-   **DKIM（TXT）+ SPF（TXT/MX）+ DMARC** を DNS に登録して Verified にする。
-   DNS は Vercel ではなく **xdomain（`ns1〜3.xdomain.ne.jp`）** で管理されているので、
-   レコードは xdomain 側の管理画面で足す。
-3. Resend の APIキーを用意する（前回のキーはどこにも保存されていない。
-   無ければ https://resend.com/api-keys で作り直す）。
-4. **SMTP をフルセットで入れ直す**（上の PATCH コマンド）。
-   `smtp_admin_email` だけの PATCH は 200 でも反映されない ← 今回ハマった所。
-5. GET で実値を確認する:
+#### 実値の確認コマンド
 
 ```bash
 curl -s "https://api.supabase.com/v1/projects/melfyxfvhyknqhruytms/config/auth" \
@@ -308,6 +261,19 @@ curl -s "https://api.supabase.com/v1/projects/melfyxfvhyknqhruytms/config/auth" 
 ```
 
 （この Mac に `jq` は入っていない。`python3` を使う。）
+
+Resend 側のドメイン検証状態:
+
+```bash
+curl -s https://api.resend.com/domains -H "Authorization: Bearer <Resend APIキー>"
+# → aisekimatch.com  status=verified  region=ap-northeast-1
+```
+
+#### まだ確認していないこと
+
+**実際に登録メールが届くところまでは未確認。**
+以前は `POST /auth/v1/signup` が `500 Error sending confirmation email` になっていた。
+実アドレスで signup して 200 が返り、メールが届くことを確認すること（`§5` の実機確認と一緒でよい）。
 
 6. `POST /auth/v1/signup` を実アドレスで叩いて 200 が返り、メールが届くことを確認する。
 

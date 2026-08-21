@@ -1,6 +1,6 @@
 # AISEKI 引き継ぎ書
 
-最終更新: 2026-08-22（独自ドメイン aisekimatch.com へ移行）
+最終更新: 2026-08-22（独自ドメイン aisekimatch.com へ移行 / Resend SMTP 設定）
 
 > ## ⚠️ まずこれを読む — Supabase プロジェクトが変わった（2026-08-20）
 >
@@ -171,7 +171,7 @@ postgresql://postgres:<DBパスワード>@db.melfyxfvhyknqhruytms.supabase.co:54
 |---|---|
 | ~~メール確認（Confirm email）~~ | ✅ 2026-08-20 に ON（`mailer_autoconfirm: false`） |
 | ~~Redirect URLs の登録~~ | ✅ 2026-08-20 に登録済み |
-| **独自SMTP** | ⛔ **未設定に戻っている（2026-08-22 に判明）。** 2026-08-21 に入れた Resend SMTP が **丸ごと消えていた**（全項目 `null` / `rate_limit_email_sent` も 30→2）。復旧には Resend APIキーが要る（`LAUNCH.md` §2-3） |
+| ~~独自SMTP~~ | ✅ **2026-08-22 設定済み。** Resend SMTP をフルセットで投入し GET で実値確認。`aisekimatch.com` は Resend で verified。送信元 `noreply@aisekimatch.com` / 差出人名 `相席マッチ`（`LAUNCH.md` §2-3）。**ただし実際にメールが届くところまでは未確認** |
 | メール本文の日本語化 | 未対応（英語のまま） |
 | ~~最新コミットのデプロイ~~ | ✅ 2026-08-20 実施済み |
 | ~~Production の `SUPABASE_SERVICE_ROLE_KEY`~~ | ✅ 2026-08-20 に新プロジェクトの secret キーへ入れ替え済み |
@@ -195,53 +195,51 @@ postgresql://postgres:<DBパスワード>@db.melfyxfvhyknqhruytms.supabase.co:54
 3. ~~**最新コミットをデプロイする**~~ ✅ **2026-08-20 完了。**
    以降コードを変えたら `vercel deploy --prod` を忘れないこと。
 
-4. ⛔ **独自SMTP — 残る唯一の P0。** Management API の
-   **`PATCH /v1/projects/{ref}/config/auth`** で全項目入る（`PUT` は 404）。
+4. ~~**独自SMTP**~~ ✅ **2026-08-22 完了。**
+   Resend SMTP をフルセットで `PATCH /v1/projects/{ref}/config/auth` に投入し、
+   GET で実値確認済み（`smtp.resend.com:465` / user `resend` /
+   送信元 `noreply@aisekimatch.com` / 差出人名 `相席マッチ` / `rate_limit_email_sent` 30）。
+   Resend 側も `aisekimatch.com` が **verified**。
 
-   **2026-08-22: 2026-08-21 に入れた Resend SMTP が消えていた。**
-   GET すると `smtp_host` / `smtp_user` / `smtp_pass` / `smtp_admin_email` /
-   `smtp_sender_name` が**全部 `null`**、`rate_limit_email_sent` も 30 → 2（既定値）。
-   同じ PAT で `site_url` の変更は即反映されたので、**トークンや権限の問題ではない。**
-   原因未特定（Free プランの一時停止／復帰による初期化が最有力の仮説）。
+   ⛔ **2回ハマっているので、次に触るときは必ず `LAUNCH.md` §2-3 を読むこと。**
+   - **設定は消えることがある。** 2026-08-21 に入れた SMTP が翌日には全項目 `null` に
+     戻っていた（`rate_limit_email_sent` も 30 → 2）。同じ PAT で `site_url` は
+     即反映されたので**トークンや権限の問題ではない**。原因未特定。
+   - **一部だけの PATCH は 200 を返すのに保存されない。** custom SMTP は
+     **all-or-nothing**。`smtp_admin_email` だけ送っても黙って捨てられる
+     （レスポンスが `null` を echo し返す）。**必ずフルセット + GET で確認。**
 
-   ⛔ **さらにハマりどころ: `smtp_admin_email` 単体の PATCH は 200 を返すが反映されない。**
-   Supabase の custom SMTP は **all-or-nothing**。host / user / pass が空のままだと
-   送信元アドレスだけ入れても黙って捨てられる（レスポンスが `null` を echo し返す）。
-   → **必ずフルセットで PATCH し、GET で実値を確認する。**
+   Resend APIキーはリポジトリにも `.env` にも置いていない（Supabase 側にだけ入っている）。
 
-   **公開の前提条件（人の手が要る）**
-   - Resend の APIキーを用意する（**どこにも保存されていない**。無ければ作り直す）
-   - https://resend.com/domains で `aisekimatch.com` を Verified にする
-     （DNS は xdomain 側で操作。DKIM/SPF/DMARC）
-   - フルセットで PATCH（`smtp_admin_email` は `noreply@aisekimatch.com`）
-
-   手順は `LAUNCH.md` §2-3。
+5. ⛔ **登録メールが実際に届くか確認する（未実施）。**
+   以前は `POST /auth/v1/signup` が `500 Error sending confirmation email` だった。
+   実アドレスで signup → 200 → 受信、まで見て初めて P0 が閉じる。
 
 ### 🟠 P1 — 公開直後に困るもの
 
-5. **実機で動作確認する** — チェックリストは `LAUNCH.md` §5。
+6. **実機で動作確認する** — チェックリストは `LAUNCH.md` §5。
 
-6. **通報が届いたときに誰が見るか決める** — `inquiries` テーブルを Supabase の Table Editor で確認する運用。管理画面は無い。
+7. **通報が届いたときに誰が見るか決める** — `inquiries` テーブルを Supabase の Table Editor で確認する運用。管理画面は無い。
 
-7. **利用規約の「当社の本店所在地」（第23条）を実在の所在地に合わせる**
+8. **利用規約の「当社の本店所在地」（第23条）を実在の所在地に合わせる**
 
-8. **提携店舗の飲食店営業許可・深夜酒類提供飲食店営業の届出を確認する**
+9. **提携店舗の飲食店営業許可・深夜酒類提供飲食店営業の届出を確認する**
 
 ### 🟡 P2 — 決済を有効にするとき
 
-9. **Production の `SUPABASE_SERVICE_ROLE_KEY` を現行プロジェクトのものへ入れ直す**
+10. **Production の `SUPABASE_SERVICE_ROLE_KEY` を現行プロジェクトのものへ入れ直す**
    古いままだと Webhook がポイントを付与できない。**決済有効化の前に必ず。**
 
-10. **Stripe の本番キー設定 + Webhook 登録** — 手順は `LAUNCH.md` §4。
+11. **Stripe の本番キー設定 + Webhook 登録** — 手順は `LAUNCH.md` §4。
 
 ### 🟢 P3 — 落ち着いてから
 
-11. メール本文の日本語化
-12. ~~独自ドメイン取得~~ ✅ 2026-08-21 取得・2026-08-22 に全箇所反映
+12. メール本文の日本語化
+13. ~~独自ドメイン取得~~ ✅ 2026-08-21 取得・2026-08-22 に全箇所反映
     （`legal.js` の `SERVICE_URL` / `index.html` の canonical・OGP・JSON-LD /
     `robots.txt` / `sitemap.xml` / `apply_auth_config.mjs` / Supabase の site_url・Redirect URLs）。
     **残: 決済を有効にするときに Vercel の `PUBLIC_BASE_URL` も差し替える**
-13. プッシュ通知、運営用管理画面、参加者の途中離脱（すべて未実装）
+14. プッシュ通知、運営用管理画面、参加者の途中離脱（すべて未実装）
 
 ---
 
