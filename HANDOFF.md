@@ -1,6 +1,6 @@
 # AISEKI 引き継ぎ書
 
-最終更新: 2026-08-20（Supabase 移管後）
+最終更新: 2026-08-22（独自ドメイン aisekimatch.com へ移行）
 
 > ## ⚠️ まずこれを読む — Supabase プロジェクトが変わった（2026-08-20）
 >
@@ -16,7 +16,8 @@
 > スキーマ・データ・Vercel 環境変数・本番デプロイまで切り替え済み。
 > **旧プロジェクトはまだ生きているが、もう接続先ではない。**
 >
-> **2026-08-20 に本番デプロイ済み**（deployment id `dpl_7UqausiqusHiVF7TcEsVUBKrkVqn`）。
+> **2026-08-22 に独自ドメイン `aisekimatch.com` へ移行し、本番デプロイ済み**
+> （deployment id `dpl_G7GC6af9ux669kvvTsSVeXicnYmb`）。
 > 本番配信 JS は `assets/index-B1I0jCrz.js`。新 ref のみを向いており、旧 ref は含まれない。
 > 問い合わせ窓口は `theoffzaki@gmail.com`。
 > Git リモートは未設定（バックアップ無し）。
@@ -70,16 +71,19 @@
 
 | 項目 | 値 |
 |---|---|
-| 本番URL | https://aiseki-xi.vercel.app （2026-08-20 時点で HTTP 200・稼働中） |
+| 本番URL | **https://aisekimatch.com** （2026-08-22 時点で HTTP 200・稼働中） |
 | Vercel プロジェクト名 | `aiseki` |
 | Vercel projectId | `prj_eXehBy01ZFf7TYhqGI3d2zyvWu8I` |
 | Vercel orgId | `team_r5d4Rpbmwu5q0EryE985968c` |
-| 独自ドメイン | **未取得**。`aiseki.app` は DNS が引けない（A も MX も無し） |
+| 旧URL | https://aiseki-xi.vercel.app （まだ 200 を返す。Supabase の Redirect URLs にも残してある） |
+| 独自ドメイン | ✅ **`aisekimatch.com`**（2026-08-21 取得 / Vercel の `aiseki` に接続済み）。DNS は xdomain（`ns1〜3.xdomain.ne.jp`）で管理 |
 
-> ✅ **最新コミットはデプロイ済み**（2026-08-20）。
-> 本番配信 JS（`assets/index-BKEnrNQn.js`）に `theoffzaki@gmail.com` が入っていること、
-> 旧 `support@aiseki.app` が消えていることを `curl` で確認済み。
-> Supabase の接続先も現行 ref（`tvydtsqirogdxglkoicz`）のみで、旧 ref は含まれない。
+> ✅ **最新コミットはデプロイ済み**（2026-08-22）。
+> `https://aisekimatch.com/` の canonical・og:url・og:image・twitter:image・JSON-LD、
+> `/sitemap.xml` の `<loc>`、`/robots.txt` の `Sitemap:` が
+> すべて `aisekimatch.com` になっていることを `curl` で確認済み。
+> `/api/stripe/status` = `{"enabled":false}`。
+> Supabase の接続先は現行 ref（**`melfyxfvhyknqhruytms`**）のみで、旧 ref は含まれない。
 
 ---
 
@@ -146,7 +150,7 @@ postgresql://postgres:<DBパスワード>@db.melfyxfvhyknqhruytms.supabase.co:54
 - **アプリの実装** — 会の作成・一覧・絞り込み・参加リクエスト・承認・グループチャット・
   プロフィール（写真6枚 / 趣味 / 職業等）・ブロック・友達招待・通報 / お問い合わせ・退会・
   ランディング・PWA・OGP / SEO / セキュリティヘッダまで一通り実装済み。
-- **DBマイグレーション** — 本番（`tvydtsqirogdxglkoicz`）に**適用済み**。
+- **DBマイグレーション** — 現行プロジェクト（`melfyxfvhyknqhruytms`）に**適用済み**。
   - `migration_launch.sql`（2026-08-19）— 重複外部キー削除、`inquiries`、`cancel_party()`、
     `delete_account()`、`avatars` バケット
   - `migration_fixed_join_fee.sql`（2026-08-19）— 参加費3,800pt固定、`platform_revenues`
@@ -156,8 +160,10 @@ postgresql://postgres:<DBパスワード>@db.melfyxfvhyknqhruytms.supabase.co:54
 - **Vercel 環境変数の整理**（2026-08-20）— Preview に接続情報を追加、Development を
   旧プロジェクトから現行へ入れ替え、未使用の `NEXT_PUBLIC_*` を削除。
 - **問い合わせ窓口** — `theoffzaki@gmail.com` に変更（コミット済み・**2026-08-20 デプロイ済み**）。
-- **本番デプロイ**（2026-08-20）— `vercel deploy --prod` を実行し `https://aiseki-xi.vercel.app` に alias 済み。
+- **本番デプロイ**（2026-08-20 / 2026-08-22）— `vercel deploy --prod` を実行。
   HTTP 200 / `/api/stripe/status` = `{"enabled":false}` / セキュリティヘッダ（CSP・HSTS・X-Frame-Options）配信を確認。
+- **独自ドメイン `aisekimatch.com` への統一**（2026-08-22）— コード・`robots.txt` / `sitemap.xml`・
+  Supabase の `site_url` / `uri_allow_list` まで反映（旧 Vercel ドメインは Redirect URLs に残置）。
 
 ### ⛔ 完了していないもの
 
@@ -165,12 +171,12 @@ postgresql://postgres:<DBパスワード>@db.melfyxfvhyknqhruytms.supabase.co:54
 |---|---|
 | ~~メール確認（Confirm email）~~ | ✅ 2026-08-20 に ON（`mailer_autoconfirm: false`） |
 | ~~Redirect URLs の登録~~ | ✅ 2026-08-20 に登録済み |
-| **独自SMTP** | 🟡 **半分完了（2026-08-21）。** Resend SMTP は Supabase 側に設定済み・SMTP認証も疎通確認済み。ただし **Resend に検証済みドメインが無く、送信は全部拒否される**（`LAUNCH.md` §2-3） |
+| **独自SMTP** | ⛔ **未設定に戻っている（2026-08-22 に判明）。** 2026-08-21 に入れた Resend SMTP が **丸ごと消えていた**（全項目 `null` / `rate_limit_email_sent` も 30→2）。復旧には Resend APIキーが要る（`LAUNCH.md` §2-3） |
 | メール本文の日本語化 | 未対応（英語のまま） |
 | ~~最新コミットのデプロイ~~ | ✅ 2026-08-20 実施済み |
 | ~~Production の `SUPABASE_SERVICE_ROLE_KEY`~~ | ✅ 2026-08-20 に新プロジェクトの secret キーへ入れ替え済み |
 | Stripe決済 | placeholder のまま（意図的。無効でもアプリは動く） |
-| 独自ドメイン | 未取得 |
+| ~~独自ドメイン~~ | ✅ 2026-08-21 に `aisekimatch.com` 取得・接続済み |
 | 実機での動作確認 | 未実施（チェックリストは `LAUNCH.md` §5） |
 | 運営体制（通報対応者・営業許可確認・本店所在地） | 未確定 |
 
@@ -189,18 +195,26 @@ postgresql://postgres:<DBパスワード>@db.melfyxfvhyknqhruytms.supabase.co:54
 3. ~~**最新コミットをデプロイする**~~ ✅ **2026-08-20 完了。**
    以降コードを変えたら `vercel deploy --prod` を忘れないこと。
 
-4. 🟡 **独自SMTP** — **2026-08-21 に Resend SMTP を設定済み**（`smtp.resend.com:465` /
-   user `resend` / sender name `AISEKI`、`rate_limit_email_sent` を 2 → 30 に引き上げ）。
-   Management API の **`PATCH /v1/projects/{ref}/config/auth`** で全項目入る
-   （`PUT` は 404。旧記述の「SMTP は API に項目が無い」は誤りだった）。
+4. ⛔ **独自SMTP — 残る唯一の P0。** Management API の
+   **`PATCH /v1/projects/{ref}/config/auth`** で全項目入る（`PUT` は 404）。
 
-   ⛔ **ただし残ブロッカーあり: Resend に検証済みドメインが1つも無い。**
-   Resend は検証済みドメインのアドレスからしか送信できないため、
-   `smtp_admin_email: theoffzaki@gmail.com` は `The gmail.com domain is not verified` で拒否され、
-   `POST /auth/v1/signup` は `500 Error sending confirmation email` になる（2026-08-21 に実測）。
-   `aiseki.app` / `aiseki.jp` / `aiseki.com` / `aiseki-xi.vercel.app` もすべて未検証。
-   **→ ドメイン取得 → resend.com/domains で DKIM/SPF/DMARC を検証 →
-   `smtp_admin_email` を `noreply@<そのドメイン>` に変更、が公開の前提条件。**
+   **2026-08-22: 2026-08-21 に入れた Resend SMTP が消えていた。**
+   GET すると `smtp_host` / `smtp_user` / `smtp_pass` / `smtp_admin_email` /
+   `smtp_sender_name` が**全部 `null`**、`rate_limit_email_sent` も 30 → 2（既定値）。
+   同じ PAT で `site_url` の変更は即反映されたので、**トークンや権限の問題ではない。**
+   原因未特定（Free プランの一時停止／復帰による初期化が最有力の仮説）。
+
+   ⛔ **さらにハマりどころ: `smtp_admin_email` 単体の PATCH は 200 を返すが反映されない。**
+   Supabase の custom SMTP は **all-or-nothing**。host / user / pass が空のままだと
+   送信元アドレスだけ入れても黙って捨てられる（レスポンスが `null` を echo し返す）。
+   → **必ずフルセットで PATCH し、GET で実値を確認する。**
+
+   **公開の前提条件（人の手が要る）**
+   - Resend の APIキーを用意する（**どこにも保存されていない**。無ければ作り直す）
+   - https://resend.com/domains で `aisekimatch.com` を Verified にする
+     （DNS は xdomain 側で操作。DKIM/SPF/DMARC）
+   - フルセットで PATCH（`smtp_admin_email` は `noreply@aisekimatch.com`）
+
    手順は `LAUNCH.md` §2-3。
 
 ### 🟠 P1 — 公開直後に困るもの
@@ -223,7 +237,10 @@ postgresql://postgres:<DBパスワード>@db.melfyxfvhyknqhruytms.supabase.co:54
 ### 🟢 P3 — 落ち着いてから
 
 11. メール本文の日本語化
-12. 独自ドメイン取得（取ったら `legal.js` の `CONTACT_EMAIL` / `SERVICE_URL`、Supabase の Redirect URLs、`PUBLIC_BASE_URL` を更新）
+12. ~~独自ドメイン取得~~ ✅ 2026-08-21 取得・2026-08-22 に全箇所反映
+    （`legal.js` の `SERVICE_URL` / `index.html` の canonical・OGP・JSON-LD /
+    `robots.txt` / `sitemap.xml` / `apply_auth_config.mjs` / Supabase の site_url・Redirect URLs）。
+    **残: 決済を有効にするときに Vercel の `PUBLIC_BASE_URL` も差し替える**
 13. プッシュ通知、運営用管理画面、参加者の途中離脱（すべて未実装）
 
 ---
@@ -331,6 +348,20 @@ AISEKI_DB_PASSWORD='<DBパスワード>' node scripts/apply_sql.mjs supabase/mig
   **複数文・ドル引用符・DOブロックをまとめて1回で実行できる。分割は要らない。**
 - `client.on('notice', ...)` を**必ず付ける**。付けないと `raise notice` の適用ログが全部消える。
 - `ssl: { rejectUnauthorized: false }`
+
+### サイトURLを変えるときに直す場所（2026-08-22 の移行で確定）
+
+片方だけ直すと OGP や検索結果が旧ドメインを指したままになる。
+
+| 場所 | 何 |
+|---|---|
+| `src/lib/legal.js` | `SERVICE_URL`（※ export だけで未使用。バンドルには入らないが規約の出典） |
+| `index.html` | canonical / og:url / og:image / twitter:image / JSON-LD の `url` |
+| `public/robots.txt` | `Sitemap:` 行 |
+| `public/sitemap.xml` | `<loc>` |
+| `scripts/apply_auth_config.mjs` | `SITE_URL` / `LEGACY_URLS` |
+| Supabase Auth | `site_url` / `uri_allow_list`（旧ドメインも残す） |
+| Vercel 環境変数 | `PUBLIC_BASE_URL`（決済を使うときだけ） |
 
 ### Auth設定の適用 — Management API（PAT必須）
 
@@ -443,7 +474,7 @@ node scripts/generate_icons.mjs   # アイコン・OGP画像を作り直す
 
 ### Git
 
-- 作業ブランチは `main`。最新は `4240e9d`。
+- 作業ブランチは `main`。Git リモートは未設定（バックアップ無し）。
 - `feat/branding-refresh-age20` / `feat/codex-ui-refresh` /
   `feat/stripe-checkout-sky-blue-ui` は過去のブランチ。**現在の `main` に取り込む必要は無い**
   （`feat/codex-ui-refresh` は revert 済みのUI刷新）。
