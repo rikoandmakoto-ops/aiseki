@@ -20,7 +20,7 @@
 > （deployment id `dpl_G7GC6af9ux669kvvTsSVeXicnYmb`）。
 > 本番配信 JS は `assets/index-B1I0jCrz.js`。新 ref のみを向いており、旧 ref は含まれない。
 > 問い合わせ窓口は `theoffzaki@gmail.com`。
-> Git リモートは未設定（バックアップ無し）。
+> Git リモート: **https://github.com/zaki21016/aiseki**（private / 2026-08-22 作成）。
 
 このファイルは「このプロジェクトを初めて触る人が、まず読むもの」。
 **ローンチまでの手順そのものは `LAUNCH.md` が正**。ここは全体像と現状を書く。
@@ -487,7 +487,11 @@ node scripts/generate_icons.mjs   # アイコン・OGP画像を作り直す
 
 ### Git
 
-- 作業ブランチは `main`。Git リモートは未設定（バックアップ無し）。
+- 作業ブランチは `main`。リモートは **`origin` = https://github.com/zaki21016/aiseki**（private）。
+  2026-08-22 に作成し、全39コミットを push した（それまでバックアップが無かった）。
+  **GitHub のアカウント名は `zaki21016`。`theoffzaki` は GitHub には存在しない**
+  （`theoffzaki@gmail.com` はメールアドレス。Vercel も `zaki21016`）。
+  `.env` と `apply_migrations.command` がリモートに存在しないことは push 後に確認済み。
 - `feat/branding-refresh-age20` / `feat/codex-ui-refresh` /
   `feat/stripe-checkout-sky-blue-ui` は過去のブランチ。**現在の `main` に取り込む必要は無い**
   （`feat/codex-ui-refresh` は revert 済みのUI刷新）。
