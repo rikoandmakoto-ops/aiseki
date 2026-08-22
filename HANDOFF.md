@@ -1,6 +1,6 @@
 # AISEKI 引き継ぎ書
 
-最終更新: 2026-08-22（メール本文の日本語化 / Production の service_role キーを現行プロジェクトへ修正）
+最終更新: 2026-08-22（広告用ランディングページ /lp/women · /lp/men を追加し本番へデプロイ）
 
 > ## ⚠️ まずこれを読む — Supabase プロジェクトが変わった（2026-08-20）
 >
@@ -78,6 +78,24 @@
 | 旧URL | https://aiseki-xi.vercel.app （まだ 200 を返す。Supabase の Redirect URLs にも残してある） |
 | 独自ドメイン | ✅ **`aisekimatch.com`**（2026-08-21 取得 / Vercel の `aiseki` に接続済み）。DNS は xdomain（`ns1〜3.xdomain.ne.jp`）で管理 |
 
+> ✅ **広告用LPを本番へデプロイ済み**（2026-08-22 / deployment id `dpl_HiacMC3pPVFuRwzsb6XVf8XVQHzi`）。
+> `https://aisekimatch.com/lp/women` · `/lp/men` が 200、canonical・OGP・`/og-women.png`（image/png）・
+> `/sitemap.xml` の3URL・CSP / HSTS / X-Frame-Options まで `curl` で確認済み。
+>
+> ⚠️ **このときリモートビルドが詰まった。** `vercel deploy` / `--prod` が
+> 15分以上 `UNKNOWN`（duration `?`）のまま進まず、alias も切り替わらなかった
+> （Vercel のステータスページは全系統正常。原因未特定）。
+> **手元でビルドして送る方法に切り替えたら 13秒で完了した**:
+>
+> ```bash
+> vercel pull --environment=production --yes   # .vercel/.env.production.local を作る
+> vercel build --prod
+> vercel deploy --prebuilt --prod --yes
+> ```
+>
+> 通常の `vercel deploy --prod` が進まないときは、まずこれを試すこと。
+> なお **Bash をサンドボックス下で実行すると `vercel` は無言で止まる**（外部通信が遮断されるため）。
+>
 > ✅ **最新コミットはデプロイ済み**（2026-08-22）。
 > `https://aisekimatch.com/` の canonical・og:url・og:image・twitter:image・JSON-LD、
 > `/sitemap.xml` の `<loc>`、`/robots.txt` の `Sitemap:` が
@@ -164,6 +182,8 @@ postgresql://postgres:<DBパスワード>@db.melfyxfvhyknqhruytms.supabase.co:54
   HTTP 200 / `/api/stripe/status` = `{"enabled":false}` / セキュリティヘッダ（CSP・HSTS・X-Frame-Options）配信を確認。
 - **独自ドメイン `aisekimatch.com` への統一**（2026-08-22）— コード・`robots.txt` / `sitemap.xml`・
   Supabase の `site_url` / `uri_allow_list` まで反映（旧 Vercel ドメインは Redirect URLs に残置）。
+- **広告用ランディングページ**（2026-08-22）— `/lp/women`（募集する側＝おごられる側）と
+  `/lp/men`（参加する側＝相席する側）の2枚。詳細は §10。
 
 ### ⛔ 完了していないもの
 
@@ -432,7 +452,8 @@ DB_PASSWORD=<DBパスワード> npm test
 aiseki/
 ├── LAUNCH.md            ★ ローンチ手順（人の手でやることの正）
 ├── HANDOFF.md           このファイル
-├── index.html
+├── index.html           アプリ本体のページ
+├── lp/                  ★ 広告用LPのページ（women.html / men.html）
 ├── vite.config.js / vercel.json
 │
 ├── src/
@@ -440,8 +461,9 @@ aiseki/
 │   ├── App.jsx          (2,457行) ★ 画面の大半。会の一覧/作成/詳細/チャット/ポイント/設定
 │   ├── index.css        ダークネイビー × ゴールドの高級ラウンジ調
 │   ├── lib/
-│   │   ├── api.js       (1,175行) ★ Supabase 呼び出しと定数の集約
-│   │   │                  MIN_AGE=20 / JOIN_FEE_PER_PERSON=3800
+│   │   ├── api.js       (1,175行) ★ Supabase 呼び出しの集約（定数は pricing.js を再輸出）
+│   │   ├── pricing.js   ★ 料金・人数・年齢の唯一の出典
+│   │   │                  MIN_AGE=20 / MIN_GROUP_SIZE=2 / JOIN_FEE_PER_PERSON=3800
 │   │   │                  SIGNUP_BONUS=10000 / REFERRAL_BONUS=3800
 │   │   ├── legal.js     ★ 規約・プライバシーポリシーの単一の出典
 │   │   │                  CONTACT_EMAIL / SERVICE_URL / LEGAL_VERSION
@@ -451,6 +473,11 @@ aiseki/
 │   │   └── screens/     Auth / Landing / ProfileEdit / Terms / Safety /
 │   │                    Support / Referral / Notifications / MemberSheet /
 │   │                    ResetPassword / InstallCard
+│   └── lp/              ★ 広告用LP（§10）
+│       ├── LpKit.jsx        2枚で共有する部品（ヘッダー/セクション/FAQ/フッター）
+│       ├── WomenPage.jsx    /lp/women — 募集する側（おごられる側）向け
+│       ├── MenPage.jsx      /lp/men   — 参加する側（相席する側）向け
+│       └── women.jsx / men.jsx  それぞれの入口（supabase を読み込まない）
 │
 ├── api/                 Vercel Functions（決済のみ）
 │   ├── _lib.js
@@ -468,6 +495,7 @@ aiseki/
     ├── apply_auth_config.mjs    ★ Auth設定適用（PAT必須）
     ├── create_test_user.mjs     テストユーザー作成
     ├── generate_icons.mjs       アイコン・OGP画像の生成
+    ├── generate_lp_og.mjs       LPのOGP画像（og-women.png / og-men.png）の生成
     ├── test_join_fee.mjs        `npm test` の本体
     └── *.command                ダブルクリック用のラッパ
 
@@ -483,7 +511,11 @@ vercel dev       # /api（決済）も含めて動かす
 npm run build    # 本番ビルド
 npm test         # ポイント仕様のテスト（DB_PASSWORD が要る）
 node scripts/generate_icons.mjs   # アイコン・OGP画像を作り直す
+node scripts/generate_lp_og.mjs   # LPのOGP画像を作り直す
 ```
+
+> `npm run dev` では **LP は `/lp/women.html` / `/lp/men.html`** で開く
+> （拡張子なしの `/lp/women` は Vercel の cleanUrls / rewrites による本番の挙動）。
 
 ### Git
 
@@ -496,3 +528,53 @@ node scripts/generate_icons.mjs   # アイコン・OGP画像を作り直す
   `feat/stripe-checkout-sky-blue-ui` は過去のブランチ。**現在の `main` に取り込む必要は無い**
   （`feat/codex-ui-refresh` は revert 済みのUI刷新）。
 - **force push 禁止。**
+
+---
+
+## 10. 広告用ランディングページ（`/lp/women` · `/lp/men`）
+
+2026-08-22 追加。広告の受け皿。**アプリ本体の LandingScreen（`/` の未ログイン画面）とは別物**で、
+出口は「アプリの登録画面」ひとつに絞ってある。
+
+| | `/lp/women` | `/lp/men` |
+|---|---|---|
+| 宛先 | 会を**募集する側**（＝おごられる側） | 会に**参加する側**（＝相席する側） |
+| 主訴求 | 参加ポイント0pt・当日の飲食代も0円 | グループ同士で気軽・一律3,800ptの明朗会計 |
+| CTA | 「無料で始める」 | 「相席を始める」 |
+| リンク先 | `/?auth=signup&from=lp-women` | `/?auth=signup&from=lp-men` |
+| OGP | `public/og-women.png` | `public/og-men.png` |
+| 実体 | `lp/women.html` + `src/lp/WomenPage.jsx` | `lp/men.html` + `src/lp/MenPage.jsx` |
+
+構成はどちらも ヒーロー → 特徴3つ → 使い方3ステップ →（男性向けのみポイント表）→ FAQ → CTA。
+
+### 作りの要点（触る前に読む）
+
+- **ページを分けてある。** `vite.config.js` の `rollupOptions.input` にエントリが3つある
+  （`index.html` / `lp/women.html` / `lp/men.html`）。LP は `supabase` を読み込まないので、
+  広告からの初回表示にアプリのバンドルが乗らない。**LP から `src/lib/api.js` を import しないこと**
+  （supabase クライアントが丸ごと入る）。数字が要るときは `src/lib/pricing.js` から読む。
+- **`/lp/women` で開けるのは `vercel.json` の rewrites のおかげ。**
+  `"/(.*)" → "/"` のSPA用catch-allより**前**に `/lp/women → /lp/women.html` を置いてある。
+  順番を入れ替えるとLPがアプリに吸われる。
+- **CTA は `/?auth=signup`。** `App.jsx` がこれを読んで、ランディングを飛ばして登録フォームを開く。
+  ⚠ `onAuthStateChange` は起動直後に **セッション無しの `INITIAL_SESSION`** を必ず一度流す。
+  ここで `setAuthMode(null)` していたため、開いた登録フォームがその場で閉じていた（修正済み）。
+  同じ理由で、`?auth=` の読み取りはモジュール読み込み時に一度だけ確定させている
+  （描画のたびに読むと、URLから消したあとの再描画で null に戻る）。
+- **Service Worker は `"/"` のときだけ枠を保存する。** 以前はどのページでも `"/"` として
+  キャッシュしていたため、LP を見たあとオフラインでアプリを起動するとLPが出るおそれがあった。
+
+### 文言についての約束（消さないこと）
+
+- **AISEKI は性別を登録しない。** 広告の宛先は分けているが、ページ上の説明は必ず
+  「募集する側（ホスト）／参加する側（ゲスト）」で書く。「女性は無料」とは書かない。
+  `/lp/women` の FAQ にその旨を明記してある。
+- ホストがおごられること、参加側が**ポイントに加えて当日の飲食代（ホスト分を含む）を負担する**ことは、
+  両方のページに明記する。あとで揉めるので隠さない。
+- グループ限定（2名以上×2名以上）／個室での相席なし／20歳以上限定／接待・サクラなし／
+  個人間DMなしは、両方のページに残す（`src/lib/legal.js` の `FOOTER_NOTICE` を読んでいる）。
+
+> ⚠ **業態上の注意。** 「相席で出会える」といった訴求は、規約上の立場
+> （異性交際を目的としたサービスではない／インターネット異性紹介事業に非該当）と
+> 読み手の受け取りがずれやすい。広告文を強める方向に直すときは、
+> §1 の制約と `legal.js` の記述を必ず読み合わせること。
