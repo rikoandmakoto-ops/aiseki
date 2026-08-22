@@ -1,6 +1,6 @@
 # AISEKI 引き継ぎ書
 
-最終更新: 2026-08-22（独自ドメイン aisekimatch.com へ移行 / Resend SMTP 設定）
+最終更新: 2026-08-22（メール本文の日本語化 / Production の service_role キーを現行プロジェクトへ修正）
 
 > ## ⚠️ まずこれを読む — Supabase プロジェクトが変わった（2026-08-20）
 >
@@ -172,9 +172,9 @@ postgresql://postgres:<DBパスワード>@db.melfyxfvhyknqhruytms.supabase.co:54
 | ~~メール確認（Confirm email）~~ | ✅ 2026-08-20 に ON（`mailer_autoconfirm: false`） |
 | ~~Redirect URLs の登録~~ | ✅ 2026-08-20 に登録済み |
 | ~~独自SMTP~~ | ✅ **2026-08-22 完了。** Resend SMTP をフルセットで投入し GET で実値確認。**実アドレスへの配信も `delivered` を実測**。送信元 `noreply@aisekimatch.com` / 差出人名 `相席マッチ`（`LAUNCH.md` §2-3） |
-| メール本文の日本語化 | ⛔ **未対応（英語のまま）。** 実測で件名が `Confirm your email address` で届くことを確認済み。公開前にやるべき最有力の項目 |
+| ~~メール本文の日本語化~~ | ✅ **2026-08-22 完了。** Management API で件名・本文を日本語化（`scripts/apply_email_templates.mjs`）。GET で保存値を照合し、実アドレスへの signup が 200 を返すことまで確認 |
 | ~~最新コミットのデプロイ~~ | ✅ 2026-08-20 実施済み |
-| ~~Production の `SUPABASE_SERVICE_ROLE_KEY`~~ | ✅ 2026-08-20 に新プロジェクトの secret キーへ入れ替え済み |
+| ~~Production の `SUPABASE_SERVICE_ROLE_KEY`~~ | ✅ **2026-08-22 に入れ替え。** ⚠️ ここには「2026-08-20 に入れ替え済み」と書いてあったが**誤りだった**。`vercel env ls production` の作成日が 13日前（＝現行プロジェクトが存在する前）で、実際には旧プロジェクトのキーが残っていた。`.env` の `sb_secret_...` に差し替えて再デプロイ済み |
 | Stripe決済 | placeholder のまま（意図的。無効でもアプリは動く） |
 | ~~独自ドメイン~~ | ✅ 2026-08-21 に `aisekimatch.com` 取得・接続済み |
 | 実機での動作確認 | 未実施（チェックリストは `LAUNCH.md` §5） |
@@ -217,8 +217,8 @@ postgresql://postgres:<DBパスワード>@db.melfyxfvhyknqhruytms.supabase.co:54
    テストユーザーは削除済み（`profiles` も CASCADE で消え、残骸なしを確認）。
 
 > ### 🎉 P0 はすべて完了。公開をブロックする技術的な問題は無くなった。
-> ただし **確認メールの件名・本文は英語のまま**（`Confirm your email address`）。
-> 一般ユーザーに出す前に `LAUNCH.md` §2-4 の日本語化を済ませるのが望ましい（P1 相当）。
+> **確認メールの件名・本文も 2026-08-22 に日本語化済み**（`LAUNCH.md` §2-4）。
+> 残るのは人の手が要るもの（実機確認・運営体制・所在地）だけ。
 
 ### 🟠 P1 — 公開直後に困るもの
 
@@ -232,14 +232,16 @@ postgresql://postgres:<DBパスワード>@db.melfyxfvhyknqhruytms.supabase.co:54
 
 ### 🟡 P2 — 決済を有効にするとき
 
-10. **Production の `SUPABASE_SERVICE_ROLE_KEY` を現行プロジェクトのものへ入れ直す**
-   古いままだと Webhook がポイントを付与できない。**決済有効化の前に必ず。**
+10. ~~**Production の `SUPABASE_SERVICE_ROLE_KEY` を現行プロジェクトのものへ入れ直す**~~
+   ✅ **2026-08-22 完了。** 実際に旧プロジェクトのキーが残っていた（§4 参照）。
+   `.env` の値へ入れ替え、環境変数を反映させるために `vercel deploy --prod` も実行済み。
+   → **環境変数を変えたら再デプロイするまで実行時には反映されない。**
 
 11. **Stripe の本番キー設定 + Webhook 登録** — 手順は `LAUNCH.md` §4。
 
 ### 🟢 P3 — 落ち着いてから
 
-12. メール本文の日本語化
+12. ~~メール本文の日本語化~~ ✅ 2026-08-22 完了（P1 に繰り上げて実施。`LAUNCH.md` §2-4）
 13. ~~独自ドメイン取得~~ ✅ 2026-08-21 取得・2026-08-22 に全箇所反映
     （`legal.js` の `SERVICE_URL` / `index.html` の canonical・OGP・JSON-LD /
     `robots.txt` / `sitemap.xml` / `apply_auth_config.mjs` / Supabase の site_url・Redirect URLs）。
@@ -385,7 +387,15 @@ curl -X PATCH "https://api.supabase.com/v1/projects/melfyxfvhyknqhruytms/config/
        "smtp_sender_name":"AISEKI","rate_limit_email_sent":30}'
 ```
 
-メール本文（2-4）は Email Templates なので引き続き手作業。
+**メール本文・件名（2-4）も同じ API で設定できる（2026-08-22 に判明。旧記述の「手作業」は誤り）。**
+件名は `mailer_subjects_*`、本文は `mailer_templates_*_content`。
+
+```bash
+SUPABASE_ACCESS_TOKEN=sbp_xxxx node scripts/apply_email_templates.mjs
+```
+
+PATCH のあと **必ず GET で読み直して照合する**（SMTP と同じ枠なので、200 でも
+保存されていないことがある）。このスクリプトは照合と SMTP の生存確認まで自動でやる。
 
 ### テストユーザーの作成 — service_role が要る（2026-08-20 以降）
 

@@ -107,7 +107,7 @@ AISEKI_DB_PASSWORD='<DBのパスワード>' node scripts/apply_sql.mjs supabase/
 
 ---
 
-## 2. Supabase の設定（必須）— ✅ 2-1 / 2-2 / 2-3 適用済み（残るは 2-4 メール本文の日本語化のみ）
+## 2. Supabase の設定（必須）— ✅ 2-1 / 2-2 / 2-3 / 2-4 すべて適用済み
 
 ダッシュボードでの設定。コードからは変えられない。
 
@@ -123,7 +123,8 @@ AISEKI_DB_PASSWORD='<DBのパスワード>' node scripts/apply_sql.mjs supabase/
 > このスクリプトが 2-2（戻り先URL）→ 2-1（メール確認）を正しい順番で流し、
 > 最後に `/auth/v1/settings` を叩いて反映を確認するところまでやる。
 > 2-3（SMTP）も **Management API の `PATCH .../config/auth` で入る**（§2-3 のコマンド）。
-> API に項目が無いのは 2-4（メール本文）だけで、これはダッシュボードでの手作業。
+> 2-4（メール本文・件名）も **同じ API で入る**（§2-4）。
+> **ダッシュボードでの手作業が要る設定はもう無い。**
 >
 > **★ 代用できるものは無い（2026-08-20 に一通り試して確認済み）**
 >
@@ -292,18 +293,39 @@ Resend のログ（`GET https://api.resend.com/emails`）:
 （`DELETE /auth/v1/admin/users/{id}` → `profiles` も CASCADE で消え、
 `points` / `party_members` / `inquiries` にも残骸なしを確認）。
 
-> **件名・本文が英語のままである点に注意**（`Confirm your email address`）。
-> 一般ユーザーに出す前に 2-4 を済ませること。
+> 件名・本文は **2026-08-22 に日本語化済み**（§2-4）。
 
 6. `POST /auth/v1/signup` を実アドレスで叩いて 200 が返り、メールが届くことを確認する。
 
 > **4 を終えるまで、一般ユーザーは新規登録できない**（signup が 500 になる）。
 > Resend のダッシュボードでの作業（2・3）は人の手が要る。
 
-### 2-4. メール本文の日本語化（推奨）
+### 2-4. メール本文の日本語化 ✅ **適用済み（2026-08-22）**
 
-**Authentication → Email Templates**
-確認メール・パスワード再設定メールの本文が英語のままなので、日本語にする。
+**ダッシュボードの Authentication → Email Templates と同じものが Management API にある。**
+「API では変えられない」は誤り。件名は `mailer_subjects_*`、本文は
+`mailer_templates_*_content` として `/v1/projects/{ref}/config/auth` に入っている。
+
+```bash
+SUPABASE_ACCESS_TOKEN=sbp_xxxx node scripts/apply_email_templates.mjs
+```
+
+スクリプトが PATCH → **GET で実値を読み直して照合**し、
+ついでに custom SMTP が消えていないかまで見る（§2-3 の事故対策）。
+
+適用した4通（いずれも `{{ .ConfirmationURL }}` を使う。アプリと同じダークネイビー×ゴールド）:
+
+| テンプレート | 件名 |
+|---|---|
+| 新規登録の確認 | `相席マッチ - メールアドレスの確認` |
+| パスワード再設定 | `相席マッチ - パスワードの再設定` |
+| メールアドレス変更 | `相席マッチ - 新しいメールアドレスの確認` |
+| ログイン用リンク（未使用） | `相席マッチ - ログイン用リンク` |
+
+> **確認方法**: GET で保存値が一致することを見たうえで、実アドレスへ `POST /auth/v1/signup`
+> して **200**（`confirmation_sent_at` が入る）を確認した。
+> テンプレートの Go 記法が壊れていると送信時に落ちるので、**200 が返ること自体が本文の検証になる**。
+> 使ったテストユーザーは削除済み。
 
 ---
 
@@ -318,7 +340,7 @@ Resend のログ（`GET https://api.resend.com/emails`）:
 | `SUPABASE_SERVICE_ROLE_KEY` | service_role キー | 決済を使うなら |
 | `STRIPE_SECRET_KEY` | `sk_live_...` | 決済を使うなら |
 | `STRIPE_WEBHOOK_SECRET` | `whsec_...` | 決済を使うなら |
-| `PUBLIC_BASE_URL` | `https://aiseki-xi.vercel.app` | 決済を使うなら |
+| `PUBLIC_BASE_URL` | `https://aisekimatch.com` | 決済を使うなら |
 
 `VITE_` が付く変数はブラウザに埋め込まれる。
 **`SUPABASE_SERVICE_ROLE_KEY` と `STRIPE_SECRET_KEY` には絶対に `VITE_` を付けないこと。**
