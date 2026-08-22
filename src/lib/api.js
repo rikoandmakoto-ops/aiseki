@@ -1,4 +1,12 @@
 import { supabase } from "./supabase";
+import {
+  MIN_GROUP_SIZE,
+  JOIN_FEE_PER_PERSON,
+  SIGNUP_BONUS,
+  REFERRAL_BONUS,
+  SIGNUP_BONUS_SEATS,
+  MIN_AGE,
+} from "./pricing.js";
 
 /* =====================================================================
    相席（グループ飲み会）の共通ルール
@@ -8,33 +16,19 @@ import { supabase } from "./supabase";
    ・20歳以上限定（飲酒を伴うため）
    ・個人プロフィールは同じ会に参加承認された相手にのみ公開（RLSで担保）
    ※ いずれも DB 側（制約・トリガー）でも二重に強制している。
+
+   人数・料金・年齢の数字そのものは src/lib/pricing.js が出典。
+   広告用のランディングページ（src/lp/*）も同じファイルを読むため、
+   ここでは再輸出だけを行う（api.MIN_AGE のような既存の参照はそのまま動く）。
    ===================================================================== */
-export const MIN_GROUP_SIZE = 2;
-
-/* ===================== 料金（一律・変更不可） =====================
-   ・募集する側（ホスト）は無料。会はいくつでも自由に立てられる。
-   ・参加する側は 1人あたり一律 3,800pt。会ごとの金額設定は無い。
-   ・支払われたポイントは全額が運営の収益で、ホストへの報酬は無い。
-   ・そのかわり、当日のホストグループの飲食代は参加グループが負担する。
-   ここを変えるときは supabase の join_fee_per_person() も必ず合わせること
-   （DB 側の CHECK 制約とトリガーが同じ値を強制している）。
-   ================================================================= */
-export const JOIN_FEE_PER_PERSON = 3800;
-
-/* ===================== ボーナスポイント =====================
-   新規登録ボーナス。参加が1人あたり 3,800pt のため、
-   1,000pt では登録直後に一度も参加できなかった。
-   10,000pt にして「登録したその日にグループで参加できる」状態にする。
-   DB 側は supabase/migration_launch2.sql の signup_bonus() が出典。
-   ここを変えるときは必ず両方を合わせること。
-   ========================================================== */
-export const SIGNUP_BONUS = 10000;
-
-/* 友達紹介ボーナス（紹介した側・された側の双方に付与）。参加1名分。 */
-export const REFERRAL_BONUS = 3800;
-
-/* 新規登録ボーナスで何名分の参加ができるか（LP・登録画面の訴求に使う） */
-export const SIGNUP_BONUS_SEATS = Math.floor(SIGNUP_BONUS / JOIN_FEE_PER_PERSON);
+export {
+  MIN_GROUP_SIZE,
+  JOIN_FEE_PER_PERSON,
+  SIGNUP_BONUS,
+  REFERRAL_BONUS,
+  SIGNUP_BONUS_SEATS,
+  MIN_AGE,
+};
 
 /* お会計の区分。ホストは必ずおごられるため、これ以外は保存できない。 */
 export const TREAT_TYPE_GUEST_TREATS = "ゲストのおごり";
@@ -188,9 +182,7 @@ export function normalizeMemberNames(names, groupSize) {
 }
 
 /* ============================ Auth ============================ */
-/* 20歳未満は利用禁止（飲酒を伴う業態のため）。
-   性別は登録時に一切収集しない（性別による制限を設けないため）。 */
-export const MIN_AGE = 20;
+/* 20歳未満は利用禁止（飲酒を伴う業態のため）。MIN_AGE は pricing.js が出典。 */
 
 /* 生年月日（YYYY-MM-DD）から満年齢を計算する。不正な値なら null。 */
 export function ageFromBirthDate(birthDate) {

@@ -74,8 +74,13 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       fetch(request)
         .then((res) => {
-          const copy = res.clone();
-          caches.open(SHELL).then((c) => c.put("/", copy)).catch(() => {});
+          // 枠として保存するのはアプリ本体（"/"）だけ。広告用のLP（/lp/*）は
+          // 別のページなので、これを "/" として持つとオフライン起動で
+          // アプリの代わりにLPが出てしまう。
+          if (url.pathname === "/") {
+            const copy = res.clone();
+            caches.open(SHELL).then((c) => c.put("/", copy)).catch(() => {});
+          }
           return res;
         })
         .catch(() => caches.match("/").then((r) => r || Response.error()))

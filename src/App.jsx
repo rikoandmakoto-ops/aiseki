@@ -2153,6 +2153,22 @@ const readTabParam = () => {
   return TAB_KEYS.includes(v) ? v : null;
 };
 
+/* 広告用のランディングページ（/lp/women · /lp/men）からの導線。
+   CTA は /?auth=signup で来るので、サービス紹介を飛ばして
+   いきなり登録フォームを開く。?auth=login ならログイン。
+   同時に付いてくる ?from=... は、どのLPから来たかの印（動作には影響しない）。
+
+   ?auth= は読み終えたらアドレスバーから消すので、読むのは
+   「消す前の一度きり」でなければならない。描画のたびに読み直すと、
+   消したあとの再描画で null に戻ってしまう（開発時の二重マウントで実際に起きる）。
+   そのためモジュールの読み込み時に一度だけ確定させる。 */
+const AUTH_MODES = ["signup", "login"];
+const INITIAL_AUTH_MODE = (() => {
+  if (typeof window === "undefined") return null;
+  const v = new URLSearchParams(window.location.search).get("auth");
+  return AUTH_MODES.includes(v) ? v : null;
+})();
+
 /* パスワード再設定メールから戻ってきたかを判定する。
    Supabase はリンク先に #access_token=…&type=recovery を付けて返す
    （バージョンによっては ?type=recovery のクエリ）。両方を見る。 */
@@ -2213,7 +2229,7 @@ export default function App() {
   const [session, setSession] = useState(null);
   const [authReady, setAuthReady] = useState(false);
   const [recovery, setRecovery] = useState(isRecoveryLink);
-  const [authMode, setAuthMode] = useState(null);   // null = ランディングページ
+  const [authMode, setAuthMode] = useState(INITIAL_AUTH_MODE);   // null = ランディングページ
   const [checkoutResult, setCheckoutResult] = useState(readCheckoutResult);
   const [tab, setTab] = useState(() => (readCheckoutResult() ? "points" : readTabParam() ?? "home"));
   const [detailId, setDetailId] = useState(null);
@@ -2235,7 +2251,11 @@ export default function App() {
     const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
       setSession(s);
       if (event === "PASSWORD_RECOVERY") setRecovery(true);
-      if (!s) {
+      /* ログアウトしたら開いていた画面を片付けてランディングへ戻す。
+         起動直後にも INITIAL_SESSION が セッション無し で必ず一度飛んでくるので、
+         それは除く（除かないと ?auth=signup で開いた登録フォームが
+         その場で閉じてしまう）。 */
+      if (!s && event !== "INITIAL_SESSION") {
         setTab("home"); setDetailId(null); setChatRoom(null);
         setChatRoomId(null); setOverlay(null); setAuthMode(null);
       }
@@ -2243,14 +2263,15 @@ export default function App() {
     return () => sub.subscription.unsubscribe();
   }, []);
 
-  /* ショートカットで指定されたタブは開いた時点で用が済むので、
-     アドレスバーから ?tab=... を消す。付いたままだと、あとで
-     別のタブを開いてリロードしたときに元に戻ってしまう。 */
+  /* ショートカットで指定されたタブ（?tab=...）と、LPからの導線（?auth= / ?from=）は
+     開いた時点で用が済むので、アドレスバーから消す。付いたままだと、あとで
+     別の画面を開いてリロードしたときに元に戻ってしまう。 */
   useEffect(() => {
     if (typeof window === "undefined") return;
     const url = new URL(window.location.href);
-    if (!url.searchParams.has("tab")) return;
-    url.searchParams.delete("tab");
+    const keys = ["tab", "auth", "from"].filter((k) => url.searchParams.has(k));
+    if (keys.length === 0) return;
+    keys.forEach((k) => url.searchParams.delete(k));
     window.history.replaceState({}, "", url.pathname + url.search + url.hash);
   }, []);
 

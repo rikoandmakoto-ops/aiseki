@@ -50,6 +50,8 @@
     }
   ],
   "rewrites": [
+    { "source": "/lp/women", "destination": "/lp/women.html" },
+    { "source": "/lp/men", "destination": "/lp/men.html" },
     {
       "source": "/(.*)",
       "destination": "/"
