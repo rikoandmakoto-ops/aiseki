@@ -269,11 +269,31 @@ curl -s https://api.resend.com/domains -H "Authorization: Bearer <Resend APIキ�
 # → aisekimatch.com  status=verified  region=ap-northeast-1
 ```
 
-#### まだ確認していないこと
+#### ✅ 2026-08-22: 実際に届くところまで確認済み
 
-**実際に登録メールが届くところまでは未確認。**
-以前は `POST /auth/v1/signup` が `500 Error sending confirmation email` になっていた。
-実アドレスで signup して 200 が返り、メールが届くことを確認すること（`§5` の実機確認と一緒でよい）。
+`theoffzaki@gmail.com` で `POST /auth/v1/signup` を実行:
+
+```
+送信時刻(UTC)        2026-08-22T01:54:30.643Z
+HTTP                 200                     ← 以前は 500 Error sending confirmation email
+confirmation_sent_at 2026-08-22T01:54:31.008Z
+```
+
+Resend のログ（`GET https://api.resend.com/emails`）:
+
+```
+2026-08-22 01:54:32.921+00  delivered
+  from = "相席マッチ" <noreply@aisekimatch.com>
+  to   = theoffzaki@gmail.com
+  subj = Confirm your email address
+```
+
+**signup から delivered まで約2.3秒。** テストユーザーは確認後に削除済み
+（`DELETE /auth/v1/admin/users/{id}` → `profiles` も CASCADE で消え、
+`points` / `party_members` / `inquiries` にも残骸なしを確認）。
+
+> **件名・本文が英語のままである点に注意**（`Confirm your email address`）。
+> 一般ユーザーに出す前に 2-4 を済ませること。
 
 6. `POST /auth/v1/signup` を実アドレスで叩いて 200 が返り、メールが届くことを確認する。
 

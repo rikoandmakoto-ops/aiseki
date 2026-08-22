@@ -171,8 +171,8 @@ postgresql://postgres:<DBパスワード>@db.melfyxfvhyknqhruytms.supabase.co:54
 |---|---|
 | ~~メール確認（Confirm email）~~ | ✅ 2026-08-20 に ON（`mailer_autoconfirm: false`） |
 | ~~Redirect URLs の登録~~ | ✅ 2026-08-20 に登録済み |
-| ~~独自SMTP~~ | ✅ **2026-08-22 設定済み。** Resend SMTP をフルセットで投入し GET で実値確認。`aisekimatch.com` は Resend で verified。送信元 `noreply@aisekimatch.com` / 差出人名 `相席マッチ`（`LAUNCH.md` §2-3）。**ただし実際にメールが届くところまでは未確認** |
-| メール本文の日本語化 | 未対応（英語のまま） |
+| ~~独自SMTP~~ | ✅ **2026-08-22 完了。** Resend SMTP をフルセットで投入し GET で実値確認。**実アドレスへの配信も `delivered` を実測**。送信元 `noreply@aisekimatch.com` / 差出人名 `相席マッチ`（`LAUNCH.md` §2-3） |
+| メール本文の日本語化 | ⛔ **未対応（英語のまま）。** 実測で件名が `Confirm your email address` で届くことを確認済み。公開前にやるべき最有力の項目 |
 | ~~最新コミットのデプロイ~~ | ✅ 2026-08-20 実施済み |
 | ~~Production の `SUPABASE_SERVICE_ROLE_KEY`~~ | ✅ 2026-08-20 に新プロジェクトの secret キーへ入れ替え済み |
 | Stripe決済 | placeholder のまま（意図的。無効でもアプリは動く） |
@@ -211,9 +211,14 @@ postgresql://postgres:<DBパスワード>@db.melfyxfvhyknqhruytms.supabase.co:54
 
    Resend APIキーはリポジトリにも `.env` にも置いていない（Supabase 側にだけ入っている）。
 
-5. ⛔ **登録メールが実際に届くか確認する（未実施）。**
-   以前は `POST /auth/v1/signup` が `500 Error sending confirmation email` だった。
-   実アドレスで signup → 200 → 受信、まで見て初めて P0 が閉じる。
+5. ~~**登録メールが実際に届くか確認する**~~ ✅ **2026-08-22 完了。**
+   `theoffzaki@gmail.com` で signup → **HTTP 200**（以前は 500）→ Resend のログで
+   **`delivered`**（`"相席マッチ" <noreply@aisekimatch.com>` 発、約2.3秒）を確認。
+   テストユーザーは削除済み（`profiles` も CASCADE で消え、残骸なしを確認）。
+
+> ### 🎉 P0 はすべて完了。公開をブロックする技術的な問題は無くなった。
+> ただし **確認メールの件名・本文は英語のまま**（`Confirm your email address`）。
+> 一般ユーザーに出す前に `LAUNCH.md` §2-4 の日本語化を済ませるのが望ましい（P1 相当）。
 
 ### 🟠 P1 — 公開直後に困るもの
 
