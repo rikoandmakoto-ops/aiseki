@@ -96,6 +96,28 @@
 > 通常の `vercel deploy --prod` が進まないときは、まずこれを試すこと。
 > なお **Bash をサンドボックス下で実行すると `vercel` は無言で止まる**（外部通信が遮断されるため）。
 >
+> 🚨 **ただしこの手順には落とし穴がある。そのまま流すとサイトが壊れる。**
+> Vercel 側の `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` は **Sensitive（読み出し不可）**で
+> 登録されているため、`vercel pull` はこの2つを **空文字 `""`** で書き出す。
+> その状態で `vercel build` すると、`import.meta.env.VITE_SUPABASE_URL` が空のまま
+> バンドルに焼き込まれ、公開後に
+> 「接続先が設定されていません（VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY）」が出る。
+> （実際 2026-08-22 の LP デプロイ `dpl_HiacMC3pPVFuRwzsb6XVf8XVQHzi` がこれで落ちた。）
+>
+> **`--prebuilt` で出すときは、`build` の前に必ず実値を埋め戻すこと**:
+>
+> ```bash
+> vercel pull --environment=production --yes
+> # ↓ pull 後に必ず。空になっている2つをローカル .env の実値で上書きする
+> awk -F= '/^VITE_/{print $1" len="length($2)}' .vercel/.env.production.local   # len=2 なら空
+> vercel build --prod
+> grep -rl 'melfyxfvhyknqhruytms' .vercel/output/static/assets/   # ★ヒット必須。無ければ出すな
+> vercel deploy --prebuilt --prod --yes
+> ```
+>
+> **リモートビルド（`git push` / `vercel deploy --prod`）ならこの問題は起きない。**
+> Sensitive な値もビルド環境では正しく復号されるため、可能なら push 経由で出すのが安全。
+>
 > ✅ **最新コミットはデプロイ済み**（2026-08-22）。
 > `https://aisekimatch.com/` の canonical・og:url・og:image・twitter:image・JSON-LD、
 > `/sitemap.xml` の `<loc>`、`/robots.txt` の `Sitemap:` が
