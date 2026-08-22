@@ -16,12 +16,12 @@ import {
   UsersRound, Search, Wallet, Sparkles, MapPin, Wine, Check,
   MessageCircle, DoorClosed, ShieldCheck,
 } from "lucide-react";
-import { C, FONT_HEAD, FONT_DISPLAY, FONT_BODY, brandText, card } from "../lib/theme.jsx";
+import { C, FONT_HEAD, FONT_DISPLAY, FONT_BODY, brandText, card } from "../src/lib/theme.jsx";
 import {
   MIN_AGE, MIN_GROUP_SIZE, JOIN_FEE_PER_PERSON as JOIN_FEE,
   SIGNUP_BONUS, SIGNUP_BONUS_SEATS,
-} from "../lib/pricing.js";
-import { POINT_PACKS, packBonus } from "../lib/packs.js";
+} from "../src/lib/pricing.js";
+import { POINT_PACKS, packBonus } from "../src/lib/packs.js";
 import {
   LpPage, LpHeader, LpFooter, Section, Heading, Pill, CtaLink, GhostLink,
   FeatureCard, StepCard, Faq, CtaSection, HeroGlow, signupUrl,

@@ -22,9 +22,9 @@ import { ChevronDown, ShieldCheck, ArrowRight } from "lucide-react";
 import {
   C, FONT_LOGO, FONT_HEAD, FONT_DISPLAY, FONT_BODY,
   brandText, card, popBtn, ghostBtn, Eyebrow,
-} from "../lib/theme.jsx";
-import { FOOTER_NOTICE, CONTACT_EMAIL, SERVICE_URL } from "../lib/legal.js";
-import { MIN_AGE } from "../lib/pricing.js";
+} from "../src/lib/theme.jsx";
+import { FOOTER_NOTICE, CONTACT_EMAIL, SERVICE_URL } from "../src/lib/legal.js";
+import { MIN_AGE } from "../src/lib/pricing.js";
 
 /* ─────────────────────────────────── リンク先 ───────────────────────────────
    CTA はすべてアプリの登録画面へ送る。?auth=signup を App.jsx が読んで

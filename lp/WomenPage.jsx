@@ -17,10 +17,10 @@ import {
   Wallet, UsersRound, ShieldCheck, Sparkles, Lock, DoorClosed,
   Wine, Check, MessageCircle,
 } from "lucide-react";
-import { C, FONT_HEAD, FONT_DISPLAY, brandText, card } from "../lib/theme.jsx";
+import { C, FONT_HEAD, FONT_DISPLAY, brandText, card } from "../src/lib/theme.jsx";
 import {
   MIN_AGE, MIN_GROUP_SIZE, JOIN_FEE_PER_PERSON as JOIN_FEE,
-} from "../lib/pricing.js";
+} from "../src/lib/pricing.js";
 import {
   LpPage, LpHeader, LpFooter, Section, Heading, Pill, CtaLink, GhostLink,
   FeatureCard, StepCard, Faq, CtaSection, HeroGlow, signupUrl,

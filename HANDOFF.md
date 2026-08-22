@@ -453,7 +453,12 @@ aiseki/
 ├── LAUNCH.md            ★ ローンチ手順（人の手でやることの正）
 ├── HANDOFF.md           このファイル
 ├── index.html           アプリ本体のページ
-├── lp/                  ★ 広告用LPのページ（women.html / men.html）
+├── lp/                  ★ 広告用LP（§10）。ページも中身もここに一式ある
+│   ├── women.html / men.html    ページ（Vite のエントリ）
+│   ├── women.jsx / men.jsx      それぞれの入口（supabase を読み込まない）
+│   ├── WomenPage.jsx            /lp/women — 募集する側（おごられる側）向け
+│   ├── MenPage.jsx              /lp/men   — 参加する側（相席する側）向け
+│   └── LpKit.jsx                2枚で共有する部品（ヘッダー/セクション/FAQ/フッター）
 ├── vite.config.js / vercel.json
 │
 ├── src/
@@ -473,11 +478,6 @@ aiseki/
 │   │   └── screens/     Auth / Landing / ProfileEdit / Terms / Safety /
 │   │                    Support / Referral / Notifications / MemberSheet /
 │   │                    ResetPassword / InstallCard
-│   └── lp/              ★ 広告用LP（§10）
-│       ├── LpKit.jsx        2枚で共有する部品（ヘッダー/セクション/FAQ/フッター）
-│       ├── WomenPage.jsx    /lp/women — 募集する側（おごられる側）向け
-│       ├── MenPage.jsx      /lp/men   — 参加する側（相席する側）向け
-│       └── women.jsx / men.jsx  それぞれの入口（supabase を読み込まない）
 │
 ├── api/                 Vercel Functions（決済のみ）
 │   ├── _lib.js
@@ -543,16 +543,19 @@ node scripts/generate_lp_og.mjs   # LPのOGP画像を作り直す
 | CTA | 「無料で始める」 | 「相席を始める」 |
 | リンク先 | `/?auth=signup&from=lp-women` | `/?auth=signup&from=lp-men` |
 | OGP | `public/og-women.png` | `public/og-men.png` |
-| 実体 | `lp/women.html` + `src/lp/WomenPage.jsx` | `lp/men.html` + `src/lp/MenPage.jsx` |
+| 実体 | `lp/women.html` + `lp/WomenPage.jsx` | `lp/men.html` + `lp/MenPage.jsx` |
 
 構成はどちらも ヒーロー → 特徴3つ → 使い方3ステップ →（男性向けのみポイント表）→ FAQ → CTA。
 
 ### 作りの要点（触る前に読む）
 
+- **LPのコードは `aiseki/lp/` に一式ある**（ページのHTMLも React も）。アプリ本体（`src/`）とは
+  分けてあるので、LPだけ差し替えたいときはこのディレクトリだけ見ればいい。
 - **ページを分けてある。** `vite.config.js` の `rollupOptions.input` にエントリが3つある
   （`index.html` / `lp/women.html` / `lp/men.html`）。LP は `supabase` を読み込まないので、
   広告からの初回表示にアプリのバンドルが乗らない。**LP から `src/lib/api.js` を import しないこと**
-  （supabase クライアントが丸ごと入る）。数字が要るときは `src/lib/pricing.js` から読む。
+  （supabase クライアントが丸ごと入る）。数字が要るときは `../src/lib/pricing.js` から読む。
+  テーマ（色・書体・部品）はアプリと同じ `../src/lib/theme.jsx` を共有している。
 - **`/lp/women` で開けるのは `vercel.json` の rewrites のおかげ。**
   `"/(.*)" → "/"` のSPA用catch-allより**前**に `/lp/women → /lp/women.html` を置いてある。
   順番を入れ替えるとLPがアプリに吸われる。
