@@ -115,8 +115,28 @@
 > vercel deploy --prebuilt --prod --yes
 > ```
 >
-> **リモートビルド（`git push` / `vercel deploy --prod`）ならこの問題は起きない。**
-> Sensitive な値もビルド環境では正しく復号されるため、可能なら push 経由で出すのが安全。
+> **リモートビルド（`vercel deploy --prod`）ならこの問題は起きない。**
+> Sensitive な値もビルド環境では正しく復号される。
+>
+> 🚨 **`git push` では本番に出ない（2026-08-23 に確認）。**
+> Vercel プロジェクト `aiseki` は **GitHub 連携されていない**。
+> `vercel project inspect aiseki` に Git Repository の欄が無く、
+> 本番デプロイの Username は全て `zaki21016`（＝CLI から出したもの）。
+> **push は GitHub にコードを残すだけで、デプロイは別途 CLI で行う必要がある。**
+>
+> ✅ **`VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` は Sensitive ではなくなった**
+> （2026-08-23 時点。`vercel pull` で実値が落ちてくる。len=40 / len=46）。
+> そのため上の「埋め戻し」はもう要らず、`--prebuilt` 手順がそのまま使える。
+> **ただしバンドルへの grep 確認は引き続き必須**（下記が 2026-08-23 に実際に流した手順）:
+>
+> ```bash
+> vercel pull --environment=production --yes
+> awk -F= '/^VITE_/{v=$0; sub(/^[^=]*=/,"",v); print $1" len="length(v)}' .vercel/.env.production.local
+> vercel build --prod
+> grep -rl 'melfyxfvhyknqhruytms' .vercel/output/static/assets/   # ★ヒット必須
+> grep -rl 'tvydtsqirogdxglkoicz' .vercel/output/static/assets/   # ★0件必須（旧ref）
+> vercel deploy --prebuilt --prod --yes
+> ```
 >
 > ✅ **最新コミットはデプロイ済み**（2026-08-22）。
 > `https://aisekimatch.com/` の canonical・og:url・og:image・twitter:image・JSON-LD、
