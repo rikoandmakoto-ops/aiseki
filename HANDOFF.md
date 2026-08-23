@@ -1,6 +1,6 @@
 # AISEKI 引き継ぎ書
 
-最終更新: 2026-08-23（内部評価・アプローチ・飲みスタイルタグの3機能を追加。§11）
+最終更新: 2026-08-23（セキュリティレビューと修正4件。§12）
 
 > ## ⚠️ まずこれを読む — Supabase プロジェクトが変わった（2026-08-20）
 >
@@ -218,6 +218,7 @@ postgresql://postgres:<DBパスワード>@db.melfyxfvhyknqhruytms.supabase.co:54
     ブロック、紹介コード
   - `migration_reviews_approach_style.sql`（2026-08-23）— 内部評価・アプローチ・
     飲みスタイルタグ（下記「3機能の追加」）
+  - `migration_security_hardening.sql`（2026-08-23）— セキュリティ修正4件（§12）
 - **3機能の追加**（2026-08-23）— 詳細は §11。内部評価（`user_reviews`）／
   募集中の会へのアプローチ／飲みスタイルタグ。マイグレーション適用済み・
   `.e2e-tmp.mjs` の39項目が本番スキーマに対して全て成功。
@@ -296,6 +297,10 @@ postgresql://postgres:<DBパスワード>@db.melfyxfvhyknqhruytms.supabase.co:54
 8. **利用規約の「当社の本店所在地」（第23条）を実在の所在地に合わせる**
 
 9. **提携店舗の飲食店営業許可・深夜酒類提供飲食店営業の届出を確認する**
+
+9-b. **サインアップに CAPTCHA を入れる**（§12「未対応」）。
+   登録ボーナス 10,000pt ＋ 紹介ボーナス 3,800pt を自動登録で量産できる。
+   **決済を有効にする（P2）より先にやること。**
 
 ### 🟡 P2 — 決済を有効にするとき
 
@@ -535,6 +540,8 @@ aiseki/
 │   ├── migration_launch.sql          ✅適用済 外部キー修正/inquiries/退会/avatars
 │   ├── migration_fixed_join_fee.sql  ✅適用済 参加費3800固定/platform_revenues
 │   ├── migration_launch2.sql         ✅適用済 登録ボーナス/プロフィール拡張/ブロック/紹介
+│   ├── migration_reviews_approach_style.sql ✅適用済 内部評価/アプローチ/飲みスタイル（§11）
+│   ├── migration_security_hardening.sql     ✅適用済 セキュリティ修正4件（§12）
 │   └── migration_*.sql               （それ以前の履歴）
 │
 └── scripts/
@@ -696,3 +703,85 @@ node scripts/generate_lp_og.mjs   # LPのOGP画像を作り直す
 - 性別を集める前に登録した既存ユーザーは `null` のまま。マイページに設定を促すカードを出す。
 - 規約・プライバシーポリシー（`src/lib/legal.js`）も 2.1 に改訂済み
   （第9条の2＝アプローチ、第9条の3＝評価、取得情報に性別を追加）。
+
+---
+
+## 12. セキュリティレビュー（2026-08-23）
+
+`supabase/migration_reviews_approach_style.sql` までを対象に、RLS・権限・認証・
+API・保存領域を通しで点検した。**実証できた4件は同日に修正して本番へ適用済み**
+（`supabase/migration_security_hardening.sql`）。
+
+検証は本番DBに対して行い、書き込みを伴うものは全て `BEGIN … ROLLBACK` の中で
+実施した（本番データは変更していない）。保存領域の確認だけは実ファイルを1つ
+置いて公開URLと一覧の挙動を見たあと削除した。
+
+### 修正した4件
+
+| # | 重大度 | 何が起きていたか |
+|---|---|---|
+| 1 | **High** | **アプローチの5通制限を、1リクエストに複数行を積むだけで回避できた**（上限5に対し実測50通が保存された） |
+| 2 | **High** | **参加承認後の会を、ホストが `UPDATE` / `DELETE` で直接消せた**。`cancel_party()` の「承認後は取り消せない」規則を迂回できた |
+| 3 | **High** | **`avatars` バケットの一覧が未ログインでも取れた**。全ユーザーのUUIDと写真の直リンクが列挙できた |
+| 4 | Medium | **`points`（ポイント履歴）に利用者が任意の行を書けた**。残高は動かないが履歴と台帳が汚れる |
+
+いずれも**画面からは起こせず、REST API を直接叩くと通る**類のもの。
+詳しい原因と直し方は `migration_security_hardening.sql` のコメントに書いてある。
+
+> ### 触るときの注意（再発しやすい形）
+>
+> - 🚨 **RLS の `WITH CHECK` で「件数の上限」を守ろうとしてはいけない。**
+>   `stable` な関数は1つの INSERT 文の中で同じ値を返すので、複数行をまとめて
+>   送られると全行が同じ「まだ0件」を見て通る。
+>   **上限は `AFTER INSERT` トリガーで数え直す**（＝ `on_message_approach_limit`）。
+>   同時リクエスト対策の advisory lock も込みで入れてある。
+> - 🚨 **「関数側にだけある規則」はテーブル側にも要る。**
+>   `cancel_party()` がいくら丁寧に条件を見ても、`parties` に UPDATE / DELETE の
+>   ポリシーが開いていれば関数を通らずに同じことができる。
+>   **`parties` への UPDATE / DELETE は塞いだ**。状態の変更は必ず
+>   security definer の関数を通すこと（画面側も insert しか使っていない）。
+> - 🚨 **public バケットに `select` ポリシーを付けると「一覧」まで開く。**
+>   表示に使う `/storage/v1/object/public/...` は RLS を通らないので、
+>   読み取りポリシーは**要らない**。付けると `POST /storage/v1/object/list/...` が
+>   通り、`<UUID>/<ランダム>.jpg` というパスが全部見えてしまう
+>   （＝「ファイル名は推測できない」という前提が崩れる）。
+>   本人が自分のフォルダだけ見られる `avatars_owner_read` に置き換えてある
+>   （`remove()` に必要）。
+> - `is_blocked(a, b)` は**呼び出し本人が当事者のときだけ**判定する。
+>   縛りを外すと第三者同士のブロック関係を照会できてしまう。
+>   ⚠ **null のとき必ず `false` を返すこと。** `parties_select` が
+>   `not is_blocked(...)` なので、null を返すと未ログインの募集一覧が空になる。
+
+### 問題なしを確認したもの（再調査しなくてよい）
+
+- `gender` は列単位で遮断されており、同じ会のメンバーでも他人の性別は読めない。
+  `can_approach_party()` / `approach_message_count()` の `auth.uid()` 固定も効いている（§11 の懸念は解消済み）。
+- `birth_date` / `age_verified_at` / `referral_code` / `referred_by` / `invite_code` /
+  `join_requests.member_names` はいずれも読めない。
+- `platform_revenues` / `user_review_scores` は `authenticated` から読めない（service_role のみ）。
+- 他人が書いた `user_reviews` は読めない。評価は開催日前には書けない。
+- `party_members` への直接着席、`point_balances` の直接操作、`inquiries.status` の書き換えは全て拒否される。
+- Stripe Webhook は署名検証済み・付与は `stripe_session_id` で冪等・金額とポイント数はサーバ側で引き直している。
+- `service_role` キーはバンドルに含まれていない（`dist` の `sb_secret_` は supabase-js の接頭辞判定）。
+  `.env` / `apply_migrations.command` は Git 管理外。
+- XSS の受け口なし（`dangerouslySetInnerHTML` / `innerHTML` / `eval` を1箇所も使っていない）。
+  CSP は `script-src 'self'`（`unsafe-inline` なし）で本番から配信されている。
+- 会の検索キーワードは PostgREST に渡す前に `%` と `,` を落としているため、フィルタを継ぎ足せない。
+
+### 未対応（判断が要るもの・§5 に積んだ）
+
+`LAUNCH.md` ではなくここに書く。**認証まわりの設定は今回あえて変えていない。**
+
+| 重大度 | 内容 |
+|---|---|
+| Medium | **サインアップに CAPTCHA が無い**（`security_captcha_enabled: false`）。登録ボーナス 10,000pt ＋ 紹介ボーナス 3,800pt × 双方 なので、自動登録でポイントを量産できる。ポイントは現金で売る予定のものなので、決済を有効にする前に対処すること |
+| Medium | **パスワードの下限がサーバ側で 6 文字**（`password_min_length: 6`）。画面は 8 文字を求めているので、API を直接叩くと 6 文字で登録できる。漏洩パスワード検査（`password_hibp_enabled`）も無効 |
+| Medium | `security_update_password_require_reauthentication: false`。セッションを奪われた場合、現在のパスワードを知らなくても変更できる |
+| Low | 自分の `age` は後から書き換えられる（`birth_date` は変えられず `is_legal_age()` はそちらを優先するので、年齢確認自体は迂回できない。表示上の年齢だけの話） |
+
+> ⚠ **なぜ設定を変えなかったか。** これらは Management API の
+> `PATCH /config/auth` で直せるが、**このプロジェクトは Auth 設定が丸ごと消えた
+> 実績がある**（§5 の P0-4）。SMTP パスワード（Resend の APIキー）は
+> Supabase の中にしか無く GET でも読めないため、**巻き添えで消えると復旧できない**。
+> 得られるもの（6→8文字）に対して失うものが大きすぎるので、
+> **触るなら Resend の APIキーを手元に用意してから**にすること。
