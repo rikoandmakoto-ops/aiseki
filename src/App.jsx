@@ -4,7 +4,7 @@ import {
   Crown, ChevronLeft, Send, ArrowRight, Check, Sparkles, Settings,
   Mail, LogOut, Wine, Repeat, History, Wallet, ShieldCheck, Lock, FileText, UsersRound,
   Ticket, Copy, DoorClosed, Ban, CreditCard, LifeBuoy, ShieldAlert, XCircle,
-  Search, SlidersHorizontal, CalendarDays, Gift, Star,
+  Search, SlidersHorizontal, CalendarDays, Gift, Star, Beer, Heart,
 } from "lucide-react";
 import { supabase, configError } from "./lib/supabase";
 import * as api from "./lib/api";
@@ -37,6 +37,7 @@ const CompletionMeter = lazy(() =>
 const ReferralScreen = lazy(() => import("./screens/ReferralScreen.jsx"));
 const SafetyScreen = lazy(() => import("./screens/SafetyScreen.jsx"));
 const MemberSheet = lazy(() => import("./screens/MemberSheet.jsx"));
+const ReviewSheet = lazy(() => import("./screens/ReviewSheet.jsx"));
 
 /* 分割した画面を読み込んでいる間のつなぎ */
 const Loading = ({ label }) => (
@@ -55,7 +56,9 @@ const AREAS = ["渋谷", "恵比寿", "中目黒", "六本木", "西麻布", "�
    ・20歳以上限定（飲酒を伴うため）
    ・店側は接待をしない／サクラを置かない（風営法上の風俗営業に該当しない）
    ・参加者の個人プロフィールは、参加が承認されたメンバーにのみ表示
-   ・性別による制限なし（同性グループ同士でも参加可）
+   ・会の参加条件に性別は使えない（同性グループ同士でも参加可）。
+     性別を集めているのは、募集中の会へのアプローチ（会のチャットへの
+     ひとこと）を送れるかどうかの判定のためだけで、他人には表示しない
    ・募集は無料。参加は1人あたり一律3,800pt（全額が運営に入る）
    ・ホストは必ずおごられる（当日のホストのお会計は参加グループが負担）
    ══════════════════════════════════════════════════════════════ */
@@ -131,6 +134,34 @@ const TabBar = ({ active, onTab }) => (
     })}
   </div>
 );
+
+/* ═══════════════════════════════════════════ 飲みスタイルタグ
+   性別による絞り込みではなく、全ユーザーが設定できる自己紹介タグ。
+   会の一覧ではホストのタグ（parties.host_drinking_style）を、
+   会の詳細では参加メンバーそれぞれのタグを出す。
+   ふつうの Tag と見分けがつくよう、こちらはゴールドで箔押しにする。 */
+const StyleTag = ({ children }) => (
+  <span style={{
+    fontSize: 10.5, fontWeight: 700, color: C.primaryDeep, whiteSpace: "nowrap", letterSpacing: 0.3,
+    padding: "4px 11px", borderRadius: 999,
+    background: "rgba(232,201,135,0.10)", border: `1px solid ${C.linePrimary}`,
+  }}>{children}</span>
+);
+
+const StyleTagRow = ({ tags, label }) => {
+  const list = (tags ?? []).filter(Boolean);
+  if (list.length === 0) return null;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+      {label && (
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, color: C.textMuted, letterSpacing: 0.4 }}>
+          <Beer size={11} strokeWidth={1.9} color={C.primary} />{label}
+        </span>
+      )}
+      {list.map((t) => <StyleTag key={t}>{t}</StyleTag>)}
+    </div>
+  );
+};
 
 /* ══════════════════════════════════════════════════ Meta rows */
 const MetaLine = ({ icon: Icon, children }) => (
@@ -276,6 +307,10 @@ const FeaturedCard = ({ p, onTap }) => (
         <Tag>ホスト側 {groupSizes(p).host}名</Tag>
         <Tag>募集 {groupSizes(p).guest}名グループ</Tag>
       </div>
+      {/* ホストグループの飲みスタイル（当日の温度感が先に伝わる） */}
+      <div style={{ marginTop: 9 }}>
+        <StyleTagRow tags={p.host_drinking_style} label="飲みスタイル" />
+      </div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: 16, paddingTop: 15, borderTop: `1px solid ${C.lineSoft}` }}>
         <div>
           <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 700, letterSpacing: 0.2, marginBottom: 3 }}>参加ポイント / 1名（一律）</div>
@@ -312,6 +347,11 @@ const PartyCard = ({ p, onTap }) => {
       {tags.length > 0 && (
         <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 12 }}>
           {tags.map((t) => <Tag key={t}>{t}</Tag>)}
+        </div>
+      )}
+      {(p.host_drinking_style?.length ?? 0) > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <StyleTagRow tags={p.host_drinking_style} />
         </div>
       )}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 11, borderTop: `1px solid ${C.lineSoft}` }}>
@@ -648,6 +688,12 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
   const [guestNames, setGuestNames] = useState([]);      // 同伴者のニックネーム
   const [cancelling, setCancelling] = useState(false);
   const [openMember, setOpenMember] = useState(null);    // プロフィールを開いているメンバー
+  const [reviewTarget, setReviewTarget] = useState(null); // 評価を書いているメンバー
+  const [myReviews, setMyReviews] = useState([]);         // この会で自分が書いた評価
+  const [canApproach, setCanApproach] = useState(false);  // アプローチを送れるか（DBが判定）
+  const [myApproaches, setMyApproaches] = useState([]);   // この会へ自分が送ったメッセージ
+  const [approachText, setApproachText] = useState("");
+  const [sendingApproach, setSendingApproach] = useState(false);
 
   const load = useCallback(async () => {
     const [p, ms, bal, req] = await Promise.all([
@@ -660,12 +706,43 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
     setMembers(ms);
     setBalance(bal);
     setReqStatus(req?.status ?? null);
+
+    const iAmMember = ms.some((m) => m.user_id === user.id);
     // 自分がこの会のメンバーのときだけ、自分のグループの招待コードを取得する
-    if (ms.some((m) => m.user_id === user.id)) {
+    if (iAmMember) {
       try { setMySeats(await api.listMySeats(partyId)); }
       catch (e) { console.error(e); setMySeats([]); }
     } else {
       setMySeats([]);
+    }
+
+    if (iAmMember) {
+      /* 会が終わっていれば、自分が既に誰を評価したかを取る
+         （相手が書いた評価は取得できない） */
+      setCanApproach(false);
+      setMyApproaches([]);
+      if (api.partyIsOver(p)) {
+        try { setMyReviews(await api.listMyReviews(partyId)); }
+        catch (e) { console.error(e); setMyReviews([]); }
+      } else {
+        setMyReviews([]);
+      }
+    } else {
+      /* 参加していない会。アプローチを送れるかは DB に聞く
+         （性別・年齢・ブロック・募集状況をまとめて判定している） */
+      setMyReviews([]);
+      try {
+        const [ok, mine] = await Promise.all([
+          api.canApproachParty(partyId, user.id),
+          api.listMyApproaches(partyId, user.id),
+        ]);
+        setCanApproach(ok);
+        setMyApproaches(mine);
+      } catch (e) {
+        console.error(e);
+        setCanApproach(false);
+        setMyApproaches([]);
+      }
     }
   }, [partyId, user.id]);
 
@@ -730,6 +807,25 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
     }
   };
 
+  /* アプローチ（参加していない会のグループチャットへ「気になります」を送る）。
+     個人宛のメッセージではなく、会のチャットに残る。
+     送れるかどうかの判定はすべて DB 側（can_approach_party + RLS）にある。 */
+  const sendApproach = async () => {
+    const body = approachText.trim();
+    if (!body) { toast.error("メッセージを入力してください。"); return; }
+    setSendingApproach(true);
+    try {
+      const saved = await api.sendApproach(party.id, user.id, body);
+      setMyApproaches((prev) => [...prev, saved]);
+      setApproachText("");
+      toast.success("メッセージを送りました。ホストのグループに届きます。");
+    } catch (e) {
+      toast.error(e.message);
+    } finally {
+      setSendingApproach(false);
+    }
+  };
+
   const copyCode = async (code) => {
     try {
       await navigator.clipboard.writeText(code);
@@ -789,6 +885,12 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
   const cancelled = party.status === "cancelled";
   // ゲスト側の席が1つでも埋まっていたら、ホストはもう取り消せない
   const hasGuests = members.some((m) => m.side === "guest");
+  /* 会が終わったか（開催日を過ぎた／終了扱い）。評価はここから開ける。 */
+  const partyOver = api.partyIsOver(party);
+  const reviewedIds = new Set(myReviews.map((r) => r.reviewed_id));
+  // 評価できるのは、アプリに登録済みの自分以外のメンバー
+  const reviewTargets = members.filter((m) => m.user_id && m.user_id !== user.id);
+  const approachesLeft = Math.max(0, api.APPROACH_LIMIT - myApproaches.length);
   const INFO = [
     { label: "場所", value: [party.location, party.area && `（${party.area}）`].filter(Boolean).join("") || "未定", icon: MapPin },
     { label: "開催日", value: api.formatPartyDate(party.party_date) || "未定", icon: CalendarDays },
@@ -833,6 +935,11 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
             <Tag>オープンスペース</Tag>
             <Tag>{MIN_AGE}歳以上</Tag>
           </div>
+          {(party.host_drinking_style?.length ?? 0) > 0 && (
+            <div style={{ marginTop: -12, marginBottom: 22 }}>
+              <StyleTagRow tags={party.host_drinking_style} label="ホストの飲みスタイル" />
+            </div>
+          )}
 
           {!canSeeMembers && (
             <div style={{
@@ -905,6 +1012,63 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
                   );
                 })}
               </div>
+
+              {/* メンバーそれぞれの飲みスタイル（承認後にのみ見える） */}
+              {members.some((m) => (m.profiles?.drinking_style?.length ?? 0) > 0) && (
+                <div style={{ marginTop: 14, paddingTop: 13, borderTop: `1px solid ${C.lineSoft}`, display: "grid", gap: 9 }}>
+                  {members
+                    .filter((m) => (m.profiles?.drinking_style?.length ?? 0) > 0)
+                    .map((m) => (
+                      <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap" }}>
+                        <span style={{ fontSize: 11, color: C.textSec, fontWeight: 700, minWidth: 62 }}>
+                          {m.profiles.username || m.display_name || "メンバー"}
+                        </span>
+                        <StyleTagRow tags={m.profiles.drinking_style} />
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── 相席の評価（内部評価） ──
+              会が終わったあとにだけ出す。相手には見えないことを必ず添える。 */}
+          {canSeeMembers && partyOver && reviewTargets.length > 0 && (
+            <div style={{
+              marginBottom: 24, borderRadius: 16, padding: "15px 16px",
+              background: "rgba(255,255,255,0.045)", border: `1px solid ${C.lineSoft}`,
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 4 }}>
+                <Star size={14} strokeWidth={1.9} color={C.primary} />
+                <span style={{ fontSize: 12.5, fontWeight: 700, color: C.text, letterSpacing: 0.3 }}>この相席はいかがでしたか</span>
+              </div>
+              <div style={{ fontSize: 11, color: C.textSec, lineHeight: 1.75, marginBottom: 12 }}>
+                ご一緒した方の評価をお願いします。
+                <b style={{ color: C.primaryDeep, fontWeight: 700 }}>相手には表示されません</b>。
+                安全にご利用いただくため、運営だけが確認します。
+              </div>
+              {reviewTargets.map((m) => {
+                const done = reviewedIds.has(m.user_id);
+                const nm = m.profiles?.username || m.display_name || "メンバー";
+                return (
+                  <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 9, padding: "9px 0", borderTop: `1px solid ${C.lineSoft}` }}>
+                    <span style={{ flex: 1, fontSize: 12.5, color: C.textSec, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {nm}
+                    </span>
+                    <button
+                      className={done ? "press" : "lux-cta"}
+                      onClick={() => setReviewTarget(m)}
+                      style={{
+                        ...(done ? ghostBtn : popBtn), padding: "8px 16px", borderRadius: 999,
+                        fontSize: 12, flexShrink: 0,
+                        display: "inline-flex", alignItems: "center", gap: 6,
+                      }}
+                    >
+                      {done ? <><Check size={12} strokeWidth={2.6} /> 評価済み</> : <><Star size={12} strokeWidth={2.2} /> 評価する</>}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           )}
 
@@ -940,6 +1104,80 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
               </div>
             ))}
           </div>
+
+          {/* ── アプローチ ──
+              会に参加していない方が、募集中の会のグループチャットへ
+              ひとこと送れる入口。個人宛のメッセージ（DM）ではない。
+              送れるかどうかは DB（can_approach_party）が決める。 */}
+          {canApproach && (
+            <div style={{
+              marginBottom: 18, borderRadius: 16, padding: "15px 16px",
+              background: "linear-gradient(135deg, rgba(232,201,135,0.13), rgba(168,32,58,0.13))",
+              border: `1px solid ${C.linePrimary}`,
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 4 }}>
+                <Heart size={14} strokeWidth={2} color={C.primary} />
+                <span style={{ fontSize: 12.5, fontWeight: 700, color: C.text, letterSpacing: 0.3 }}>
+                  この会にメッセージを送る
+                </span>
+              </div>
+              <div style={{ fontSize: 11, color: C.textSec, lineHeight: 1.75, marginBottom: 12 }}>
+                参加を申し込む前に「気になります！」を伝えられます。
+                メッセージは<b style={{ color: C.primaryDeep, fontWeight: 700 }}>この会のグループチャット</b>に届き、
+                ホストのグループ全員が読みます（個人宛のメッセージではありません）。
+                この会の会話は、参加が承認されるまであなたには表示されません。
+              </div>
+
+              {myApproaches.length > 0 && (
+                <div style={{ display: "grid", gap: 7, marginBottom: 12 }}>
+                  {myApproaches.map((m) => (
+                    <div key={m.id} style={{
+                      fontSize: 12, color: "#241a06", background: C.primaryGrad,
+                      borderRadius: 14, borderBottomRightRadius: 5, padding: "9px 13px",
+                      lineHeight: 1.6, wordBreak: "break-word",
+                      boxShadow: "inset 0 1px 0 rgba(255,255,255,0.45)",
+                    }}>{m.content}</div>
+                  ))}
+                </div>
+              )}
+
+              {approachesLeft > 0 ? (
+                <>
+                  <div style={{ display: "flex", gap: 9 }}>
+                    <input
+                      value={approachText}
+                      onChange={(e) => setApproachText(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) { e.preventDefault(); sendApproach(); } }}
+                      maxLength={api.LIMITS.approach}
+                      aria-label="この会へのメッセージ"
+                      placeholder="例: 気になります！ご一緒できたら嬉しいです"
+                      style={{ ...fieldStyle, borderRadius: 22, fontSize: 13 }}
+                    />
+                    <button
+                      className="lux-cta"
+                      onClick={sendApproach}
+                      disabled={sendingApproach || !approachText.trim()}
+                      aria-label="送信"
+                      style={{
+                        ...popBtn, width: 44, height: 44, borderRadius: 999, flexShrink: 0, padding: 0,
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        opacity: sendingApproach || !approachText.trim() ? 0.5 : 1,
+                      }}
+                    ><Send size={17} strokeWidth={2.2} /></button>
+                  </div>
+                  <div style={{ fontSize: 10, color: C.textMuted, marginTop: 8, lineHeight: 1.7 }}>
+                    この会にはあと{approachesLeft}通まで送れます（1つの会につき{api.APPROACH_LIMIT}通まで）。
+                    実際に参加するには、下の「参加を申し込む」からリクエストを送ってください。
+                  </div>
+                </>
+              ) : (
+                <div style={{ fontSize: 11, color: C.textMuted, lineHeight: 1.75 }}>
+                  この会に送れるメッセージは上限（{api.APPROACH_LIMIT}通）に達しました。
+                  参加をご希望の場合は、下から参加リクエストをお送りください。
+                </div>
+              )}
+            </div>
+          )}
 
           {/* 取り消された会 */}
           {cancelled && (
@@ -1106,6 +1344,19 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
             onClose={() => setOpenMember(null)}
             onBlocked={() => { setOpenMember(null); onBack(); }}
             onReport={onReport}
+          />
+        </Suspense>
+      )}
+
+      {/* 相席の評価（会が終わったあとのみ開ける。相手には見えない） */}
+      {reviewTarget && (
+        <Suspense fallback={null}>
+          <ReviewSheet
+            member={reviewTarget}
+            party={party}
+            existing={myReviews.find((r) => r.reviewed_id === reviewTarget.user_id) ?? null}
+            onClose={() => setReviewTarget(null)}
+            onSaved={(saved) => setMyReviews((prev) => [...prev, saved])}
           />
         </Suspense>
       )}
@@ -1705,7 +1956,7 @@ const PointsScreen = ({ user, checkoutResult, onCheckoutHandled, onInvite }) => 
 /* ═══════════════════════════════════════════════════════ Chat list
    チャットは「会（グループ）」単位のみ。個人間DMは提供しない。
    一覧に並ぶのは自分が参加している会のグループチャットのみ。            */
-const ChatScreen = ({ user, openRoom }) => {
+const ChatScreen = ({ user, openRoom, openParty }) => {
   const [rooms, setRooms] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -1733,6 +1984,7 @@ const ChatScreen = ({ user, openRoom }) => {
         <UsersRound size={14} strokeWidth={1.9} color={C.primary} style={{ flexShrink: 0, marginTop: 2 }} />
         <span style={{ fontSize: 11.5, color: C.textSec, lineHeight: 1.7 }}>
           チャットは会に参加したメンバー全員のグループチャットのみです。個人間のダイレクトメッセージ機能はありません。
+          募集中の会には、まだ参加していない方からメッセージ（アプローチ）が届くことがあります。
         </span>
       </div>
       {loading ? <SkeletonList count={3} /> : rooms.length === 0 ? (
@@ -1741,21 +1993,38 @@ const ChatScreen = ({ user, openRoom }) => {
         </EmptyState>
       ) : rooms.map((c, i) => {
         const matched = c.status === "matched";
+        const over = api.partyIsOver(c);
         return (
-          <div key={c.id} className="lux-card" onClick={() => openRoom(c)} style={{ ...card, display: "flex", gap: 13, alignItems: "center", padding: 15, marginBottom: 11, cursor: "pointer", animationDelay: `${i * 50}ms` }}>
-            <AvatarBubble size={46}>{partyEmoji(c.id)}</AvatarBubble>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, gap: 8 }}>
-                <span style={{ fontFamily: FONT_HEAD, fontWeight: 600, fontSize: 14.5, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.title}</span>
-                <span style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 5, fontSize: 10, fontWeight: 700, letterSpacing: 0.4, color: matched ? C.primary : C.textMuted }}>
-                  <span style={{ width: 6, height: 6, borderRadius: 3, background: matched ? C.primary : C.textFaint, animation: matched ? "pulseDot 1.8s ease-in-out infinite" : "none" }} />
-                  {matched ? "マッチ済" : "募集中"}
-                </span>
-              </div>
-              <div style={{ fontSize: 12.5, color: C.textSec, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {[c.location, c.area].filter(Boolean).join(" · ") || "タップしてグループチャットを開く"}
+          <div key={c.id} className="lux-card" onClick={() => openRoom(c)} style={{ ...card, padding: 15, marginBottom: 11, cursor: "pointer", animationDelay: `${i * 50}ms` }}>
+            <div style={{ display: "flex", gap: 13, alignItems: "center" }}>
+              <AvatarBubble size={46}>{partyEmoji(c.id)}</AvatarBubble>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, gap: 8 }}>
+                  <span style={{ fontFamily: FONT_HEAD, fontWeight: 600, fontSize: 14.5, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.title}</span>
+                  <span style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 5, fontSize: 10, fontWeight: 700, letterSpacing: 0.4, color: over ? C.textMuted : matched ? C.primary : C.textMuted }}>
+                    <span style={{ width: 6, height: 6, borderRadius: 3, background: !over && matched ? C.primary : C.textFaint, animation: !over && matched ? "pulseDot 1.8s ease-in-out infinite" : "none" }} />
+                    {over ? "終了" : matched ? "マッチ済" : "募集中"}
+                  </span>
+                </div>
+                <div style={{ fontSize: 12.5, color: C.textSec, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {[c.location, c.area].filter(Boolean).join(" · ") || "タップしてグループチャットを開く"}
+                </div>
               </div>
             </div>
+
+            {/* 終わった会は、そのまま評価に進めるようにする（相手には見えない評価） */}
+            {over && openParty && (
+              <button
+                className="press"
+                onClick={(e) => { e.stopPropagation(); openParty(c.id); }}
+                style={{
+                  ...ghostBtn, width: "100%", marginTop: 12, padding: "10px 0", borderRadius: 999, fontSize: 12,
+                  display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7,
+                }}
+              >
+                <Star size={13} strokeWidth={2} /> ご一緒した方を評価する
+              </button>
+            )}
           </div>
         );
       })}
@@ -1772,14 +2041,24 @@ const ChatRoom = ({ user, party, onBack }) => {
   const [loadError, setLoadError] = useState("");
   const scrollRef = useRef(null);
   const lookedUp = useRef(new Set());   // プロフィールを引きに行った相手（二重に引かない）
+  /* 会に参加していない方から届いたメッセージ（アプローチ）の送り主。
+     プロフィールは承認まで非公開なので、表示名だけを別経路で受け取る。 */
+  const [approachSenders, setApproachSenders] = useState({});
 
   useEffect(() => {
     let alive = true;
     lookedUp.current = new Set();
     (async () => {
       try {
-        const ms = await api.listMessages(party.id);
-        if (alive) { setMessages(ms); setLoadError(""); }
+        const [ms, senders] = await Promise.all([
+          api.listMessages(party.id),
+          api.listApproachSenders(party.id).catch(() => []),
+        ]);
+        if (alive) {
+          setMessages(ms);
+          setApproachSenders(Object.fromEntries((senders ?? []).map((s) => [s.user_id, s.username])));
+          setLoadError("");
+        }
       } catch (e) {
         console.error(e);
         if (alive) setLoadError("メッセージを読み込めませんでした。通信環境をご確認ください。");
@@ -1803,7 +2082,18 @@ const ChatRoom = ({ user, party, onBack }) => {
       lookedUp.current.add(uid);
       api.getProfile(uid)
         .then((p) => {
-          if (!alive || !p) return;
+          if (!alive) return;
+          if (!p) {
+            /* プロフィールを引けない ＝ この会に参加していない方からの
+               アプローチ。名前だけを別経路で取り直す。 */
+            api.listApproachSenders(party.id)
+              .then((senders) => {
+                if (!alive) return;
+                setApproachSenders(Object.fromEntries((senders ?? []).map((s) => [s.user_id, s.username])));
+              })
+              .catch((e) => console.error(e));
+            return;
+          }
           setMessages((prev) =>
             prev.map((x) => (x.user_id === uid && !x.profiles ? { ...x, profiles: p } : x))
           );
@@ -1858,16 +2148,43 @@ const ChatRoom = ({ user, party, onBack }) => {
           <EmptyState icon={<MessageCircle size={22} strokeWidth={1.6} />}>まだメッセージはありません。<br />当日に向けて、最初のひとことを。</EmptyState>
         ) : messages.map((m) => {
           const mine = m.user_id === user.id;
+          /* この会に参加していない方からのメッセージ（アプローチ）。
+             プロフィールが引けないので、表示名だけを別経路から借りる。 */
+          const approachName = approachSenders[m.user_id];
+          const isApproach = !mine && !!approachName;
           return (
             <div key={m.id} className="fade" style={{ display: "flex", justifyContent: mine ? "flex-end" : "flex-start", marginBottom: 11 }}>
               <div style={{ maxWidth: "76%" }}>
-                {!mine && <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 4, marginLeft: 4 }}>{m.profiles?.username || "ゲスト"}</div>}
+                {!mine && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, marginLeft: 4 }}>
+                    <span style={{ fontSize: 10, color: C.textMuted }}>
+                      {approachName || m.profiles?.username || "ゲスト"}
+                    </span>
+                    {isApproach && (
+                      <span style={{
+                        display: "inline-flex", alignItems: "center", gap: 3,
+                        fontSize: 9, fontWeight: 700, letterSpacing: 0.3, padding: "2px 8px", borderRadius: 999,
+                        color: C.primaryDeep, background: "rgba(232,201,135,0.12)", border: `1px solid ${C.linePrimary}`,
+                      }}>
+                        <Heart size={9} strokeWidth={2.6} /> アプローチ
+                      </span>
+                    )}
+                  </div>
+                )}
                 <div style={{
                   padding: "10px 14px", borderRadius: 16, fontSize: 13.5, lineHeight: 1.55, wordBreak: "break-word",
                   ...(mine
                     ? { background: C.primaryGrad, color: "#241a06", borderBottomRightRadius: 5, boxShadow: "inset 0 1px 0 rgba(255,255,255,0.45), 0 6px 16px rgba(0,0,0,0.4)" }
-                    : { background: "rgba(255,255,255,0.06)", color: C.text, border: `1px solid ${C.lineSoft}`, borderBottomLeftRadius: 5 }),
+                    : isApproach
+                      ? { background: "rgba(232,201,135,0.10)", color: C.text, border: `1px solid ${C.linePrimary}`, borderBottomLeftRadius: 5 }
+                      : { background: "rgba(255,255,255,0.06)", color: C.text, border: `1px solid ${C.lineSoft}`, borderBottomLeftRadius: 5 }),
                 }}>{m.content}</div>
+                {isApproach && (
+                  <div style={{ fontSize: 9.5, color: C.textFaint, marginTop: 4, marginLeft: 4, lineHeight: 1.6 }}>
+                    まだこの会に参加していない方からのメッセージです。
+                    プロフィールは、参加を承認すると見られるようになります。
+                  </div>
+                )}
               </div>
             </div>
           );
@@ -1901,7 +2218,8 @@ const MyPageScreen = ({ user, onTerms, onSupport, onReport, onInvite, onSafety }
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [p, b] = await Promise.all([api.getProfile(user.id), api.getBalance(user.id)]);
+      /* 自分のプロフィールだけは性別も一緒に取る（他人の性別は取得できない） */
+      const [p, b] = await Promise.all([api.getMyProfile(user.id), api.getBalance(user.id)]);
       setProfile(p);
       setBalance(b);
     } catch (e) { console.error(e); }
@@ -2017,12 +2335,41 @@ const MyPageScreen = ({ user, onTerms, onSupport, onReport, onInvite, onSafety }
         {profile?.bio && (
           <div style={{ marginTop: 15, paddingTop: 15, borderTop: `1px solid ${C.lineSoft}`, fontSize: 13, color: C.textSec, lineHeight: 1.7, position: "relative", whiteSpace: "pre-wrap" }}>{profile.bio}</div>
         )}
+        {(profile?.drinking_style?.length ?? 0) > 0 && (
+          <div style={{ marginTop: 13, position: "relative" }}>
+            <StyleTagRow tags={profile.drinking_style} label="飲みスタイル" />
+          </div>
+        )}
         {(profile?.hobbies?.length ?? 0) > 0 && (
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 13, position: "relative" }}>
             {profile.hobbies.map((h) => <Tag key={h}>{h}</Tag>)}
           </div>
         )}
       </div>
+
+      {/* 性別を集める前に登録した方への案内。
+          会の参加条件にはならないが、募集中の会へメッセージを送るには必要になる。 */}
+      {profile && !profile.gender && (
+        <div className="fade" onClick={() => setEditing(true)} style={{
+          ...card, padding: "14px 16px", marginBottom: 16, cursor: "pointer",
+          display: "flex", gap: 11, alignItems: "flex-start",
+          background: "linear-gradient(135deg, rgba(232,201,135,0.12), rgba(168,32,58,0.10))",
+          border: `1px solid ${C.linePrimary}`,
+        }}>
+          <span style={{
+            flexShrink: 0, width: 30, height: 30, borderRadius: 15, display: "flex", alignItems: "center", justifyContent: "center",
+            background: "rgba(232,201,135,0.12)", border: `1px solid ${C.linePrimary}`, color: C.primaryDeep,
+          }}><Heart size={14} strokeWidth={2} /></span>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: C.text, letterSpacing: 0.3 }}>性別が未設定です</div>
+            <div style={{ fontSize: 11, color: C.textSec, lineHeight: 1.75, marginTop: 3 }}>
+              他のユーザーには表示されず、会の参加条件にもなりません。
+              募集中の会へメッセージ（アプローチ）を送るときにだけ使います。
+              一度設定すると変更できません。
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* プロフィールの充実度。承認後に相手へ伝わる中身が、どれだけ揃っているか。 */}
       <div className="fade" style={{ marginBottom: 16 }}>
@@ -2417,7 +2764,7 @@ export default function App() {
     switch (tab) {
       case "home": return <HomeScreen user={user} onDetail={setDetailId} onCreate={() => setTab("create")} />;
       case "create": return <CreateScreen user={user} onCreated={(id) => { setTab("home"); setDetailId(id); }} />;
-      case "chat": return <ChatScreen user={user} openRoom={setChatRoom} />;
+      case "chat": return <ChatScreen user={user} openRoom={setChatRoom} openParty={setDetailId} />;
       case "points": return (
         <PointsScreen
           user={user}

@@ -5,7 +5,7 @@ import {
 } from "../lib/theme.jsx";
 import {
   signIn, signUp, sendPasswordReset, MIN_AGE, MIN_GROUP_SIZE, ageFromBirthDate, maxBirthDate, LIMITS,
-  SIGNUP_BONUS, SIGNUP_BONUS_SEATS,
+  SIGNUP_BONUS, SIGNUP_BONUS_SEATS, GENDER_OPTIONS,
 } from "../lib/api";
 import { FOOTER_NOTICE } from "../lib/legal.js";
 import { TermsBody } from "./TermsScreen.jsx";
@@ -22,6 +22,7 @@ export default function AuthScreen({ initialMode = "login", onBack }) {
   const [showPw, setShowPw] = useState(false);
   const [username, setUsername] = useState("");
   const [birthDate, setBirthDate] = useState("");   // 年齢確認（20歳以上）の根拠
+  const [gender, setGender] = useState("");         // アプローチの可否判定にのみ使う
   const [agreed, setAgreed] = useState(false);
   const [showTerms, setShowTerms] = useState(initialMode === "terms");
   const [loading, setLoading] = useState(false);
@@ -71,6 +72,10 @@ export default function AuthScreen({ initialMode = "login", onBack }) {
         setError(`本サービスは${MIN_AGE}歳未満の方はご利用いただけません（飲酒を伴うため）。`);
         return;
       }
+      if (!GENDER_OPTIONS.includes(gender)) {
+        setError("性別を選択してください。登録後は変更できません。");
+        return;
+      }
       if (!agreed) {
         setError(`利用規約への同意と、${MIN_AGE}歳以上であることの確認が必要です。`);
         return;
@@ -83,7 +88,7 @@ export default function AuthScreen({ initialMode = "login", onBack }) {
         await signIn({ email, password });
         // 成功後は App の onAuthStateChange が画面を切り替える
       } else {
-        const data = await signUp({ email, password, username, birthDate, ageConfirmed: agreed });
+        const data = await signUp({ email, password, username, birthDate, gender, ageConfirmed: agreed });
         if (!data.session) {
           // メール確認が有効な場合
           setNotice("確認メールを送信しました。メール内のリンクを開いてから、ログインしてください。");
@@ -274,6 +279,38 @@ export default function AuthScreen({ initialMode = "login", onBack }) {
                   </div>
                 </div>
 
+                {/* 性別 … 会の参加条件には使わない。
+                    募集中の会へメッセージ（アプローチ）を送れるかどうかの
+                    判定にだけ使い、他のユーザーには表示しない。
+                    あとから変えられないので、その旨をここで伝える。 */}
+                <div style={{ marginBottom: 16 }}>
+                  <label style={labelStyle}>性別</label>
+                  <div style={{ display: "flex", gap: 7 }}>
+                    {GENDER_OPTIONS.map((g) => {
+                      const on = gender === g;
+                      return (
+                        <button
+                          key={g}
+                          type="button"
+                          className="chip"
+                          onClick={() => setGender(g)}
+                          aria-pressed={on}
+                          style={{
+                            flex: 1, padding: "11px 0", borderRadius: 999, fontSize: 13.5, fontWeight: 700, cursor: "pointer",
+                            ...(on ? popBtn : ghostBtn), borderRadius: 999,
+                          }}
+                        >{g}</button>
+                      );
+                    })}
+                  </div>
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 6, marginTop: 8, fontSize: 10.5, color: C.textMuted, lineHeight: 1.65 }}>
+                    <ShieldCheck size={12} strokeWidth={1.9} color={C.primary} style={{ flexShrink: 0, marginTop: 1 }} />
+                    性別が他のユーザーに表示されることはありません。会の参加条件にもなりません。
+                    募集中の会へメッセージを送れるかどうかの判定にのみ使います。
+                    <b style={{ color: C.textSec, fontWeight: 700 }}>登録後は変更できません。</b>
+                  </div>
+                </div>
+
                 {/* 年齢確認 & 規約同意（風営法上の風俗営業に該当しない運用のための必須要件） */}
                 <div
                   onClick={() => setAgreed((v) => !v)}
@@ -316,7 +353,8 @@ export default function AuthScreen({ initialMode = "login", onBack }) {
 
             {(() => {
               // 20歳未満・年齢未確認・規約未同意では登録ボタンを押せない
-              const blocked = loading || (mode === "signup" && (!agreed || !adult));
+              const blocked =
+                loading || (mode === "signup" && (!agreed || !adult || !GENDER_OPTIONS.includes(gender)));
               return (
                 <button type="submit" className="lux-cta" disabled={blocked} style={{
                   ...popBtn, width: "100%", padding: "15px 0", fontSize: 15,

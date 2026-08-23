@@ -1,7 +1,7 @@
 import { useState, useRef, useMemo } from "react";
 import {
   Camera, Lock, ShieldCheck, Plus, Check, X,
-  Utensils, Wine, Briefcase, MapPin, Sparkles, ChevronLeft,
+  Utensils, Wine, Briefcase, MapPin, Sparkles, ChevronLeft, Beer,
 } from "lucide-react";
 import * as api from "../lib/api.js";
 import {
@@ -217,6 +217,59 @@ const HobbyPicker = ({ value, onChange }) => {
   );
 };
 
+/* ─────────── 飲みスタイルタグ（選択式・複数可） ───────────
+   性別による絞り込みではなく、全員が設定できる自己紹介タグ。
+   会の一覧・参加メンバーの画面に出るので、当日の温度感が先に伝わる。 */
+const DrinkingStylePicker = ({ value, onChange }) => {
+  const full = value.length >= api.MAX_DRINKING_STYLES;
+
+  const toggle = (key) => {
+    if (value.includes(key)) onChange(value.filter((x) => x !== key));
+    else if (!full) onChange([...value, key]);
+  };
+
+  return (
+    <div>
+      <div style={{ display: "grid", gap: 8 }}>
+        {api.DRINKING_STYLES.map((s) => {
+          const on = value.includes(s.key);
+          const disabled = !on && full;
+          return (
+            <button
+              key={s.key}
+              type="button"
+              className="chip"
+              onClick={() => toggle(s.key)}
+              aria-pressed={on}
+              style={{
+                display: "flex", alignItems: "center", gap: 9, textAlign: "left",
+                padding: "11px 14px", cursor: disabled ? "not-allowed" : "pointer",
+                ...(on ? { ...popBtn, borderRadius: 14 } : { ...ghostBtn, borderRadius: 14 }),
+                opacity: disabled ? 0.4 : 1,
+              }}
+            >
+              <span style={{ flexShrink: 0, display: "flex" }}>
+                {on ? <Check size={14} strokeWidth={2.8} /> : <Plus size={14} strokeWidth={2.2} />}
+              </span>
+              <span style={{ minWidth: 0 }}>
+                <span style={{ display: "block", fontSize: 13, fontWeight: 700 }}>{s.key}</span>
+                <span style={{ display: "block", fontSize: 10.5, fontWeight: 500, marginTop: 2, opacity: 0.85 }}>
+                  {s.note}
+                </span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 6, marginTop: 10, fontSize: 10.5, color: C.textMuted, lineHeight: 1.7 }}>
+        <Beer size={12} strokeWidth={1.9} color={C.primary} style={{ flexShrink: 0, marginTop: 1 }} />
+        最大{api.MAX_DRINKING_STYLES}個まで。あなたが主催する会の一覧にも表示され、
+        当日の過ごし方が合う相手と出会いやすくなります。
+      </div>
+    </div>
+  );
+};
+
 /* ─────────── 短い入力欄（アイコン付き） ─────────── */
 const IconField = ({ icon: Icon, label, placeholder, value, onChange, max }) => (
   <div style={{ marginBottom: 16 }}>
@@ -247,7 +300,11 @@ export default function ProfileEditScreen({ user, profile, onBack, onSaved }) {
     favorite_drink: profile?.favorite_drink || "",
     occupation: profile?.occupation || "",
     home_area: profile?.home_area || "",
+    drinking_style: profile?.drinking_style ?? [],
+    /* 性別は未設定のときだけ登録できる（登録後は変更不可） */
+    gender: profile?.gender || "",
   }));
+  const genderLocked = !!profile?.gender;
   const [saving, setSaving] = useState(false);
   const [uploadingAt, setUploadingAt] = useState(null);  // 何枚目を上げているか
   const fileRef = useRef(null);
@@ -321,6 +378,9 @@ export default function ProfileEditScreen({ user, profile, onBack, onSaved }) {
         favorite_drink: form.favorite_drink,
         occupation: form.occupation,
         home_area: form.home_area,
+        drinking_style: form.drinking_style,
+        /* 既に登録済みなら送らない（送っても DB 側のトリガーが弾く） */
+        gender: genderLocked ? undefined : form.gender || undefined,
       });
       /* 保存後に使われなくなった写真をストレージから片づける
          （残しても見えないが、容量を無駄にしない） */
@@ -329,7 +389,8 @@ export default function ProfileEditScreen({ user, profile, onBack, onSaved }) {
         if (!kept.has(old)) api.removeAvatar(user.id, old);
       }
       toast.success("プロフィールを保存しました。");
-      onSaved?.(updated);
+      /* gender は列単位で遮断してあり updated には入らないので、手元の値を足す */
+      onSaved?.({ ...updated, gender: genderLocked ? profile.gender : form.gender || null });
     } catch (e) {
       toast.error("保存に失敗しました: " + e.message);
     } finally {
@@ -416,6 +477,50 @@ export default function ProfileEditScreen({ user, profile, onBack, onSaved }) {
           </div>
         </div>
 
+        {/* ── 性別 ──
+            会の参加条件には一切使わない。他のユーザーにも表示しない。
+            募集中の会へメッセージ（アプローチ）を送れるかどうかの判定にだけ使う。
+            一度登録したら変えられないので、未設定のときだけ選ばせる。 */}
+        <div style={{ marginBottom: 22 }}>
+          <label style={labelStyle}>性別</label>
+          {genderLocked ? (
+            <div style={{
+              display: "flex", alignItems: "center", gap: 9,
+              padding: "12px 14px", borderRadius: 14,
+              background: "rgba(255,255,255,0.045)", border: `1px solid ${C.lineSoft}`,
+            }}>
+              <Lock size={13} strokeWidth={1.9} color={C.primary} style={{ flexShrink: 0 }} />
+              <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{profile.gender}</span>
+              <span style={{ fontSize: 10.5, color: C.textMuted, marginLeft: "auto" }}>変更できません</span>
+            </div>
+          ) : (
+            <div style={{ display: "flex", gap: 7 }}>
+              {api.GENDER_OPTIONS.map((g) => {
+                const on = form.gender === g;
+                return (
+                  <button
+                    key={g}
+                    type="button"
+                    className="chip"
+                    onClick={() => set({ gender: g })}
+                    aria-pressed={on}
+                    style={{
+                      flex: 1, padding: "11px 0", fontSize: 13.5, fontWeight: 700, cursor: "pointer",
+                      ...(on ? popBtn : ghostBtn), borderRadius: 999,
+                    }}
+                  >{g}</button>
+                );
+              })}
+            </div>
+          )}
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 6, marginTop: 8, fontSize: 10.5, color: C.textMuted, lineHeight: 1.7 }}>
+            <ShieldCheck size={12} strokeWidth={1.9} color={C.primary} style={{ flexShrink: 0, marginTop: 1 }} />
+            性別が他のユーザーに表示されることはありません。会の参加条件にもなりません。
+            募集中の会へメッセージを送れるかどうかの判定にのみ使い、
+            <b style={{ color: C.textSec, fontWeight: 700 }}>登録後は変更できません</b>。
+          </div>
+        </div>
+
         <div style={{ marginBottom: 22 }}>
           <label style={labelStyle}>自己紹介</label>
           <textarea
@@ -429,6 +534,15 @@ export default function ProfileEditScreen({ user, profile, onBack, onSaved }) {
           <div style={{ textAlign: "right", fontSize: 10, color: C.textFaint, marginTop: 5 }}>
             {form.bio.length} / {api.LIMITS.bio}
           </div>
+        </div>
+
+        {/* ── 飲みスタイル ── */}
+        <div style={{ marginBottom: 22 }}>
+          <label style={labelStyle}>飲みスタイル（最大{api.MAX_DRINKING_STYLES}個）</label>
+          <DrinkingStylePicker
+            value={form.drinking_style}
+            onChange={(drinking_style) => set({ drinking_style })}
+          />
         </div>
 
         {/* ── 趣味 ── */}

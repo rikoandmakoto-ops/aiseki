@@ -192,6 +192,22 @@ export default function MemberSheet({ member, isSelf, onClose, onBlocked, onRepo
                 }}>{profile.bio}</div>
               )}
 
+              {/* ── 飲みスタイル ── */}
+              {(profile.drinking_style?.length ?? 0) > 0 && (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 10, color: C.textMuted, letterSpacing: 0.6, marginBottom: 7 }}>飲みスタイル</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+                    {profile.drinking_style.map((s) => (
+                      <span key={s} style={{
+                        fontSize: 11, fontWeight: 700, color: C.primaryDeep, whiteSpace: "nowrap", letterSpacing: 0.3,
+                        padding: "4px 12px", borderRadius: 999,
+                        background: "rgba(232,201,135,0.10)", border: `1px solid ${C.linePrimary}`,
+                      }}>{s}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* ── 趣味 ── */}
               {(profile.hobbies?.length ?? 0) > 0 && (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 14 }}>

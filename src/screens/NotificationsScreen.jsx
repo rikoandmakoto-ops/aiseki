@@ -6,7 +6,7 @@
    組み立てたものを表示する。既読は端末側に持つ。
    ══════════════════════════════════════════════════════════════ */
 import { useState, useEffect, useCallback } from "react";
-import { Bell, Check, X, MessageCircle, UsersRound, ChevronLeft, ChevronRight } from "lucide-react";
+import { Bell, Check, X, MessageCircle, UsersRound, ChevronLeft, ChevronRight, Sparkles } from "lucide-react";
 import { C, FONT_HEAD, card, Eyebrow, EmptyState, Skeleton } from "../lib/theme.jsx";
 import * as api from "../lib/api";
 
@@ -15,6 +15,8 @@ const ICON = {
   accepted: { icon: Check, color: C.primary, bg: "rgba(232,201,135,0.12)", line: C.linePrimary },
   rejected: { icon: X, color: C.textMuted, bg: "rgba(255,255,255,0.05)", line: C.lineSoft },
   message: { icon: MessageCircle, color: C.accentDeep, bg: "rgba(168,32,58,0.18)", line: "rgba(200,56,79,0.34)" },
+  /* 会に参加していない方から募集中の会へ届いたメッセージ（アプローチ） */
+  approach: { icon: Sparkles, color: C.primary, bg: "rgba(232,201,135,0.14)", line: C.linePrimary },
 };
 
 /* 「3分前」「2時間前」のような相対表記。日付だけだと当日の並びが読めない。 */

@@ -6,6 +6,11 @@ import {
   REFERRAL_BONUS,
   SIGNUP_BONUS_SEATS,
   MIN_AGE,
+  GENDER_OPTIONS,
+  APPROACH_GENDER,
+  APPROACH_LIMIT,
+  DRINKING_STYLES,
+  MAX_DRINKING_STYLES,
 } from "./pricing.js";
 
 /* =====================================================================
@@ -15,6 +20,9 @@ import {
      （出会い系喫茶に該当するリスクを避けるため）
    ・20歳以上限定（飲酒を伴うため）
    ・個人プロフィールは同じ会に参加承認された相手にのみ公開（RLSで担保）
+   ・チャットは会（グループ）単位のみ。個人間DMは存在しない。
+     会に参加していない方から募集中の会へ送れる「アプローチ」も、
+     宛先は会であってメンバー全員が読む（個人宛ではない）
    ※ いずれも DB 側（制約・トリガー）でも二重に強制している。
 
    人数・料金・年齢の数字そのものは src/lib/pricing.js が出典。
@@ -28,7 +36,15 @@ export {
   REFERRAL_BONUS,
   SIGNUP_BONUS_SEATS,
   MIN_AGE,
+  GENDER_OPTIONS,
+  APPROACH_GENDER,
+  APPROACH_LIMIT,
+  DRINKING_STYLES,
+  MAX_DRINKING_STYLES,
 };
+
+/* 飲みスタイルタグの値だけの配列（保存前の絞り込みに使う） */
+export const DRINKING_STYLE_KEYS = DRINKING_STYLES.map((s) => s.key);
 
 /* お会計の区分。ホストは必ずおごられるため、これ以外は保存できない。 */
 export const TREAT_TYPE_GUEST_TREATS = "ゲストのおごり";
@@ -72,6 +88,11 @@ export const LIMITS = {
   occupation: 40,
   homeArea: 40,
   hobby: 20,
+  /* 会に参加していない方から募集中の会へ送るメッセージ（アプローチ）。
+     会話の場ではなく「ひとこと伝える」ためのものなので、短くしてある。 */
+  approach: 200,
+  /* レビューのコメント（運営だけが読む） */
+  reviewComment: 1000,
 };
 
 /* プロフィール写真の枚数。
@@ -218,9 +239,16 @@ export function maxBirthDate() {
 /* 新規登録。生年月日による年齢確認（20歳以上）と、
    規約・年齢の同意チェックを通過しないと登録できない。
    年齢は生年月日から算出した値のみを保存する（自己申告の数値は受け取らない）。 */
-export async function signUp({ email, password, username, birthDate, ageConfirmed }) {
+export async function signUp({ email, password, username, birthDate, gender, ageConfirmed }) {
   if (!ageConfirmed) {
     throw new Error(`${MIN_AGE}歳以上であることの確認と、利用規約への同意が必要です。`);
+  }
+  /* 性別は、募集中の会へのアプローチを送れるかどうかの判定にのみ使う。
+     他のユーザーに表示することはなく、会の参加条件にもならない。
+     登録後は変更できない（DB 側の on_profile_gender_lock でも止めている）ため、
+     ここで選択肢に無い値を弾いておく。 */
+  if (!GENDER_OPTIONS.includes(gender)) {
+    throw new Error("性別を選択してください。");
   }
   const age = ageFromBirthDate(birthDate);
   if (age === null) {
@@ -244,6 +272,7 @@ export async function signUp({ email, password, username, birthDate, ageConfirme
         username,
         birth_date: birthDate,
         age: String(age),
+        gender,
         age_confirmed: true,
       },
     },
@@ -298,9 +327,12 @@ export async function deleteAccount() {
    生年月日（birth_date）と年齢確認日時（age_verified_at）は、
    本人にも返さない（DB 側で列単位に SELECT を遮断している）。
    そのため列は明示的に指定する（"*" は権限エラーになる）。 */
+/* gender は列ごと遮断してある（同じ会のメンバーでも他人の性別は読めない）。
+   本人が自分の設定を見るときだけ my_gender() を使う。 */
 const PROFILE_COLUMNS =
   "id, username, avatar_url, age, bio, created_at, " +
-  "photos, hobbies, favorite_food, favorite_drink, occupation, home_area";
+  "photos, hobbies, favorite_food, favorite_drink, occupation, home_area, " +
+  "drinking_style";
 
 export async function getProfile(userId) {
   const { data, error } = await supabase
@@ -312,6 +344,22 @@ export async function getProfile(userId) {
   return data;
 }
 
+/* 自分の性別（未設定なら null）。他のユーザーの性別は取得できない。 */
+export async function getMyGender() {
+  const { data, error } = await supabase.rpc("my_gender");
+  if (error) throw wrapFeature3Error(error);
+  return data ?? null;
+}
+
+/* 自分のプロフィール。性別は列単位で遮断してあるので RPC で足す。 */
+export async function getMyProfile(userId) {
+  const [profile, gender] = await Promise.all([
+    getProfile(userId),
+    getMyGender().catch(() => null),
+  ]);
+  return profile ? { ...profile, gender } : profile;
+}
+
 // プロフィール更新。年齢は 20歳未満に書き換えられない（DB 側の制約でも拒否される）。
 // 生年月日は年齢確認の根拠のため、ここからは変更できない。
 // 文字数・画像URLのスキームはここで正規化してから送る。
@@ -319,10 +367,33 @@ export async function updateProfile(userId, fields) {
   const {
     birth_date, age, username, bio, avatar_url,
     photos, hobbies, favorite_food, favorite_drink, occupation, home_area,
+    gender, drinking_style,
     ...rest
   } = fields;
 
   const patch = { ...rest };
+
+  /* 性別は未設定のときに一度だけ登録できる。あとから変えることはできない
+     （DB 側の on_profile_gender_lock でも止めている）。 */
+  if (gender !== undefined && gender !== null && gender !== "") {
+    if (!GENDER_OPTIONS.includes(gender)) {
+      throw new Error("性別は選択肢から選んでください。");
+    }
+    patch.gender = gender;
+  }
+
+  /* 飲みスタイルタグ。選択肢に無い値・重複は落として上限で切る
+     （DB 側の profiles_drinking_style_check も同じ条件を持つ）。 */
+  if (drinking_style !== undefined) {
+    const seen = new Set();
+    patch.drinking_style = (Array.isArray(drinking_style) ? drinking_style : [])
+      .filter((s) => {
+        if (!DRINKING_STYLE_KEYS.includes(s) || seen.has(s)) return false;
+        seen.add(s);
+        return true;
+      })
+      .slice(0, MAX_DRINKING_STYLES);
+  }
 
   if (age !== undefined) {
     if (age === null || age === "") {
@@ -385,7 +456,7 @@ export async function updateProfile(userId, fields) {
     .eq("id", userId)
     .select(PROFILE_COLUMNS)
     .single();
-  if (error) throw wrapSchemaError(error);
+  if (error) throw wrapFeature3Error(wrapSchemaError(error));
   return data;
 }
 
@@ -460,6 +531,7 @@ const COMPLETION_ITEMS = [
   { key: "username", label: "ニックネーム", weight: 10, done: (p) => !!p?.username },
   { key: "bio", label: "自己紹介（20文字以上）", weight: 20, done: (p) => (p?.bio?.trim().length ?? 0) >= 20 },
   { key: "hobbies", label: "趣味（2つ以上）", weight: 12, done: (p) => (p?.hobbies?.length ?? 0) >= 2 },
+  { key: "drinking_style", label: "飲みスタイル", weight: 8, done: (p) => (p?.drinking_style?.length ?? 0) > 0 },
   { key: "favorite_food", label: "好きな食べもの", weight: 6, done: (p) => !!p?.favorite_food },
   { key: "favorite_drink", label: "好きなお酒・飲みもの", weight: 6, done: (p) => !!p?.favorite_drink },
   { key: "occupation", label: "お仕事", weight: 4, done: (p) => !!p?.occupation },
@@ -704,7 +776,7 @@ export async function getParty(id) {
 const MEMBER_PROFILE =
   "profiles!party_members_user_id_fkey(" +
   "id, username, avatar_url, age, bio, photos, hobbies, " +
-  "favorite_food, favorite_drink, occupation, home_area)";
+  "favorite_food, favorite_drink, occupation, home_area, drinking_style)";
 
 export async function getPartyMembers(partyId) {
   const { data, error } = await supabase
@@ -885,6 +957,159 @@ export async function sendMessage(partyId, userId, content) {
   return data;
 }
 
+/* ==================== アプローチ（会へのメッセージ） ====================
+   会に参加していない女性ユーザーが、募集中の会のグループチャットへ
+   「気になります！」を送れる仕組み。
+
+   個人宛のメッセージ（DM）ではない。送信先はあくまで会（party_id）で、
+   本文は既存の messages テーブルにそのまま入る。
+
+   非該当性を保つための担保（すべて DB 側にある。UI で隠しているのではない）:
+     ・送った本人は、その会の会話を読めない（自分の送信分だけが見える）
+     ・送った本人のプロフィールはホストに公開されない（表示名のみ）
+     ・1つの会につき APPROACH_LIMIT 通まで
+     ・募集中の会にだけ送れる（マッチ済・終了・取り消しには送れない）
+   ==================================================================== */
+
+/* この会にアプローチを送れるか（性別・年齢・ブロック・募集状況をDBで判定） */
+export async function canApproachParty(partyId, userId) {
+  const { data, error } = await supabase.rpc("can_approach_party", {
+    p_party: partyId,
+    p_user: userId,
+  });
+  if (error) throw wrapFeature3Error(error);
+  return data === true;
+}
+
+/* この会へ自分が送ったアプローチ（相手の会話は含まれない） */
+export async function listMyApproaches(partyId, userId) {
+  const { data, error } = await supabase
+    .from("messages")
+    .select("id, content, created_at")
+    .eq("party_id", partyId)
+    .eq("user_id", userId)
+    .order("created_at", { ascending: true });
+  if (error) throw wrapFeature3Error(error);
+  return data ?? [];
+}
+
+/* アプローチを送る。通らない条件は DB のポリシーが弾く。 */
+export async function sendApproach(partyId, userId, content) {
+  const body = String(content ?? "").trim();
+  if (!body) throw new Error("メッセージを入力してください。");
+  if (body.length > LIMITS.approach) {
+    throw new Error(`メッセージは${LIMITS.approach}文字以内で入力してください。`);
+  }
+  const { data, error } = await supabase
+    .from("messages")
+    .insert({ party_id: partyId, user_id: userId, content: body })
+    .select("id, content, created_at")
+    .single();
+  if (error) {
+    /* RLS で弾かれたときの 42501 は「新しい行は行レベルセキュリティに違反」
+       としか出ないので、利用者に意味の分かる言葉へ置き換える。 */
+    if (/row-level security|42501/i.test(error.message || "")) {
+      throw new Error(
+        "この会にはメッセージを送れませんでした。" +
+        `募集が締め切られたか、送信できる上限（${APPROACH_LIMIT}通）に達しています。`
+      );
+    }
+    throw wrapFeature3Error(error);
+  }
+  return data;
+}
+
+/* その会のメンバーが「誰からのアプローチか」を知るための表示名。
+   写真・年齢・自己紹介は返らない（参加が承認されるまで非公開のまま）。 */
+export async function listApproachSenders(partyId) {
+  const { data, error } = await supabase.rpc("list_approach_senders", { p_party: partyId });
+  if (error) throw wrapFeature3Error(error);
+  return data ?? [];
+}
+
+/* ========================== レビュー（内部評価） ==========================
+   相席が終わったあと、同じ会にいた相手を5段階＋コメントで評価する。
+
+   ・相手には見えない。自分が付けられた評価も本人には見えない。
+   ・運営だけが service_role で全件を読む（内部スコアとして蓄積する）。
+   ・同じ会・同じ相手には1回だけ。
+   ======================================================================== */
+export const REVIEW_RATINGS = [
+  { value: 5, label: "とても良かった" },
+  { value: 4, label: "良かった" },
+  { value: 3, label: "ふつう" },
+  { value: 2, label: "少し気になった" },
+  { value: 1, label: "問題があった" },
+];
+
+/* 会が終わっているか（開催日を過ぎた、または終了扱いになった会） */
+export function partyIsOver(party) {
+  if (!party || party.status === "cancelled") return false;
+  if (party.status === "completed") return true;
+  if (!party.party_date) return false;
+  const today = toDateString(new Date());
+  return String(party.party_date) < today;
+}
+
+/* この会で自分が書いたレビュー（相手が書いたものは取得できない） */
+export async function listMyReviews(partyId) {
+  const { data, error } = await supabase
+    .from("user_reviews")
+    .select("id, reviewed_id, rating, comment, created_at")
+    .eq("party_id", partyId);
+  if (error) throw wrapFeature3Error(error);
+  return data ?? [];
+}
+
+export async function submitReview({ partyId, reviewedId, rating, comment }) {
+  const value = Number(rating);
+  if (!Number.isInteger(value) || value < 1 || value > 5) {
+    throw new Error("評価を選択してください（1〜5）。");
+  }
+  const text = trimTo(comment, LIMITS.reviewComment);
+  const { data, error } = await supabase
+    .from("user_reviews")
+    .insert({
+      party_id: partyId,
+      reviewed_id: reviewedId,
+      reviewer_id: (await supabase.auth.getUser()).data?.user?.id,
+      rating: value,
+      comment: text,
+    })
+    .select("id, reviewed_id, rating, comment, created_at")
+    .single();
+  if (error) {
+    if (/duplicate key/i.test(error.message || "")) {
+      throw new Error("この方の評価は、この会について既に送信済みです。");
+    }
+    if (/row-level security|42501/i.test(error.message || "")) {
+      throw new Error(
+        "評価を送れませんでした。評価できるのは、同じ会に参加していた方で、会の開催日を過ぎたあとに限られます。"
+      );
+    }
+    throw wrapFeature3Error(error);
+  }
+  return data;
+}
+
+/* 評価できる会（自分が参加していて、開催日を過ぎたもの） */
+export async function listReviewableParties(userId) {
+  const parties = await listMyParties(userId);
+  return parties.filter(partyIsOver);
+}
+
+/* migration_reviews_approach_style.sql が未適用のときに分かりやすいエラーへ変換する */
+function wrapFeature3Error(error) {
+  const msg = error?.message || "";
+  if (/user_reviews|drinking_style|can_approach_party|list_approach_senders|my_gender|party_is_over|host_drinking_style|schema cache/i.test(msg)) {
+    return new Error(
+      "この機能に必要なデータベースの更新がまだ適用されていません。" +
+      "supabase/migration_reviews_approach_style.sql を実行してください。"
+    );
+  }
+  return error;
+}
+
 /* ====================== 会の取り消し（ホスト） ======================
    ポイントはゲストグループの承認時にホストへ移るため、
    取り消せるのは「まだ1組も承認していない会」だけ（DB 側で判定）。
@@ -1045,18 +1270,24 @@ export async function listNotifications(userId) {
       .neq("user_id", userId)
       .order("created_at", { ascending: false })
       .limit(20);
-    // 会ごとに最新の1件だけを通知にする（連投で埋まらないようにする）
+    /* 会ごとに最新の1件だけを通知にする（連投で埋まらないようにする）。
+       会に参加していない方からのアプローチはプロフィールが引けない
+       （承認前は非公開のため profiles が null になる）ので、
+       「アプローチ」として別の見出しで出す。 */
     const seenParty = new Set();
     for (const m of msgs ?? []) {
       if (seenParty.has(m.party_id)) continue;
       seenParty.add(m.party_id);
+      const approach = !m.profiles;
       items.push({
         id: `msg-${m.id}`,
-        type: "message",
+        type: approach ? "approach" : "message",
         at: m.created_at,
         partyId: m.party_id,
         chat: true,
-        title: `${m.profiles?.username || "メンバー"}さんからメッセージ`,
+        title: approach
+          ? "あなたの会にメッセージが届きました"
+          : `${m.profiles?.username || "メンバー"}さんからメッセージ`,
         body: m.content.length > 60 ? `${m.content.slice(0, 60)}…` : m.content,
       });
     }
