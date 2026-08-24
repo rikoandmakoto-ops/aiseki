@@ -71,3 +71,86 @@ export const DRINKING_STYLES = [
 
 /* 1人が設定できるタグの数。DB の drinking_style_limit() と一致させる。 */
 export const MAX_DRINKING_STYLES = 4;
+
+/* ================ ランクと予算帯 ================
+   会の終了後に受け取った評価（user_reviews）の平均点で、
+   会を主催するときに選べる「お店の予算帯」が決まる。
+
+   ⚠ この仕組みは性別で分けていない。全ユーザーに同じ規則が適用される。
+     理由は supabase/migration_caste_rank.sql の冒頭コメントに書いてある
+     （性別を会の条件に使うと、業態上の前提が崩れるため）。
+
+   ⚠ DB 側にも同じ値がある（rank_tiers() / rank_min_reviews()）。
+     片方だけ変えると、画面に出ている予算帯が保存時に弾かれる。
+
+   budgetCap … 1人あたりの平均予算の上限（円）。null は上限なし。
+   minAvg    … このランクになる平均星数の下限。
+   =============================================== */
+export const RANK_TIERS = [
+  {
+    key: "bronze",
+    label: "ブロンズ",
+    order: 1,
+    minAvg: 0,
+    budgetCap: 3000,
+    budgetLabel: "〜3,000円",
+    note: "まずはここから。気軽な居酒屋・バル",
+  },
+  {
+    key: "silver",
+    label: "シルバー",
+    order: 2,
+    minAvg: 2,
+    budgetCap: 5000,
+    budgetLabel: "〜5,000円",
+    note: "ゆっくり話せる、少し落ち着いた一軒",
+  },
+  {
+    key: "gold",
+    label: "ゴールド",
+    order: 3,
+    minAvg: 3,
+    budgetCap: 8000,
+    budgetLabel: "〜8,000円",
+    note: "料理もお酒も、しっかり楽しめるお店",
+  },
+  {
+    key: "platinum",
+    label: "プラチナ",
+    order: 4,
+    minAvg: 4,
+    budgetCap: null,
+    budgetLabel: "8,000円〜",
+    note: "上限なし。10,000円クラスのお店も選べます",
+  },
+];
+
+/* ランクが確定するまでに必要な評価の件数。
+   これに満たないあいだは、平均が高くても最下位の予算帯から始まる
+   （1件の評価でランクが跳ねないようにするため）。
+   DB の rank_min_reviews() と一致させる。 */
+export const RANK_MIN_REVIEWS = 3;
+
+/* 予算帯の既定値（ランクが無くても必ず選べるもの） */
+export const DEFAULT_RANK_KEY = RANK_TIERS[0].key;
+
+export const rankTier = (key) =>
+  RANK_TIERS.find((t) => t.key === key) ?? RANK_TIERS[0];
+
+/* 平均星数と件数からランクを求める（DB の rank_for() と同じ規則） */
+export function rankForReviews(average, count) {
+  if (!(Number(count) >= RANK_MIN_REVIEWS)) return RANK_TIERS[0];
+  const avg = Number(average) || 0;
+  return [...RANK_TIERS].reverse().find((t) => avg >= t.minAvg) ?? RANK_TIERS[0];
+}
+
+/* 1人あたりの平均予算（円）が、どの予算帯にあたるか（DB の budget_tier_for() と同じ） */
+export function budgetTierFor(avgBudget) {
+  const v = Number(avgBudget);
+  if (!Number.isFinite(v)) return null;
+  return RANK_TIERS.find((t) => t.budgetCap != null && v <= t.budgetCap) ?? RANK_TIERS[RANK_TIERS.length - 1];
+}
+
+/* 自分のランクで、その予算帯を選べるか */
+export const canUseBudgetTier = (myKey, tierKey) =>
+  rankTier(myKey).order >= rankTier(tierKey).order;

@@ -11,6 +11,13 @@ import {
   APPROACH_LIMIT,
   DRINKING_STYLES,
   MAX_DRINKING_STYLES,
+  RANK_TIERS,
+  RANK_MIN_REVIEWS,
+  DEFAULT_RANK_KEY,
+  rankTier,
+  rankForReviews,
+  budgetTierFor,
+  canUseBudgetTier,
 } from "./pricing.js";
 
 /* =====================================================================
@@ -41,6 +48,13 @@ export {
   APPROACH_LIMIT,
   DRINKING_STYLES,
   MAX_DRINKING_STYLES,
+  RANK_TIERS,
+  RANK_MIN_REVIEWS,
+  DEFAULT_RANK_KEY,
+  rankTier,
+  rankForReviews,
+  budgetTierFor,
+  canUseBudgetTier,
 };
 
 /* 飲みスタイルタグの値だけの配列（保存前の絞り込みに使う） */
@@ -824,24 +838,33 @@ export async function createParty(hostId, fields) {
   const title = trimTo(fields.title, LIMITS.title);
   if (!title) throw new Error("会の名前を入力してください。");
 
-  // 金額・お会計の区分はクライアントから受け取らない（一律・変更不可）。
-  const { host_member_names, room_type, point_request, treat_type, ...rest } = fields;
+  /* 🚨 ここに列を足すときは、必ず parties の INSERT 権限（列単位）にも足すこと。
+     migration_security_hardening.sql で「会を作るときに必要な列」だけに絞ってあり、
+     権限の無い列を1つでも積むと insert 全体が
+     42501 permission denied for table parties で落ちる（画面には出せない）。
+
+     status / room_type / point_request / treat_type / max_members / current_members は
+     DB 側の既定値と enforce_group_party() が確定させる。クライアントからは送らない
+     （送ると上のとおり権限エラーになる）。
+     予算の実額（avg_budget）も同じ。お店を選んだときだけ、
+     カタログの値をトリガーが写す。 */
+  const {
+    host_member_names, room_type, point_request, treat_type, avg_budget,
+    status, max_members, current_members,
+    ...rest
+  } = fields;
   const { data, error } = await supabase
     .from("parties")
     .insert({
       host_id: hostId,
-      status: "recruiting",
       ...rest,
       title,
+      shop_id: fields.shop_id || null,
+      budget_tier: fields.budget_tier || DEFAULT_RANK_KEY,
       location: trimTo(fields.location, LIMITS.location),
-      point_request: JOIN_FEE_PER_PERSON,
-      treat_type: TREAT_TYPE_GUEST_TREATS,
       host_group_size: hostGroup,
       guest_group_size: guestGroup,
       host_member_names: normalizeMemberNames(host_member_names, hostGroup),
-      max_members: hostGroup + guestGroup,
-      current_members: hostGroup,
-      room_type: ROOM_TYPE_OPEN,
     })
     .select()
     .single();
@@ -1096,6 +1119,81 @@ export async function submitReview({ partyId, reviewedId, rating, comment }) {
 export async function listReviewableParties(userId) {
   const parties = await listMyParties(userId);
   return parties.filter(partyIsOver);
+}
+
+/* ==================== ランクと予算帯（お店） ====================
+   受け取った評価の平均星数で、会を主催するときに選べる
+   お店の予算帯が決まる（RANK_TIERS）。
+
+   ⚠ 性別では分けていない。規則は全ユーザー共通で、
+     「評価を受け取った人のランクが上がる」「主催者のランクで
+     選べる予算帯が決まる」の2つだけ。理由は
+     supabase/migration_caste_rank.sql の冒頭に書いてある。
+
+   ⚠ 見えるのは自分のランクだけ。他人のランク・平均点は
+     どの経路からも取得できない（profiles の列単位 SELECT 権限から
+     外してあり、my_rank() は auth.uid() に固定されている）。
+   =============================================================== */
+
+/* 自分のランク。引数は取らない（他人のランクは引けない）。 */
+export async function getMyRank() {
+  const { data, error } = await supabase.rpc("my_rank");
+  if (error) throw wrapRankError(error);
+  if (!data) return null;
+  const tier = rankTier(data.tier_key);
+  return {
+    ...data,
+    tier,
+    /* 次のランクまでに必要なこと（画面の案内用） */
+    next: data.next ? { ...data.next, tier: rankTier(data.next.tier_key) } : null,
+  };
+}
+
+/* 掲載中の店舗。ランクで絞らずに全件返し、選べるかどうかは
+   allowed で示す（行けない店も見えたほうが目標になる）。
+   保存できるかどうかの判定は DB 側が改めて行う。 */
+export async function listShops({ area, myRankKey } = {}) {
+  let q = supabase
+    .from("shops")
+    .select("id, name, area, genre, avg_budget, description, image_url")
+    .eq("is_active", true)
+    .order("avg_budget", { ascending: true });
+  if (area) q = q.eq("area", area);
+  const { data, error } = await q;
+  if (error) throw wrapRankError(error);
+  return (data ?? []).map((s) => {
+    const tier = budgetTierFor(s.avg_budget);
+    return {
+      ...s,
+      tier,
+      allowed: canUseBudgetTier(myRankKey ?? DEFAULT_RANK_KEY, tier?.key),
+    };
+  });
+}
+
+/* 店舗のエリア一覧（絞り込み用） */
+export function shopAreas(shops) {
+  return [...new Set((shops ?? []).map((s) => s.area).filter(Boolean))];
+}
+
+/* 予算帯の表示（会のカード・詳細で使う）。会の属性であって個人の属性ではない。 */
+export function budgetLabel(party) {
+  if (!party) return null;
+  if (party.avg_budget) return `お一人 約${Number(party.avg_budget).toLocaleString()}円`;
+  const tier = party.budget_tier ? rankTier(party.budget_tier) : null;
+  return tier ? `お一人 ${tier.budgetLabel}` : null;
+}
+
+/* migration_caste_rank.sql が未適用のときに分かりやすいエラーへ変換する */
+function wrapRankError(error) {
+  const msg = error?.message || "";
+  if (/my_rank|rank_tier|shops|budget_tier|avg_budget|schema cache/i.test(msg)) {
+    return new Error(
+      "この機能に必要なデータベースの更新がまだ適用されていません。" +
+      "supabase/migration_caste_rank.sql を実行してください。"
+    );
+  }
+  return error;
 }
 
 /* migration_reviews_approach_style.sql が未適用のときに分かりやすいエラーへ変換する */

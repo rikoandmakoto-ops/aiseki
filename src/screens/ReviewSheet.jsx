@@ -138,8 +138,11 @@ export default function ReviewSheet({ member, party, existing, onClose, onSaved 
             <Lock size={14} strokeWidth={1.9} color={C.primary} style={{ flexShrink: 0, marginTop: 2 }} />
             <div style={{ fontSize: 11.5, color: C.textSec, lineHeight: 1.85 }}>
               この評価は<b style={{ color: C.text, fontWeight: 700 }}>相手には表示されません</b>。
-              点数もコメントも、安全な運営のために当社だけが確認します。
-              あなたが評価したことも相手には伝わりません。
+              点数もコメントも、あなたが評価したことも相手には伝わりません。
+              <br />
+              ただし、受け取った評価の<b style={{ color: C.text, fontWeight: 700 }}>平均点</b>は、
+              その方が会を主催するときに選べるお店の予算帯（ランク）に反映されます。
+              相手に見えるのはこの平均点だけで、誰がどう付けたかは分かりません。
             </div>
           </div>
 

@@ -4,7 +4,7 @@ import {
   Crown, ChevronLeft, Send, ArrowRight, Check, Sparkles, Settings,
   Mail, LogOut, Wine, Repeat, History, Wallet, ShieldCheck, Lock, FileText, UsersRound,
   Ticket, Copy, DoorClosed, Ban, CreditCard, LifeBuoy, ShieldAlert, XCircle,
-  Search, SlidersHorizontal, CalendarDays, Gift, Star, Beer, Heart,
+  Search, SlidersHorizontal, CalendarDays, Gift, Star, Beer, Heart, Store,
 } from "lucide-react";
 import { supabase, configError } from "./lib/supabase";
 import * as api from "./lib/api";
@@ -38,6 +38,10 @@ const ReferralScreen = lazy(() => import("./screens/ReferralScreen.jsx"));
 const SafetyScreen = lazy(() => import("./screens/SafetyScreen.jsx"));
 const MemberSheet = lazy(() => import("./screens/MemberSheet.jsx"));
 const ReviewSheet = lazy(() => import("./screens/ReviewSheet.jsx"));
+/* ランク（評価で決まる予算帯）と、そのランクで選べるお店の一覧。
+   マイページと会の作成画面の両方から使うので、同じチャンクに置く。 */
+const RankCard = lazy(() => import("./screens/RankCard.jsx"));
+const ShopsScreen = lazy(() => import("./screens/ShopsScreen.jsx"));
 
 /* 分割した画面を読み込んでいる間のつなぎ */
 const Loading = ({ label }) => (
@@ -140,6 +144,26 @@ const TabBar = ({ active, onTab }) => (
    会の一覧ではホストのタグ（parties.host_drinking_style）を、
    会の詳細では参加メンバーそれぞれのタグを出す。
    ふつうの Tag と見分けがつくよう、こちらはゴールドで箔押しにする。 */
+/* 会のお店の予算帯。
+   ⚠ これは「会」の属性であって、ホスト個人のランクではない。
+     個人のランクは本人以外には出さない（DB 側でも読めない）。
+     当日の飲食代は参加グループが負担するため、探す側に必ず見せる。 */
+const BudgetTag = ({ party }) => {
+  const label = api.budgetLabel(party);
+  if (!label) return null;
+  return (
+    <span style={{
+      display: "inline-flex", alignItems: "center", gap: 5,
+      padding: "3px 10px", borderRadius: 999, whiteSpace: "nowrap",
+      fontSize: 10.5, fontWeight: 700, letterSpacing: 0.3,
+      color: C.primaryDeep, background: "rgba(232,201,135,0.10)",
+      border: `1px solid ${C.linePrimary}`,
+    }}>
+      <Wallet size={11} strokeWidth={2} />{label}
+    </span>
+  );
+};
+
 const StyleTag = ({ children }) => (
   <span style={{
     fontSize: 10.5, fontWeight: 700, color: C.primaryDeep, whiteSpace: "nowrap", letterSpacing: 0.3,
@@ -303,9 +327,10 @@ const FeaturedCard = ({ p, onTap }) => (
         {api.formatPartyDate(p.party_date) && <MetaLine icon={CalendarDays}>{api.formatPartyDate(p.party_date)}</MetaLine>}
         {p.party_time && <MetaLine icon={Clock}>{p.party_time}</MetaLine>}
       </div>
-      <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginTop: 11 }}>
+      <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginTop: 11, alignItems: "center" }}>
         <Tag>ホスト側 {groupSizes(p).host}名</Tag>
         <Tag>募集 {groupSizes(p).guest}名グループ</Tag>
+        <BudgetTag party={p} />
       </div>
       {/* ホストグループの飲みスタイル（当日の温度感が先に伝わる） */}
       <div style={{ marginTop: 9 }}>
@@ -344,11 +369,10 @@ const PartyCard = ({ p, onTap }) => {
         </div>
         <TreatBadge />
       </div>
-      {tags.length > 0 && (
-        <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 12 }}>
-          {tags.map((t) => <Tag key={t}>{t}</Tag>)}
-        </div>
-      )}
+      <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 12, alignItems: "center" }}>
+        {tags.map((t) => <Tag key={t}>{t}</Tag>)}
+        <BudgetTag party={p} />
+      </div>
       {(p.host_drinking_style?.length ?? 0) > 0 && (
         <div style={{ marginBottom: 12 }}>
           <StyleTagRow tags={p.host_drinking_style} />
@@ -903,6 +927,11 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
     // 金額とお会計の区分は全ての会で共通（ホストは設定できない）
     { label: "参加ポイント", value: `${feeText()}pt / 1名`, icon: Gem },
     { label: "お会計", value: "参加グループが負担", icon: Wallet },
+    // お店の予算の目安。当日の飲食代は参加グループが負担するため、
+    // ポイントとは別に、いくらかかる会なのかを先に見せる。
+    ...(api.budgetLabel(party)
+      ? [{ label: "お店の予算", value: api.budgetLabel(party).replace(/^お一人\s*/, ""), icon: Store }]
+      : []),
   ];
 
   return (
@@ -1044,8 +1073,8 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
               </div>
               <div style={{ fontSize: 11, color: C.textSec, lineHeight: 1.75, marginBottom: 12 }}>
                 ご一緒した方の評価をお願いします。
-                <b style={{ color: C.primaryDeep, fontWeight: 700 }}>相手には表示されません</b>。
-                安全にご利用いただくため、運営だけが確認します。
+                点数もコメントも<b style={{ color: C.primaryDeep, fontWeight: 700 }}>相手には表示されません</b>。
+                評価は安全な運営に使うほか、相手が主催する会で選べるお店のランクに反映されます。
               </div>
               {reviewTargets.map((m) => {
                 const done = reviewedIds.has(m.user_id);
@@ -1380,6 +1409,42 @@ const CreateScreen = ({ user, onCreated }) => {
   // 席の種別は「オープンスペース」固定。個室は選択できない（変更不可）。
   const roomType = api.ROOM_TYPE_OPEN;
 
+  /* ランクと予算帯。
+     自分のランクで選べる予算帯の中から1つ決める。カタログのお店を選ぶと
+     その店の予算帯に自動で揃う。保存できるかは DB 側でも改めて判定される。 */
+  const [rank, setRank] = useState(null);
+  const [rankError, setRankError] = useState(null);
+  const [budgetTier, setBudgetTier] = useState(api.DEFAULT_RANK_KEY);
+  const [shop, setShop] = useState(null);       // カタログから選んだお店（任意）
+  const [pickingShop, setPickingShop] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    api.getMyRank()
+      .then((r) => { if (alive) setRank(r); })
+      .catch((e) => { if (alive) setRankError(e.message); });
+    return () => { alive = false; };
+  }, []);
+
+  const myRankKey = rank?.tier_key ?? api.DEFAULT_RANK_KEY;
+
+  /* お店を選んだら、店名・エリア・予算帯をその店に合わせる */
+  const chooseShop = (s, locked) => {
+    if (!s) {
+      if (locked) {
+        toast.info(`「${locked.name}」は${locked.tier?.label}ランクから選べます。相席の評価でランクが上がると解放されます。`);
+      }
+      return;
+    }
+    setShop(s);
+    setLocation(s.name);
+    if (s.area) setArea(s.area);
+    setBudgetTier(s.tier?.key ?? api.DEFAULT_RANK_KEY);
+    setPickingShop(false);
+  };
+
+  const clearShop = () => { setShop(null); };
+
   const submit = async () => {
     if (!title.trim()) { toast.error("会の名前を入力してください。"); return; }
     // グループ限定：1対1のマッチングは作成できない
@@ -1395,8 +1460,11 @@ const CreateScreen = ({ user, onCreated }) => {
     setSaving(true);
     try {
       // 参加ポイント（一律）とお会計の区分は送らない。サーバ側で確定させる。
+      // 予算の実額も送らない（お店を選んだときだけ、カタログの値がサーバで入る）。
       const p = await api.createParty(user.id, {
         title: title.trim(),
+        shop_id: shop?.id ?? null,
+        budget_tier: budgetTier,
         location: location.trim() || null,
         area: area.trim() || null,
         host_group_size: hostGroup,
@@ -1458,9 +1526,114 @@ const CreateScreen = ({ user, onCreated }) => {
           <label style={labelStyle}>会の名前</label>
           <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={api.LIMITS.title} placeholder="例: 金曜の夜に、静かな一軒で" style={fieldStyle} />
         </div>
+        {/* ── 予算帯 ──────────────────────────────────
+            自分のランクで選べる予算帯だけを押せるようにする。
+            選べないものも並べて理由を出す（隠すと何が起きているか分からない）。
+            ⚠ 出し分けは案内にすぎない。実際の可否は DB 側
+              （enforce_group_party）が改めて判定する。 */}
+        <div style={{ marginBottom: 17 }}>
+          <label style={labelStyle}>お店の予算帯（お一人あたり）</label>
+          <div style={{ display: "grid", gap: 7 }}>
+            {api.RANK_TIERS.map((t) => {
+              const allowed = api.canUseBudgetTier(myRankKey, t.key);
+              const on = budgetTier === t.key;
+              return (
+                <button
+                  key={t.key}
+                  type="button"
+                  aria-disabled={!allowed}
+                  onClick={() => {
+                    if (!allowed) {
+                      toast.info(`${t.label}のお店は、相席の評価でランクが上がると選べるようになります。`);
+                      return;
+                    }
+                    if (shop && shop.tier?.key !== t.key) clearShop();
+                    setBudgetTier(t.key);
+                  }}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 10, textAlign: "left",
+                    padding: "11px 14px", borderRadius: 14,
+                    cursor: allowed ? "pointer" : "not-allowed",
+                    ...(on ? { ...popBtn, borderRadius: 14 } : { ...ghostBtn, borderRadius: 14 }),
+                    opacity: allowed ? 1 : 0.42,
+                  }}
+                >
+                  <span style={{ flexShrink: 0, display: "flex" }}>
+                    {allowed ? <Check size={14} strokeWidth={2.6} /> : <Lock size={13} strokeWidth={2.2} />}
+                  </span>
+                  <span style={{ minWidth: 0, flex: 1 }}>
+                    <span style={{ display: "block", fontSize: 13, fontWeight: 700 }}>
+                      {t.label} · {t.budgetLabel}
+                    </span>
+                    <span style={{ display: "block", fontSize: 10.5, fontWeight: 500, lineHeight: 1.6, marginTop: 2, opacity: 0.85 }}>
+                      {allowed ? t.note : `${t.label}ランクから選べます`}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          {/* ⚠ 中に <b> を置くので、テキストは必ず1つの span にまとめる。
+                直接並べると flex の子が文字ごとに分かれて縦に潰れる。 */}
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 6, marginTop: 9, fontSize: 10.5, color: C.textMuted, lineHeight: 1.7 }}>
+            <Star size={12} strokeWidth={1.9} color={C.primary} style={{ flexShrink: 0, marginTop: 2 }} />
+            <span style={{ minWidth: 0 }}>
+              {rankError
+                ? `ランクを読み込めませんでした（${rankError}）。いまは最初の予算帯のみ選べます。`
+                : <>
+                    いまのランクは<b style={{ color: C.primaryDeep, fontWeight: 700 }}>{rank?.tier_label ?? "—"}</b>です。
+                    会の終了後に相席した方から受け取る評価の平均で上がります。
+                    ランクは他のユーザーには表示されません。
+                  </>}
+            </span>
+          </div>
+        </div>
+
+        {/* ── お店 ──────────────────────────────────
+            掲載店から選ぶか、自分で書くか。掲載店を選ぶと店名・エリア・
+            予算帯がその店に揃う（金額はサーバ側がカタログから写す）。 */}
         <div style={{ marginBottom: 17 }}>
           <label style={labelStyle}>お店</label>
-          <input value={location} onChange={(e) => setLocation(e.target.value)} maxLength={api.LIMITS.location} placeholder="例: 恵比寿 / BAR TRENCH" style={fieldStyle} />
+          <input
+            value={location}
+            onChange={(e) => { setLocation(e.target.value); if (shop) clearShop(); }}
+            maxLength={api.LIMITS.location}
+            placeholder="例: 恵比寿 / BAR TRENCH"
+            style={fieldStyle}
+          />
+          <button
+            type="button"
+            className="press"
+            onClick={() => setPickingShop((v) => !v)}
+            style={{
+              ...ghostBtn, width: "100%", marginTop: 9, padding: "10px 0", borderRadius: 999,
+              fontSize: 12.5, cursor: "pointer", display: "inline-flex",
+              alignItems: "center", justifyContent: "center", gap: 7,
+            }}
+          >
+            <Store size={13} strokeWidth={2} />
+            {pickingShop ? "掲載店から選ぶのをやめる" : "掲載中のお店から選ぶ"}
+          </button>
+          {shop && (
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 7, marginTop: 9, fontSize: 11, color: C.textSec, lineHeight: 1.7 }}>
+              <Check size={12} strokeWidth={2.6} color={C.primaryDeep} style={{ flexShrink: 0, marginTop: 3 }} />
+              <span style={{ minWidth: 0 }}>
+                掲載店「{shop.name}」を選択中（お一人 約{Number(shop.avg_budget).toLocaleString()}円）。店名を書き換えると解除されます。
+              </span>
+            </div>
+          )}
+          {pickingShop && (
+            <div style={{ marginTop: 11 }}>
+              <Suspense fallback={<Loading label="お店を読み込み中…" />}>
+                <ShopsScreen
+                  embedded
+                  myRankKey={myRankKey}
+                  selectedId={shop?.id}
+                  onSelect={chooseShop}
+                />
+              </Suspense>
+            </div>
+          )}
         </div>
         <div style={{ marginBottom: 17 }}>
           <label style={labelStyle}>エリア</label>
@@ -2208,7 +2381,7 @@ const ChatRoom = ({ user, party, onBack }) => {
 };
 
 /* ═══════════════════════════════════════════════════════ MyPage */
-const MyPageScreen = ({ user, onTerms, onSupport, onReport, onInvite, onSafety }) => {
+const MyPageScreen = ({ user, onTerms, onSupport, onReport, onInvite, onSafety, onShops }) => {
   const { toast, confirm } = useToast();
   const [profile, setProfile] = useState(null);
   const [balance, setBalance] = useState(null);
@@ -2370,6 +2543,12 @@ const MyPageScreen = ({ user, onTerms, onSupport, onReport, onInvite, onSafety }
           </div>
         </div>
       )}
+
+      {/* ランク … 相席の評価で決まる「選べるお店の予算帯」。
+          本人にしか見えない（他人のランクは DB からも読めない）。 */}
+      <Suspense fallback={null}>
+        <RankCard onShops={onShops} />
+      </Suspense>
 
       {/* プロフィールの充実度。承認後に相手へ伝わる中身が、どれだけ揃っているか。 */}
       <div className="fade" style={{ marginBottom: 16 }}>
@@ -2740,6 +2919,14 @@ export default function App() {
       );
     }
     if (overlay === "invite") return <ReferralScreen onBack={backToApp} />;
+    if (overlay === "shops") {
+      return (
+        <>
+          <BackButton onBack={backToApp} />
+          <ShopsScreen />
+        </>
+      );
+    }
     if (overlay === "safety") {
       return (
         <SafetyScreen
@@ -2781,6 +2968,7 @@ export default function App() {
           onReport={() => { setReportTarget(null); setOverlay("report"); }}
           onInvite={() => setOverlay("invite")}
           onSafety={() => setOverlay("safety")}
+          onShops={() => setOverlay("shops")}
         />
       );
       default: return <HomeScreen user={user} onDetail={setDetailId} onCreate={() => setTab("create")} />;
