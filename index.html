@@ -17,8 +17,12 @@
     />
     <link rel="canonical" href="https://aisekimatch.com/" />
 
-    <!-- ── アイコン ── -->
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <!-- ── アイコン ──
+         PNG を先に、SVG を後に置く。対応しているブラウザは SVG を採る。
+         SVG を読めない環境（古い Safari 等）が PNG に落ちる。 -->
+    <link rel="icon" type="image/png" sizes="64x64" href="/favicon-64.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="mask-icon" href="/favicon.svg" color="#dfbc6c" />
 

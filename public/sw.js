@@ -14,7 +14,10 @@
        残高やメッセージが古いまま表示されると事故になる。
    ===================================================================== */
 
-const VERSION = "aiseki-v1";
+/* ⚠ PRECACHE の中身を差し替えたら、必ずここを上げること。
+   上げないと、すでにインストール済みの端末は古いキャッシュを返し続ける
+   （2026-08-24 のファビコン差し替えで v2 に上げた）。 */
+const VERSION = "aiseki-v2";
 const SHELL = `${VERSION}-shell`;
 
 /* 事前に持っておくもの。ビルドのたびにファイル名が変わる JS/CSS は
@@ -23,6 +26,8 @@ const PRECACHE = [
   "/",
   "/manifest.webmanifest",
   "/favicon.svg",
+  "/favicon-64.png",
+  "/favicon-32.png",
   "/apple-touch-icon.png",
   "/icon-192.png",
   "/icon-512.png",
