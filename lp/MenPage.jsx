@@ -14,7 +14,7 @@
 
    ⚠ 見た目は LpKit.jsx の方針に従う（光らせない・並べない・中央に置かない）。
    ══════════════════════════════════════════════════════════════ */
-import { UsersRound, Search, Wallet, MapPin, Wine } from "lucide-react";
+import { UsersRound, Search, Wallet, MapPin } from "lucide-react";
 import { C, FONT_HEAD, FONT_DISPLAY, FONT_BODY } from "../src/lib/theme.jsx";
 import {
   MIN_AGE, MIN_GROUP_SIZE, JOIN_FEE_PER_PERSON as JOIN_FEE,
@@ -22,8 +22,9 @@ import {
 } from "../src/lib/pricing.js";
 import { POINT_PACKS, packBonus } from "../src/lib/packs.js";
 import {
-  LpPage, LpHeader, LpFooter, Section, Heading, Pill, CtaLink, GhostLink,
-  FeatureList, StepList, TrustBadges, Faq, CtaSection, signupUrl, panel, RULE, RULE_SOFT,
+  LpPage, LpHeader, LpFooter, Section, Heading, Kicker, HeroTitle, HeroFacts,
+  CtaLink, GhostLink, FeatureList, StepList, TrustBadges, Faq, CtaSection,
+  signupUrl, panel, RULE, RULE_SOFT,
 } from "./LpKit.jsx";
 
 const FROM = "lp-men";
@@ -195,46 +196,45 @@ export default function MenPage() {
     <LpPage>
       <LpHeader tagline="グループで行く相席" ctaLabel={CTA} ctaHref={CTA_HREF} />
 
-      {/* ══════════════ ヒーロー ══════════════ */}
-      <Section pad="clamp(48px, 7vw, 92px)">
+      {/* ══════════════ ヒーロー ══════════════
+          読ませる順は 何のサービスか → 見出し → 一文 → CTA → 料金。
+          見出しは折り返さない大きさに収める（いちばん長い行は
+          「グループだから、気軽に。」の12文字）。 */}
+      <Section pad="clamp(52px, 7.5vw, 104px)">
         <div className="lph">
           <div>
-            <h1 style={{
-              /* 1行が折り返さない大きさに収める（日本語は途中で折れると読みにくい）。
-                 いちばん長い行は「グループだから、気軽に。」の12文字。 */
-              fontFamily: FONT_HEAD, fontSize: "clamp(24px, 4.6vw, 38px)", fontWeight: 600,
-              letterSpacing: 0.8, lineHeight: 1.52, margin: 0, color: C.text,
-            }}>
+            <Kicker>グループ同士の相席マッチング</Kicker>
+
+            {/* 「グループだから、気軽に。」が12文字。女性向け（10文字）より1段小さい */}
+            <HeroTitle size="clamp(26px, 4.2vw, 46px)">
               相席で、<span style={{ color: C.primary }}>出会う。</span><br />
               グループだから、気軽に。
-            </h1>
+            </HeroTitle>
 
             <p style={{
-              fontSize: "clamp(13.5px, 1.6vw, 15px)", color: C.textSec, lineHeight: 2.05,
-              margin: "22px 0 0", maxWidth: 500, letterSpacing: 0.4,
+              fontSize: "clamp(14.5px, 1.7vw, 16.5px)", color: C.textSec, lineHeight: 1.95,
+              margin: "24px 0 0", maxWidth: 520, letterSpacing: 0.4,
             }}>
               友だちと{MIN_GROUP_SIZE}名以上で、募集中の会にリクエストするだけ。
-              お店に着いてから相手が決まるのではなく、行く前にグループ同士で約束できます。
+              お店に着いてから決まるのではなく、行く前にグループ同士で約束できます。
             </p>
 
-            <div style={{ display: "flex", alignItems: "center", gap: 26, flexWrap: "wrap", marginTop: 32 }}>
-              <CtaLink href={CTA_HREF} size="lg">{CTA}</CtaLink>
+            <div style={{ display: "flex", alignItems: "center", gap: 28, flexWrap: "wrap", marginTop: 34 }}>
+              <CtaLink href={CTA_HREF} size="xl">{CTA}</CtaLink>
               <GhostLink href="#price">ポイントを見る</GhostLink>
             </div>
 
-            <div style={{ marginTop: 18, fontSize: 11.5, color: C.textMuted, letterSpacing: 0.4, lineHeight: 1.85 }}>
-              新規登録で <b style={{ color: C.primary, fontWeight: 700 }}>{SIGNUP_BONUS.toLocaleString()}pt</b>
-              （参加{SIGNUP_BONUS_SEATS}名分）· そのまま申し込めます
+            <div style={{ marginTop: 16, fontSize: 12, color: C.textMuted, letterSpacing: 0.4 }}>
+              登録1分・カード不要・{MIN_AGE}歳以上限定
             </div>
 
-            <div style={{
-              display: "flex", flexWrap: "wrap", gap: "8px 20px", marginTop: 30,
-              paddingTop: 17, borderTop: `1px solid ${RULE_SOFT}`,
-            }}>
-              <Pill icon={UsersRound}>{MIN_GROUP_SIZE}名以上のグループ同士</Pill>
-              <Pill icon={Wallet}>1名 一律{JOIN_FEE.toLocaleString()}pt</Pill>
-              <Pill icon={Wine}>{MIN_AGE}歳以上限定</Pill>
-            </div>
+            <HeroFacts
+              items={[
+                { label: "参加費（1名）", value: JOIN_FEE.toLocaleString(), unit: "pt 一律" },
+                { label: "新規登録で", value: SIGNUP_BONUS.toLocaleString(), unit: `pt（参加${SIGNUP_BONUS_SEATS}名分）`, accent: true },
+                { label: "参加の単位", value: MIN_GROUP_SIZE, unit: "名以上のグループ" },
+              ]}
+            />
           </div>
 
           <div className="lph-visual">

@@ -26,7 +26,10 @@
        4. 中央揃えを既定にしない。見出しもリストも左に置き、
           右側に余白を残す。左右対称に整えない。
        5. 面（カード）を並べない。区切りは罫と余白でつくる。
-       6. 金は「CTA・ロゴ・数字ひとつ」だけに使う。文章には使わない。
+       6. 金は「CTA・ロゴ・数字」だけに使う。文章には使わない。
+       7. 強く見せたいときは、光らせず「大きさの段差」でやる。
+          ファーストビューの見出しだけ 52px まで許す（他の見出しは最大29px）。
+          面積・明度差・余白で殴るのが、この方針での唯一の強め方。
 
      インラインスタイル（CSS-in-JS）で書く。hover とキーフレームだけは
      インラインで書けないので、下の LP_CSS に集約して <style> で
@@ -70,9 +73,10 @@ const LP_CSS = `
 }
 
 /* ───────────────── 主CTA ─────────────────
-   単色の箔。常時は動かさず、触れたときだけ明るくする。 */
+   単色の箔。常時は動かさず、触れたときだけ明るくする。
+   目立たせ方は「光らせる」ではなく「大きくする・地との明度差をつける」。 */
 .lp-cta{ transition: background .15s ease }
-.lp-cta:hover{ background:#e9d09a }
+.lp-cta:hover{ background:#f2ddad }
 .lp-cta:active{ background:#c9a865 }
 
 /* ───────────────── 文中のリンク ───────────────── */
@@ -91,12 +95,20 @@ const LP_CSS = `
 
 /* ───────────────── ヒーロー ─────────────────
    左（文）を広く、右（画面）を狭く。天地も揃えず、右を少し下げる。
-   半々で上下も揃えると、置きに行った絵に見える。 */
+   半々で上下も揃えると、置きに行った絵に見える。
+   見出しを大きく取りたいので、左をさらに広げてある。 */
 .lph{
-  display:grid; grid-template-columns:minmax(0,1.34fr) minmax(0,1fr);
-  gap:clamp(30px,5vw,66px); align-items:start;
+  display:grid; grid-template-columns:minmax(0,1.52fr) minmax(0,1fr);
+  gap:clamp(30px,4.5vw,58px); align-items:start;
 }
-.lph-visual{ padding-top:38px }
+.lph-visual{ padding-top:46px }
+
+/* ヒーローの「何が得か」。ラベルは小さく、数字は大きく。
+   罫で仕切るだけで、囲みも地も付けない。 */
+.lp-facts{ display:flex; flex-wrap:wrap }
+.lp-fact{ padding:0 26px }
+.lp-fact:first-child{ padding-left:0 }
+.lp-fact:not(:first-child){ border-left:1px solid ${RULE_SOFT} }
 
 /* ───────────────── 見出しを左に置く2段組み ─────────────────
    見出しを上に載せて中央に置くより、脇に寄せたほうが読む幅が締まる。 */
@@ -123,8 +135,15 @@ const LP_CSS = `
   .lph, .lp-split{ grid-template-columns:1fr }
   .lph-visual{ padding-top:4px }
 }
+@media (max-width:620px){
+  /* 3つ並べると1つあたりが潰れるので、2列に折る */
+  .lp-fact{ padding:0 18px; margin-bottom:14px }
+  .lp-fact:nth-child(3){ padding-left:0; border-left:none }
+}
 @media (max-width:560px){
   .lp-row{ grid-template-columns:1fr; gap:12px; padding:22px 0 }
+  /* 親指の届く幅いっぱいに。ここが最も押される */
+  .lp-cta-xl{ display:block; width:100%; text-align:center }
 }
 `;
 
@@ -172,28 +191,26 @@ export const Heading = ({ eyebrow, children, sub, style }) => (
   </div>
 );
 
-/* ヒーローの上に置く条件書き。枠も地も付けない（ただの但し書き） */
-export const Pill = ({ icon: Icon, children }) => (
-  <span style={{
-    display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap",
-    fontSize: 11.5, color: C.textMuted, letterSpacing: 0.4,
-  }}>
-    {Icon && <Icon size={13} strokeWidth={1.7} color={C.textFaint} />}{children}
-  </span>
-);
-
 /* 主CTA。ボタンではなくリンク（別ページのアプリへ移る）。
-   単色・角は小さく・影なし。 */
+   単色・角は小さく・影なし。目立たせるのは面積と明度差だけ。
+   xl はファーストビュー専用（ページで最も明るく、最も大きい面）。 */
+const CTA_SIZES = {
+  sm: { pad: "9px 17px", fs: 12.5 },
+  md: { pad: "13px 25px", fs: 14 },
+  lg: { pad: "15px 30px", fs: 15 },
+  xl: { pad: "19px 42px", fs: 17 },
+};
+
 export const CtaLink = ({ href, children, size = "md", style }) => {
-  const pad = size === "lg" ? "15px 30px" : size === "sm" ? "9px 17px" : "13px 25px";
-  const fs = size === "lg" ? 15 : size === "sm" ? 12.5 : 14;
+  const { pad, fs } = CTA_SIZES[size] || CTA_SIZES.md;
   return (
     <a
-      className="lp-cta"
+      className={`lp-cta${size === "xl" ? " lp-cta-xl" : ""}`}
       href={href}
       style={{
         display: "inline-block", padding: pad, fontSize: fs, fontWeight: 700,
-        letterSpacing: 0.6, color: "#1a1206", background: C.primary,
+        letterSpacing: size === "xl" ? 1 : 0.6,
+        color: "#1a1206", background: size === "xl" ? C.primaryLight : C.primary,
         borderRadius: 4, textDecoration: "none", fontFamily: FONT_BODY,
         ...style,
       }}
@@ -202,6 +219,56 @@ export const CtaLink = ({ href, children, size = "md", style }) => {
     </a>
   );
 };
+
+/* ヒーローの一行目。「何のサービスか」をここで言い切る。
+   見出しより先に読ませたいので、小さくても金にして先頭に置く。 */
+export const Kicker = ({ children }) => (
+  <div style={{
+    fontSize: "clamp(11.5px, 1.3vw, 12.5px)", fontWeight: 700, color: C.primary,
+    letterSpacing: 1.4, marginBottom: 20,
+  }}>{children}</div>
+);
+
+/* ヒーローの見出し。ページで唯一この大きさを使う（他は最大29px）。
+   段差を大きく取ることが、光らせずに強く見せる唯一の方法。
+
+   ⚠ size はページごとに渡す。いちばん長い行の文字数で上限が決まるため
+     （2段組みの左カラムは幅 ≒ 592px。12文字なら46pxが限界）。
+     ここを共通の一つに固定すると、必ずどちらかで「気軽／に。」のように割れる。 */
+export const HeroTitle = ({ children, size = "clamp(29px, 4.9vw, 52px)" }) => (
+  <h1 style={{
+    fontFamily: FONT_HEAD, fontSize: size, fontWeight: 700,
+    letterSpacing: 0.4, lineHeight: 1.38, margin: 0, color: C.text,
+  }}>{children}</h1>
+);
+
+/* ヒーローの「何が得か」。数字だけを大きくして、ラベルは添えるだけにする。
+   バッジを並べるより、金額がそのまま目に入るほうが速い。 */
+export const HeroFacts = ({ items, style }) => (
+  <div className="lp-facts" style={{
+    marginTop: 34, paddingTop: 22, borderTop: `1px solid ${RULE}`, ...style,
+  }}>
+    {items.map(({ label, value, unit, accent }) => (
+      <div key={label} className="lp-fact">
+        <div style={{ fontSize: 11, color: C.textMuted, letterSpacing: 0.6, marginBottom: 7 }}>
+          {label}
+        </div>
+        <div style={{
+          fontFamily: FONT_DISPLAY, fontSize: "clamp(22px, 2.8vw, 28px)", fontWeight: 700,
+          lineHeight: 1, letterSpacing: 0.3, color: accent ? C.primary : C.text,
+        }}>
+          {value}
+          {unit && (
+            <span style={{
+              fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600,
+              color: C.textSec, marginLeft: 3, letterSpacing: 0.3,
+            }}>{unit}</span>
+          )}
+        </div>
+      </div>
+    ))}
+  </div>
+);
 
 /* 副導線。ボタンの形にすると主CTAと張り合うので、下線だけの文字にする。 */
 export const GhostLink = ({ href, children, style }) => (

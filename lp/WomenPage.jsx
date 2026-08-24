@@ -16,14 +16,15 @@
 
    ⚠ 見た目は LpKit.jsx の方針に従う（光らせない・並べない・中央に置かない）。
    ══════════════════════════════════════════════════════════════ */
-import { Wallet, UsersRound, ShieldCheck, Wine, Lock } from "lucide-react";
+import { Wallet, UsersRound, ShieldCheck, Lock } from "lucide-react";
 import { C, FONT_HEAD, FONT_DISPLAY } from "../src/lib/theme.jsx";
 import {
   MIN_AGE, MIN_GROUP_SIZE, JOIN_FEE_PER_PERSON as JOIN_FEE,
 } from "../src/lib/pricing.js";
 import {
-  LpPage, LpHeader, LpFooter, Section, Heading, Pill, CtaLink, GhostLink,
-  FeatureList, StepList, TrustBadges, Faq, CtaSection, signupUrl, panel, RULE, RULE_SOFT,
+  LpPage, LpHeader, LpFooter, Section, Heading, Kicker, HeroTitle, HeroFacts,
+  CtaLink, GhostLink, FeatureList, StepList, TrustBadges, Faq, CtaSection,
+  signupUrl, panel, RULE, RULE_SOFT,
 } from "./LpKit.jsx";
 
 const FROM = "lp-women";
@@ -128,7 +129,7 @@ const BillCard = () => (
           <div style={{ fontSize: 10.5, color: C.textMuted, lineHeight: 1.7, marginTop: 4 }}>{r.s}</div>
         </div>
         <span style={{
-          flexShrink: 0, fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 600, color: C.text,
+          flexShrink: 0, fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 700, color: C.text,
         }}>{r.v}</span>
       </div>
     ))}
@@ -139,7 +140,7 @@ const BillCard = () => (
       paddingTop: 15, marginTop: 4, borderTop: `1px solid ${RULE}`,
     }}>
       <span style={{ fontSize: 12.5, fontWeight: 700, color: C.text, letterSpacing: 0.4 }}>合計</span>
-      <span style={{ fontFamily: FONT_DISPLAY, fontSize: 26, fontWeight: 700, color: C.primary }}>¥0</span>
+      <span style={{ fontFamily: FONT_DISPLAY, fontSize: 36, fontWeight: 700, color: C.primary, lineHeight: 1 }}>¥0</span>
     </div>
 
     <div style={{
@@ -157,44 +158,45 @@ export default function WomenPage() {
     <LpPage>
       <LpHeader tagline="おごられる側の相席" ctaLabel={CTA} ctaHref={CTA_HREF} />
 
-      {/* ══════════════ ヒーロー ══════════════ */}
-      <Section pad="clamp(48px, 7vw, 92px)">
+      {/* ══════════════ ヒーロー ══════════════
+          読ませる順は 何のサービスか → 見出し → 一文 → CTA → 得な数字。
+          見出しは折り返さない大きさに収める（日本語は途中で折れると読みにくい）。 */}
+      <Section pad="clamp(52px, 7.5vw, 104px)">
         <div className="lph">
           <div>
-            <h1 style={{
-              /* 1行が折り返さない大きさに収める（日本語は途中で折れると読みにくい） */
-              fontFamily: FONT_HEAD, fontSize: "clamp(24px, 4.6vw, 38px)", fontWeight: 600,
-              letterSpacing: 0.8, lineHeight: 1.52, margin: 0, color: C.text,
-            }}>
+            <Kicker>グループ同士の相席マッチング</Kicker>
+
+            <HeroTitle>
               今夜のごはんは、<br />
               <span style={{ color: C.primary }}>ぜんぶ、おごられる。</span>
-            </h1>
+            </HeroTitle>
 
             <p style={{
-              fontSize: "clamp(13.5px, 1.6vw, 15px)", color: C.textSec, lineHeight: 2.05,
-              margin: "22px 0 0", maxWidth: 500, letterSpacing: 0.4,
+              fontSize: "clamp(14.5px, 1.7vw, 16.5px)", color: C.textSec, lineHeight: 1.95,
+              margin: "24px 0 0", maxWidth: 520, letterSpacing: 0.4,
             }}>
-              AISEKIは、友だちと{MIN_GROUP_SIZE}名以上で「会」を立てて、相席するグループを迎えるサービス。
-              募集する側は、ポイントも当日の飲食代も払いません。登録はもちろん無料です。
+              友だちと{MIN_GROUP_SIZE}名以上で「会」を立てるだけ。
+              募集する側は、参加ポイントも当日の飲食代も払いません。
             </p>
 
-            <div style={{ display: "flex", alignItems: "center", gap: 26, flexWrap: "wrap", marginTop: 32 }}>
-              <CtaLink href={CTA_HREF} size="lg">{CTA}</CtaLink>
+            <div style={{ display: "flex", alignItems: "center", gap: 28, flexWrap: "wrap", marginTop: 34 }}>
+              <CtaLink href={CTA_HREF} size="xl">{CTA}</CtaLink>
               <GhostLink href="#how">使い方を見る</GhostLink>
             </div>
 
-            <div style={{ marginTop: 18, fontSize: 11.5, color: C.textMuted, letterSpacing: 0.4 }}>
-              登録1分・カード不要・募集する側は0pt
+            <div style={{ marginTop: 16, fontSize: 12, color: C.textMuted, letterSpacing: 0.4 }}>
+              登録1分・カード不要・{MIN_AGE}歳以上限定
             </div>
 
-            <div style={{
-              display: "flex", flexWrap: "wrap", gap: "8px 20px", marginTop: 30,
-              paddingTop: 17, borderTop: `1px solid ${RULE_SOFT}`,
-            }}>
-              <Pill icon={Wallet}>参加ポイント 0pt</Pill>
-              <Pill icon={UsersRound}>{MIN_GROUP_SIZE}名以上のグループで</Pill>
-              <Pill icon={Wine}>{MIN_AGE}歳以上限定</Pill>
-            </div>
+            {/* ここに「0pt / 0円」を並べると、右の伝票と同じことを2回言うことになる。
+                数字は伝票に任せて、こちらは条件（誰と・どこで）だけ置く。 */}
+            <HeroFacts
+              items={[
+                { label: "参加の単位", value: MIN_GROUP_SIZE, unit: "名以上のグループ" },
+                { label: "相席する席", value: "オープン席", unit: "のみ" },
+                { label: "個人間のDM", value: "なし" },
+              ]}
+            />
           </div>
 
           <div className="lph-visual">
