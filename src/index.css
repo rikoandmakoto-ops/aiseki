@@ -112,39 +112,8 @@ body {
   display: none;
 }
 
-/* ── 広告用LP（/lp/women · /lp/men）のヒーロー ──
-   広い画面では「左にコピー／右に画面のプレビュー」、
-   スマートフォンでは縦に積んで中央寄せにする（読む順を変えない）。 */
-.lp-hero {
-  display: grid;
-  grid-template-columns: 1.05fr 0.95fr;
-  gap: clamp(26px, 4vw, 52px);
-  align-items: center;
-}
-
-.lp-hero-visual {
-  display: flex;
-  justify-content: center;
-}
-
-/* 2段組みはコピーの1行（最長12文字）が折り返さない幅があるときだけ。
-   中途半端な幅で2段にすると、見出しが3行に割れて締まらない。 */
-@media (max-width: 1060px) {
-  .lp-hero {
-    grid-template-columns: 1fr;
-  }
-  .lp-hero-copy {
-    text-align: center;
-  }
-  /* コピー内の横並び（バッジ列・ボタン列）を中央に寄せる */
-  .lp-hero-copy > div {
-    justify-content: center;
-  }
-  .lp-hero-copy p {
-    margin-left: auto;
-    margin-right: auto;
-  }
-}
+/* 広告用LP（/lp/women · /lp/men）の骨格は lp/LpKit.jsx の LP_CSS にある。
+   ここに置いてあった .lp-hero は、LP を左寄せに組み直したときに使わなくなった。 */
 
 @media (max-width: 900px) {
   .lp-grid-3 {
