@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Star, Lock, Store, ChevronRight, Wallet, TrendingUp, Crown, DoorOpen } from "lucide-react";
+import { Star, Lock, Wallet, TrendingUp, Crown, DoorOpen } from "lucide-react";
 import * as api from "../lib/api.js";
 import {
   C, FONT_HEAD, FONT_DISPLAY, FONT_BODY, brandText, card, Eyebrow, Spinner,
@@ -14,7 +14,7 @@ export { TierBadge, tierColor };
    ランク（会の終了後に受け取った評価で決まる）
 
    ランクは主催する側にも参加する側にも効くので、両方をここに出す。
-     ・主催するとき … 選べるお店の予算帯
+     ・主催するとき … 選べる予算目安の帯
      ・参加するとき … 申し込める会（会ごとの参加条件）
 
    ・平均点・件数を見られるのは本人だけ（DB の列単位 SELECT 権限で遮断）。
@@ -48,7 +48,7 @@ const Progress = ({ average, from, to }) => {
   );
 };
 
-export default function RankCard({ onShops }) {
+export default function RankCard() {
   const [rank, setRank] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -213,17 +213,6 @@ export default function RankCard({ onShops }) {
         </div>
       </div>
 
-      {onShops && (
-        <div className="lux-row" onClick={onShops} style={{
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-          padding: "14px 19px", borderTop: `1px solid ${C.lineSoft}`, cursor: "pointer",
-        }}>
-          <span style={{ display: "flex", alignItems: "center", gap: 11, fontSize: 13.5, color: C.text }}>
-            <Store size={16} strokeWidth={1.8} color={C.primary} /> 選べるお店を見る
-          </span>
-          <ChevronRight size={16} strokeWidth={2} color={C.textMuted} />
-        </div>
-      )}
     </div>
   );
 }

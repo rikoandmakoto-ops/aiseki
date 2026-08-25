@@ -100,6 +100,7 @@ export const LIMITS = {
   bio: 500,
   title: 60,
   location: 60,
+  area: 40,
   message: 2000,
   inquiry: 4000,
   inquirySubject: 120,
@@ -847,6 +848,10 @@ export async function createParty(hostId, fields) {
   const title = trimTo(fields.title, LIMITS.title);
   if (!title) throw new Error("会の名前を入力してください。");
 
+  // 店舗カタログは廃止した。お店の名前はホストが自由に書く（必須）。
+  const location = trimTo(fields.location, LIMITS.location);
+  if (!location) throw new Error("お店の名前を入力してください。");
+
   /* 🚨 ここに列を足すときは、必ず parties の INSERT 権限（列単位）にも足すこと。
      migration_security_hardening.sql で「会を作るときに必要な列」だけに絞ってあり、
      権限の無い列を1つでも積むと insert 全体が
@@ -855,11 +860,12 @@ export async function createParty(hostId, fields) {
      status / room_type / point_request / treat_type / max_members / current_members は
      DB 側の既定値と enforce_group_party() が確定させる。クライアントからは送らない
      （送ると上のとおり権限エラーになる）。
-     予算の実額（avg_budget）も同じ。お店を選んだときだけ、
-     カタログの値をトリガーが写す。 */
+     予算の実額（avg_budget）も同じ。列単位の INSERT 権限に入っていないうえ、
+     enforce_group_party() が shop_id の無い会では必ず null に落とす。
+     予算はランクで選べる帯（budget_tier）だけを送る。 */
   const {
     host_member_names, room_type, point_request, treat_type, avg_budget,
-    status, max_members, current_members,
+    status, max_members, current_members, shop_id,
     ...rest
   } = fields;
   const { data, error } = await supabase
@@ -868,12 +874,12 @@ export async function createParty(hostId, fields) {
       host_id: hostId,
       ...rest,
       title,
-      shop_id: fields.shop_id || null,
       budget_tier: fields.budget_tier || DEFAULT_RANK_KEY,
       /* 参加者に求めるランク。既定は最下位＝誰でも申し込める。
          性別その他の属性を参加条件にすることはできない（ランクだけ）。 */
       min_guest_tier: fields.min_guest_tier || DEFAULT_GUEST_TIER,
-      location: trimTo(fields.location, LIMITS.location),
+      location,
+      area: trimTo(fields.area, LIMITS.area) || null,
       host_group_size: hostGroup,
       guest_group_size: guestGroup,
       host_member_names: normalizeMemberNames(host_member_names, hostGroup),
@@ -1213,32 +1219,9 @@ export async function getMyRank() {
   };
 }
 
-/* 掲載中の店舗。ランクで絞らずに全件返し、選べるかどうかは
-   allowed で示す（行けない店も見えたほうが目標になる）。
-   保存できるかどうかの判定は DB 側が改めて行う。 */
-export async function listShops({ area, myRankKey } = {}) {
-  let q = supabase
-    .from("shops")
-    .select("id, name, area, genre, avg_budget, description, image_url")
-    .eq("is_active", true)
-    .order("avg_budget", { ascending: true });
-  if (area) q = q.eq("area", area);
-  const { data, error } = await q;
-  if (error) throw wrapRankError(error);
-  return (data ?? []).map((s) => {
-    const tier = budgetTierFor(s.avg_budget);
-    return {
-      ...s,
-      tier,
-      allowed: canUseBudgetTier(myRankKey ?? DEFAULT_RANK_KEY, tier?.key),
-    };
-  });
-}
-
-/* 店舗のエリア一覧（絞り込み用） */
-export function shopAreas(shops) {
-  return [...new Set((shops ?? []).map((s) => s.area).filter(Boolean))];
-}
+/* 店舗カタログ（shops）から選ぶ方式は廃止した。
+   お店の名前とエリアはホストが自由に書く（createParty の location / area）。
+   shops テーブルと parties.shop_id は残っているが、画面からは使わない。 */
 
 /* 予算帯の表示（会のカード・詳細で使う）。会の属性であって個人の属性ではない。 */
 export function budgetLabel(party) {

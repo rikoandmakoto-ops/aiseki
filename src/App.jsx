@@ -38,10 +38,8 @@ const ReferralScreen = lazy(() => import("./screens/ReferralScreen.jsx"));
 const SafetyScreen = lazy(() => import("./screens/SafetyScreen.jsx"));
 const MemberSheet = lazy(() => import("./screens/MemberSheet.jsx"));
 const ReviewSheet = lazy(() => import("./screens/ReviewSheet.jsx"));
-/* ランク（評価で決まる予算帯）と、そのランクで選べるお店の一覧。
-   マイページと会の作成画面の両方から使うので、同じチャンクに置く。 */
+/* ランク（評価で決まる予算帯）。マイページで出す。 */
 const RankCard = lazy(() => import("./screens/RankCard.jsx"));
-const ShopsScreen = lazy(() => import("./screens/ShopsScreen.jsx"));
 
 /* 分割した画面を読み込んでいる間のつなぎ */
 const Loading = ({ label }) => (
@@ -1490,14 +1488,12 @@ const CreateScreen = ({ user, onCreated }) => {
   // 席の種別は「オープンスペース」固定。個室は選択できない（変更不可）。
   const roomType = api.ROOM_TYPE_OPEN;
 
-  /* ランクと予算帯。
-     自分のランクで選べる予算帯の中から1つ決める。カタログのお店を選ぶと
-     その店の予算帯に自動で揃う。保存できるかは DB 側でも改めて判定される。 */
+  /* ランクと予算目安。
+     自分のランクで選べる予算の帯の中から1つ決める。
+     保存できるかは DB 側（enforce_group_party）でも改めて判定される。 */
   const [rank, setRank] = useState(null);
   const [rankError, setRankError] = useState(null);
   const [budgetTier, setBudgetTier] = useState(api.DEFAULT_RANK_KEY);
-  const [shop, setShop] = useState(null);       // カタログから選んだお店（任意）
-  const [pickingShop, setPickingShop] = useState(false);
   /* 参加者に求めるランク。既定は最下位＝誰でも申し込める。
      ⚠ 参加条件にできるのはランクだけ。性別・年齢その他の属性を
        条件にする項目は作らないこと（src/lib/legal.js 第3条・第9条の4）。 */
@@ -1513,25 +1509,10 @@ const CreateScreen = ({ user, onCreated }) => {
 
   const myRankKey = rank?.tier_key ?? api.DEFAULT_RANK_KEY;
 
-  /* お店を選んだら、店名・エリア・予算帯をその店に合わせる */
-  const chooseShop = (s, locked) => {
-    if (!s) {
-      if (locked) {
-        toast.info(`「${locked.name}」は${locked.tier?.label}ランクから選べます。相席の評価でランクが上がると解放されます。`);
-      }
-      return;
-    }
-    setShop(s);
-    setLocation(s.name);
-    if (s.area) setArea(s.area);
-    setBudgetTier(s.tier?.key ?? api.DEFAULT_RANK_KEY);
-    setPickingShop(false);
-  };
-
-  const clearShop = () => { setShop(null); };
-
   const submit = async () => {
     if (!title.trim()) { toast.error("会の名前を入力してください。"); return; }
+    // お店はホストが自由に書く（カタログから選ぶ方式は廃止した）。名前だけ必須。
+    if (!location.trim()) { toast.error("お店の名前を入力してください。"); return; }
     // グループ限定：1対1のマッチングは作成できない
     if (hostGroup < MIN_GROUP || guestGroup < MIN_GROUP) {
       toast.error(`相席は${MIN_GROUP}名以上のグループ同士のみのため、ホスト側・募集側ともに${MIN_GROUP}名以上で設定してください。`);
@@ -1545,13 +1526,13 @@ const CreateScreen = ({ user, onCreated }) => {
     setSaving(true);
     try {
       // 参加ポイント（一律）とお会計の区分は送らない。サーバ側で確定させる。
-      // 予算の実額も送らない（お店を選んだときだけ、カタログの値がサーバで入る）。
+      // 予算の実額（avg_budget）も送らない。列単位の INSERT 権限に無く、
+      // 送ると insert 全体が権限エラーで落ちる。帯（budget_tier）だけを送る。
       const p = await api.createParty(user.id, {
         title: title.trim(),
-        shop_id: shop?.id ?? null,
         budget_tier: budgetTier,
         min_guest_tier: minGuestTier,
-        location: location.trim() || null,
+        location: location.trim(),
         area: area.trim() || null,
         host_group_size: hostGroup,
         host_member_names: hostNames,
@@ -1618,7 +1599,7 @@ const CreateScreen = ({ user, onCreated }) => {
             ⚠ 出し分けは案内にすぎない。実際の可否は DB 側
               （enforce_group_party）が改めて判定する。 */}
         <div style={{ marginBottom: 17 }}>
-          <label style={labelStyle}>お店の予算帯（お一人あたり）</label>
+          <label style={labelStyle}>予算目安（お一人あたり）</label>
           <div style={{ display: "grid", gap: 7 }}>
             {api.RANK_TIERS.map((t) => {
               const allowed = api.canUseBudgetTier(myRankKey, t.key);
@@ -1633,7 +1614,6 @@ const CreateScreen = ({ user, onCreated }) => {
                       toast.info(`${t.label}のお店は、相席の評価でランクが上がると選べるようになります。`);
                       return;
                     }
-                    if (shop && shop.tier?.key !== t.key) clearShop();
                     setBudgetTier(t.key);
                   }}
                   style={{
@@ -1727,58 +1707,40 @@ const CreateScreen = ({ user, onCreated }) => {
         </div>
 
         {/* ── お店 ──────────────────────────────────
-            掲載店から選ぶか、自分で書くか。掲載店を選ぶと店名・エリア・
-            予算帯がその店に揃う（金額はサーバ側がカタログから写す）。 */}
+            店舗カタログから選ぶ方式は廃止した。店名もエリアもホストが
+            自由に書く。名前だけ必須（会のカード・詳細に出る）。 */}
         <div style={{ marginBottom: 17 }}>
-          <label style={labelStyle}>お店</label>
+          <label style={labelStyle}>お店の名前</label>
           <input
             value={location}
-            onChange={(e) => { setLocation(e.target.value); if (shop) clearShop(); }}
+            onChange={(e) => setLocation(e.target.value)}
             maxLength={api.LIMITS.location}
-            placeholder="例: 恵比寿 / BAR TRENCH"
+            placeholder="例: BAR TRENCH"
             style={fieldStyle}
           />
-          <button
-            type="button"
-            className="press"
-            onClick={() => setPickingShop((v) => !v)}
-            style={{
-              ...ghostBtn, width: "100%", marginTop: 9, padding: "10px 0", borderRadius: 999,
-              fontSize: 12.5, cursor: "pointer", display: "inline-flex",
-              alignItems: "center", justifyContent: "center", gap: 7,
-            }}
-          >
-            <Store size={13} strokeWidth={2} />
-            {pickingShop ? "掲載店から選ぶのをやめる" : "掲載中のお店から選ぶ"}
-          </button>
-          {shop && (
-            <div style={{ display: "flex", alignItems: "flex-start", gap: 7, marginTop: 9, fontSize: 11, color: C.textSec, lineHeight: 1.7 }}>
-              <Check size={12} strokeWidth={2.6} color={C.primaryDeep} style={{ flexShrink: 0, marginTop: 3 }} />
-              <span style={{ minWidth: 0 }}>
-                掲載店「{shop.name}」を選択中（お一人 約{Number(shop.avg_budget).toLocaleString()}円）。店名を書き換えると解除されます。
-              </span>
-            </div>
-          )}
-          {pickingShop && (
-            <div style={{ marginTop: 11 }}>
-              <Suspense fallback={<Loading label="お店を読み込み中…" />}>
-                <ShopsScreen
-                  embedded
-                  myRankKey={myRankKey}
-                  selectedId={shop?.id}
-                  onSelect={chooseShop}
-                />
-              </Suspense>
-            </div>
-          )}
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 6, marginTop: 8, fontSize: 10.5, color: C.textMuted, lineHeight: 1.7 }}>
+            <Store size={12} strokeWidth={1.9} color={C.primary} style={{ flexShrink: 0, marginTop: 2 }} />
+            <span style={{ minWidth: 0 }}>
+              行きたいお店をそのまま書いてください。予約はホストがご自身で取ってください。
+            </span>
+          </div>
         </div>
+
         <div style={{ marginBottom: 17 }}>
-          <label style={labelStyle}>エリア</label>
-          <div style={{ display: "flex", gap: 7, overflowX: "auto", paddingBottom: 4 }}>
+          <label style={labelStyle}>エリア（任意）</label>
+          <input
+            value={area}
+            onChange={(e) => setArea(e.target.value)}
+            maxLength={api.LIMITS.area}
+            placeholder="例: 恵比寿"
+            style={fieldStyle}
+          />
+          {/* よく使うエリアはタップでも入れられるようにしておく（自由入力の補助） */}
+          <div style={{ display: "flex", gap: 7, overflowX: "auto", paddingBottom: 4, marginTop: 9 }}>
             {AREAS.map((a) => {
               const on = area === a;
               return (
-                <button key={a} className="chip" onClick={() => setArea(on ? "" : a)} style={{
+                <button key={a} type="button" className="chip" onClick={() => setArea(on ? "" : a)} style={{
                   padding: "7px 15px", borderRadius: 20, fontSize: 12.5, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
                   ...(on ? { ...popBtn, borderRadius: 999 } : { background: "rgba(255,255,255,0.05)", border: `1px solid ${C.lineSoft}`, color: C.textSec }),
                 }}>{a}</button>
@@ -2518,7 +2480,7 @@ const ChatRoom = ({ user, party, onBack }) => {
 };
 
 /* ═══════════════════════════════════════════════════════ MyPage */
-const MyPageScreen = ({ user, onTerms, onSupport, onReport, onInvite, onSafety, onShops }) => {
+const MyPageScreen = ({ user, onTerms, onSupport, onReport, onInvite, onSafety }) => {
   const { toast, confirm } = useToast();
   const [profile, setProfile] = useState(null);
   const [balance, setBalance] = useState(null);
@@ -2684,7 +2646,7 @@ const MyPageScreen = ({ user, onTerms, onSupport, onReport, onInvite, onSafety, 
       {/* ランク … 相席の評価で決まる「選べるお店の予算帯」。
           本人にしか見えない（他人のランクは DB からも読めない）。 */}
       <Suspense fallback={null}>
-        <RankCard onShops={onShops} />
+        <RankCard />
       </Suspense>
 
       {/* プロフィールの充実度。承認後に相手へ伝わる中身が、どれだけ揃っているか。 */}
@@ -3056,14 +3018,6 @@ export default function App() {
       );
     }
     if (overlay === "invite") return <ReferralScreen onBack={backToApp} />;
-    if (overlay === "shops") {
-      return (
-        <>
-          <BackButton onBack={backToApp} />
-          <ShopsScreen />
-        </>
-      );
-    }
     if (overlay === "safety") {
       return (
         <SafetyScreen
@@ -3105,7 +3059,6 @@ export default function App() {
           onReport={() => { setReportTarget(null); setOverlay("report"); }}
           onInvite={() => setOverlay("invite")}
           onSafety={() => setOverlay("safety")}
-          onShops={() => setOverlay("shops")}
         />
       );
       default: return <HomeScreen user={user} onDetail={setDetailId} onCreate={() => setTab("create")} />;
