@@ -38,6 +38,8 @@ const ReferralScreen = lazy(() => import("./screens/ReferralScreen.jsx"));
 const SafetyScreen = lazy(() => import("./screens/SafetyScreen.jsx"));
 const MemberSheet = lazy(() => import("./screens/MemberSheet.jsx"));
 const ReviewSheet = lazy(() => import("./screens/ReviewSheet.jsx"));
+/* カード登録（登録ボーナス）。Stripe Elements を使うので、開くまで読み込まない。 */
+const CardRegisterSheet = lazy(() => import("./screens/CardRegisterSheet.jsx"));
 /* ランク（評価で決まる予算帯）。マイページで出す。 */
 const RankCard = lazy(() => import("./screens/RankCard.jsx"));
 
@@ -1895,7 +1897,10 @@ const CreateScreen = ({ user, onCreated }) => {
 /* ═══════════════════════════════════════════════════════ Points
    購入は Stripe Checkout に遷移して行う。
    ポイントの付与は支払い完了後にサーバ（/api/stripe/webhook）が行うため、
-   この画面から残高が増えることはない。 */
+   この画面から残高が増えることはない。
+
+   登録ボーナス 5,000pt も同じで、カードを登録したあとにサーバが付ける
+   （アカウントを作っただけでは 0pt）。まだの人にはこの画面で案内を出す。 */
 /* 変換できる最小単位。スライダーの下限でもある。 */
 const CONVERT_MIN = 100;
 
@@ -1910,10 +1915,23 @@ const PointsScreen = ({ user, checkoutResult, onCheckoutHandled, onInvite }) => 
   const [notice, setNotice] = useState("");
   /* 決済が使えるか。null = 確認中。false のあいだは「準備中」を出す。 */
   const [payEnabled, setPayEnabled] = useState(null);
+  /* カード登録が使えるか（公開可能キーが要る）。 */
+  const [cardEnabled, setCardEnabled] = useState(false);
+  /* カードを登録済みか。null = 確認中。false のときだけ案内を出す。 */
+  const [cardRegistered, setCardRegistered] = useState(null);
+  const [cardOpen, setCardOpen] = useState(false);
 
   useEffect(() => {
     let alive = true;
-    api.paymentsEnabled().then((v) => { if (alive) setPayEnabled(v); });
+    api.stripeStatus().then((s) => {
+      if (!alive) return;
+      setPayEnabled(s.enabled);
+      setCardEnabled(s.cardEnabled);
+    });
+    /* 未適用の環境（migration_card_bonus.sql 前）では案内を出さないだけにする。 */
+    api.isCardRegistered()
+      .then((v) => { if (alive) setCardRegistered(v); })
+      .catch(() => { if (alive) setCardRegistered(true); });
     return () => { alive = false; };
   }, []);
 
@@ -2034,6 +2052,41 @@ const PointsScreen = ({ user, checkoutResult, onCheckoutHandled, onInvite }) => 
             background: "none", border: "none", color: C.textMuted, cursor: "pointer", padding: 0, fontSize: 11, flexShrink: 0,
           }}>閉じる</button>
         </div>
+      )}
+
+      {/* ── 登録ボーナスの案内 ──
+          5,000pt はアカウントを作った時点では付かない。カードを登録した方に付く。
+          まだの人にだけ出す（登録済み・確認中・キー未設定のときは出さない）。 */}
+      {cardEnabled && cardRegistered === false && (
+        <button
+          className="press"
+          onClick={() => setCardOpen(true)}
+          style={{
+            width: "100%", textAlign: "left", cursor: "pointer",
+            display: "flex", alignItems: "center", gap: 12, marginBottom: 16,
+            borderRadius: 18, padding: "15px 16px",
+            background: "linear-gradient(135deg, rgba(232,201,135,0.16), rgba(168,32,58,0.13))",
+            border: `1px solid ${C.linePrimary}`,
+          }}
+        >
+          <span style={{
+            flexShrink: 0, width: 38, height: 38, borderRadius: 19,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            background: C.primaryGrad, color: "#241a06",
+            boxShadow: "0 8px 18px rgba(176,138,60,0.38)",
+          }}><CreditCard size={17} strokeWidth={2} /></span>
+
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ display: "block", fontSize: 13.5, fontWeight: 700, color: C.text, letterSpacing: 0.3 }}>
+              カードを登録して {api.SIGNUP_BONUS.toLocaleString()}pt ゲット
+            </span>
+            <span style={{ display: "block", fontSize: 11, color: C.textSec, lineHeight: 1.75, marginTop: 3 }}>
+              ご登録の時点では請求は発生しません（参加{api.SIGNUP_BONUS_SEATS}名分）
+            </span>
+          </span>
+
+          <ArrowRight size={17} strokeWidth={2} color={C.primaryDeep} style={{ flexShrink: 0 }} />
+        </button>
       )}
 
       {/* segmented tabs */}
@@ -2220,6 +2273,20 @@ const PointsScreen = ({ user, checkoutResult, onCheckoutHandled, onInvite }) => 
             );
           })}
         </div>
+      )}
+
+      {cardOpen && (
+        <Suspense fallback={null}>
+          <CardRegisterSheet
+            onClose={() => setCardOpen(false)}
+            onGranted={() => {
+              /* 案内を引っ込めてから残高を読み直す。
+                 付与そのものはサーバ側で済んでいる。 */
+              setCardRegistered(true);
+              load();
+            }}
+          />
+        </Suspense>
       )}
     </div>
   );

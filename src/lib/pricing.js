@@ -11,6 +11,7 @@
      ・JOIN_FEE_PER_PERSON → supabase の join_fee_per_person()
      ・SIGNUP_BONUS / REFERRAL_BONUS → migration_launch2.sql の
        signup_bonus() / referral_bonus()
+       （SIGNUP_BONUS は「カード登録後に付与」に変わった。下の注記を読むこと）
    ══════════════════════════════════════════════════════════════ */
 
 /* 会が成立する最小人数（ホスト側・参加側ともに）。1対1は作れない。 */
@@ -24,7 +25,14 @@ export const MIN_GROUP_SIZE = 2;
    ================================================================= */
 export const JOIN_FEE_PER_PERSON = 3800;
 
-/* 新規登録ボーナス。参加は1人あたり 3,800pt。 */
+/* 登録ボーナス。参加は1人あたり 3,800pt。
+
+   ⚠ 自動では付かない。カードを登録したあとに付与する。
+     アカウントを作っただけでは 0pt のまま（migration_card_bonus.sql で
+     handle_new_user() から付与を外した）。付けるのは grant_card_bonus() で、
+     呼ぶのは /api/stripe/webhook（setup_intent.succeeded）と
+     /api/stripe/confirm-card の2経路だけ。どちらも service_role。
+     ここに残しているのは金額の表示用（DB 側の出典は signup_bonus()）。 */
 export const SIGNUP_BONUS = 5000;
 
 /* 友達紹介ボーナス（紹介した側・された側の双方に付与）。参加1名分。 */

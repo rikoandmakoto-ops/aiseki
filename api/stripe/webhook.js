@@ -1,8 +1,13 @@
 /* =====================================================================
    POST /api/stripe/webhook
 
-   Stripe からの支払い完了通知を受けて、ポイントを付与する。
-   ポイントが増えるのはこの経路だけ（purchase_points は service_role 専用）。
+   Stripe からの通知を受けて、ポイントを付与する。
+   ポイントが増えるのはサーバ側のこの経路だけ
+   （purchase_points / grant_card_bonus は service_role 専用）。
+
+   受けるのは2種類:
+     ・支払い完了（checkout.session.completed …） → 購入したポイント
+     ・カード登録の完了（setup_intent.succeeded） → 登録ボーナス 5,000pt
 
    ・署名（Stripe-Signature）を検証できないリクエストは受け付けない。
      検証しないと、誰でもこの URL を叩いてポイントを増やせてしまう。
@@ -20,6 +25,37 @@ const PAID_EVENTS = new Set([
   "checkout.session.completed",
   "checkout.session.async_payment_succeeded",
 ]);
+
+/* カード登録の完了。5,000pt（signup_bonus）の付与はここが正規の経路。
+   付与は grant_card_bonus() 側で profiles.card_registered を使って
+   冪等にしているので、再送されても増えない。 */
+async function handleSetupIntent(event) {
+  const intent = event.data.object;
+  const userId = intent.metadata?.user_id;
+
+  if (!userId) {
+    console.error("[stripe/webhook] setup_intent に user_id がありません:", intent.id);
+    // 200 で返す。再送されても直らないため。
+    return json({ received: true, skipped: "no user_id" });
+  }
+
+  try {
+    const supabase = serviceClient();
+    const { data, error } = await supabase.rpc("grant_card_bonus", { p_user: userId });
+    if (error) throw error;
+
+    console.log(`[stripe/webhook] ${event.type} ${intent.id} → granted=${data?.granted} balance=${data?.balance}`);
+    return json({ received: true, granted: data?.granted ?? false });
+  } catch (e) {
+    if (e instanceof ConfigError) {
+      console.error("[stripe/webhook] 設定エラー:", e.message);
+      return json({ error: "not configured" }, 503);
+    }
+    // 500 を返すと Stripe が再送してくれる（付与は冪等なので二重付与にならない）
+    console.error("[stripe/webhook] カード登録ボーナスの付与に失敗:", e);
+    return json({ error: "grant failed" }, 500);
+  }
+}
 
 export async function POST(request) {
   let stripe;
@@ -46,6 +82,10 @@ export async function POST(request) {
   } catch (e) {
     console.error("[stripe/webhook] 署名の検証に失敗:", e.message);
     return json({ error: "invalid signature" }, 400);
+  }
+
+  if (event.type === "setup_intent.succeeded") {
+    return handleSetupIntent(event);
   }
 
   if (!PAID_EVENTS.has(event.type)) {

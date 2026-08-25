@@ -1530,15 +1530,123 @@ function wrapLaunch2Error(error) {
    /api が無い環境（vite dev）では HTML が返るので、
    JSON でない時点で「準備中」と判断する。
    ============================================================ */
+/* 同じ画面で2回聞かないよう、最初の1回だけ問い合わせて使い回す。 */
+let stripeStatusPromise = null;
+
+export function stripeStatus() {
+  stripeStatusPromise ??= (async () => {
+    try {
+      const res = await fetch("/api/stripe/status", { headers: { accept: "application/json" } });
+      if (!res.headers.get("content-type")?.includes("application/json")) {
+        return { enabled: false, cardEnabled: false, publishableKey: null };
+      }
+      const body = await res.json();
+      return {
+        enabled: body?.enabled === true,
+        cardEnabled: body?.cardEnabled === true,
+        publishableKey: body?.publishableKey || null,
+      };
+    } catch {
+      return { enabled: false, cardEnabled: false, publishableKey: null };
+    }
+  })();
+  return stripeStatusPromise;
+}
+
 export async function paymentsEnabled() {
-  try {
-    const res = await fetch("/api/stripe/status", { headers: { accept: "application/json" } });
-    if (!res.headers.get("content-type")?.includes("application/json")) return false;
-    const body = await res.json();
-    return body?.enabled === true;
-  } catch {
-    return false;
+  return (await stripeStatus()).enabled;
+}
+
+/* ==================== カード登録（5,000pt） ====================
+   ・カード番号はブラウザから Stripe へ直接送る（AISEKI は受け取らない）。
+   ・ポイントを付けるのはサーバだけ。ここから残高は増やせない
+     （grant_card_bonus は service_role 専用）。
+   ============================================================== */
+
+/* 自分がカードを登録済みか。他人の分は取得できない（RPC が auth.uid() で固定）。 */
+export async function isCardRegistered() {
+  const { data, error } = await supabase.rpc("my_card_registered");
+  if (error) throw wrapCardBonusError(error);
+  return data === true;
+}
+
+/* migration_card_bonus.sql が未適用のときに分かりやすいエラーへ変換する */
+function wrapCardBonusError(error) {
+  const msg = error?.message || "";
+  if (/my_card_registered|card_registered|grant_card_bonus|does not exist|schema cache/i.test(msg)) {
+    return new Error(
+      "この機能に必要なデータベースの更新がまだ適用されていません。" +
+      "supabase/migration_card_bonus.sql を実行してください。"
+    );
   }
+  return error;
+}
+
+/* Stripe.js（index.html の <script>）を待って、公開可能キーで初期化する。
+   キーはサーバ（/api/stripe/status）から受け取った値を優先する。
+   ビルド時に焼き込む VITE_ の値は、--prebuilt デプロイで
+   空のまま出てしまうことがあるため（LAUNCH.md 参照）。 */
+let stripeJs = null;
+
+export async function loadStripe(publishableKey) {
+  const key =
+    publishableKey ||
+    (await stripeStatus()).publishableKey ||
+    import.meta.env?.VITE_STRIPE_PUBLISHABLE_KEY ||
+    "";
+  if (!key) throw new Error("カード決済の準備ができていません。");
+
+  const Stripe = await waitForStripeJs();
+  stripeJs ??= Stripe(key);
+  return stripeJs;
+}
+
+function waitForStripeJs(timeoutMs = 10000) {
+  if (typeof window === "undefined") return Promise.reject(new Error("ブラウザでのみ利用できます。"));
+  if (window.Stripe) return Promise.resolve(window.Stripe);
+
+  return new Promise((resolve, reject) => {
+    const started = Date.now();
+    const timer = setInterval(() => {
+      if (window.Stripe) { clearInterval(timer); resolve(window.Stripe); return; }
+      if (Date.now() - started > timeoutMs) {
+        clearInterval(timer);
+        reject(new Error("カード入力の読み込みに失敗しました。通信環境をご確認ください。"));
+      }
+    }, 60);
+  });
+}
+
+/* /api を呼ぶ共通処理。vite dev（npm run dev）には /api が無く HTML が返るので、
+   JSON でない時点で「決済APIに届いていない」と分かる。 */
+async function callPaymentApi(path, body) {
+  const { data } = await supabase.auth.getSession();
+  const token = data?.session?.access_token;
+  if (!token) throw new Error("ログインが必要です。");
+
+  const res = await fetch(path, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+    body: JSON.stringify(body ?? {}),
+  });
+  if (!res.headers.get("content-type")?.includes("application/json")) {
+    throw new Error("決済APIに接続できませんでした。ローカルでは `vercel dev` で起動してください。");
+  }
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(payload?.error || "通信に失敗しました。");
+  return payload;
+}
+
+/* カード登録用の SetupIntent を作る。返るのは client_secret。 */
+export async function createSetupIntent() {
+  return callPaymentApi("/api/stripe/setup-intent");
+}
+
+/* 登録できたことをサーバに確かめてもらい、ボーナスを受け取る。
+   実際に付与するかどうかを決めるのはサーバ（Stripe に問い合わせて確認する）。
+   Webhook から先に付与されていれば granted=false が返る（二重には付かない）。 */
+export async function confirmCardRegistration(setupIntentId) {
+  return callPaymentApi("/api/stripe/confirm-card", { setupIntentId });
 }
 
 // Realtime 購読。unsubscribe 関数を返す。

@@ -80,6 +80,12 @@
       }
     </script>
 
+    <!-- ── Stripe.js ──
+         カード登録（Stripe Elements）で使う。カード番号は Stripe へ直接送られ、
+         AISEKI のサーバ・バンドルを通らない。そのため CDN から読む決まりになっている
+         （自前でホストすると PCI DSS の SAQ A を外れる）。 -->
+    <script src="https://js.stripe.com/v3/" async></script>
+
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
