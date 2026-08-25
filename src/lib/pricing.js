@@ -24,9 +24,8 @@ export const MIN_GROUP_SIZE = 2;
    ================================================================= */
 export const JOIN_FEE_PER_PERSON = 3800;
 
-/* 新規登録ボーナス。参加が1人あたり 3,800pt のため、
-   登録したその日にグループで参加できる額にしてある。 */
-export const SIGNUP_BONUS = 10000;
+/* 新規登録ボーナス。参加は1人あたり 3,800pt。 */
+export const SIGNUP_BONUS = 5000;
 
 /* 友達紹介ボーナス（紹介した側・された側の双方に付与）。参加1名分。 */
 export const REFERRAL_BONUS = 3800;
