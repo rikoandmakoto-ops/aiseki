@@ -14,7 +14,7 @@ import {
   C, FONT_LOGO, FONT_DISPLAY, FONT_HEAD, FONT_BODY,
   brandText, card, popBtn, ghostBtn, fieldStyle, labelStyle, Eyebrow,
   partyEmoji, TreatBadge, Tag, AvatarBubble, SectionTitle, Spinner, EmptyState,
-  Skeleton, SkeletonList,
+  Skeleton, SkeletonList, TierBadge, tierColor,
 } from "./lib/theme.jsx";
 import { ToastProvider, useToast } from "./lib/toast.jsx";
 import InstallCard from "./screens/InstallCard.jsx";
@@ -160,6 +160,26 @@ const BudgetTag = ({ party }) => {
       border: `1px solid ${C.linePrimary}`,
     }}>
       <Wallet size={11} strokeWidth={2} />{label}
+    </span>
+  );
+};
+
+/* 会が参加者に求めるランク。条件の無い会（既定）では何も出さない。
+   ⚠ これは【会の条件】であって、主催者個人のランクの表示ではない。
+     個人のランクが見えるのは、参加が承認されたメンバーの
+     プロフィール（MemberSheet）だけ。 */
+const GuestTierTag = ({ party }) => {
+  const label = api.guestTierLabel(party);
+  if (!label) return null;
+  const c = tierColor(party.min_guest_tier);
+  return (
+    <span style={{
+      display: "inline-flex", alignItems: "center", gap: 5,
+      padding: "3px 10px", borderRadius: 999, whiteSpace: "nowrap",
+      fontSize: 10.5, fontWeight: 700, letterSpacing: 0.3,
+      color: c.fg, background: c.bg, border: `1px solid ${c.line}`,
+    }}>
+      <Star size={11} strokeWidth={2} />{label}以上
     </span>
   );
 };
@@ -331,6 +351,7 @@ const FeaturedCard = ({ p, onTap }) => (
         <Tag>ホスト側 {groupSizes(p).host}名</Tag>
         <Tag>募集 {groupSizes(p).guest}名グループ</Tag>
         <BudgetTag party={p} />
+        <GuestTierTag party={p} />
       </div>
       {/* ホストグループの飲みスタイル（当日の温度感が先に伝わる） */}
       <div style={{ marginTop: 9 }}>
@@ -372,6 +393,7 @@ const PartyCard = ({ p, onTap }) => {
       <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 12, alignItems: "center" }}>
         {tags.map((t) => <Tag key={t}>{t}</Tag>)}
         <BudgetTag party={p} />
+        <GuestTierTag party={p} />
       </div>
       {(p.host_drinking_style?.length ?? 0) > 0 && (
         <div style={{ marginBottom: 12 }}>
@@ -602,17 +624,25 @@ const HomeScreen = ({ user, onDetail, onCreate }) => {
             return (
               <div key={r.id} className="rise" style={{ ...card, padding: 16, marginBottom: 10, animationDelay: `${i * 60}ms`,
                 background: "linear-gradient(135deg, rgba(168,32,58,0.30), rgba(232,201,135,0.07))", border: `1px solid ${C.linePrimary}` }}>
-                {/* 承認前に表示するのは代表者のニックネームとグループ人数のみ。
-                    顔写真・年齢などのプロフィールは承認後にのみ閲覧できる。 */}
+                {/* 承認前に表示するのは代表者のニックネーム・グループ人数・
+                    代表者のランク（4段階の区分）のみ。顔写真・年齢などの
+                    プロフィールは承認後にのみ閲覧できる。
+                    ⚠ ランクは区分だけ。平均点・件数はホストにも出さない
+                      （list_incoming_request_ranks() も区分しか返さない）。 */}
                 <div style={{ display: "flex", alignItems: "center", gap: 11, marginBottom: 11 }}>
                   <AvatarBubble size={44}><UsersRound size={20} strokeWidth={1.7} color={C.primary} /></AvatarBubble>
-                  <div style={{ minWidth: 0 }}>
+                  <div style={{ minWidth: 0, flex: 1 }}>
                     <div style={{ fontSize: 13.5, color: C.text, lineHeight: 1.5 }}>
                       <b style={{ color: C.primaryDeep, fontWeight: 700 }}>{r.applicant_name || "ゲスト"}</b>
                       <span style={{ color: C.textMuted, fontSize: 11.5 }}> さんのグループ（{size}名）</span>
                     </div>
                     <div style={{ fontSize: 11.5, color: C.textSec }}>「{r.party?.title}」への参加希望</div>
                   </div>
+                  {r.rank && (
+                    <span style={{ flexShrink: 0 }}>
+                      <TierBadge tierKey={r.rank.tier_key} label={r.rank.tier_label} size="sm" />
+                    </span>
+                  )}
                 </div>
                 <div style={{ fontSize: 11.5, color: C.textSec, marginBottom: 7, display: "inline-flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
                   <Gem size={12} strokeWidth={1.8} color={C.primary} /> このグループが <b style={{ color: C.primaryDeep }}>{feeText(size)}pt</b> を支払います
@@ -716,6 +746,9 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
   const [myReviews, setMyReviews] = useState([]);         // この会で自分が書いた評価
   const [canApproach, setCanApproach] = useState(false);  // アプローチを送れるか（DBが判定）
   const [myApproaches, setMyApproaches] = useState([]);   // この会へ自分が送ったメッセージ
+  /* この会が求めるランクを満たしているか（DBが判定。null = まだ聞いていない）。
+     画面の出し分けにしか使わない。実際の可否は enforce_group_join が決める。 */
+  const [canJoinRank, setCanJoinRank] = useState(null);
   const [approachText, setApproachText] = useState("");
   const [sendingApproach, setSendingApproach] = useState(false);
 
@@ -745,6 +778,7 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
          （相手が書いた評価は取得できない） */
       setCanApproach(false);
       setMyApproaches([]);
+      setCanJoinRank(null);
       if (api.partyIsOver(p)) {
         try { setMyReviews(await api.listMyReviews(partyId)); }
         catch (e) { console.error(e); setMyReviews([]); }
@@ -766,6 +800,14 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
         console.error(e);
         setCanApproach(false);
         setMyApproaches([]);
+      }
+      /* ランクの条件は別に聞く（上が失敗しても、こちらは出したい）。
+         条件の無い会（既定）ではそもそも呼ばない。 */
+      if (api.hasGuestTierGate(p?.min_guest_tier)) {
+        try { setCanJoinRank(await api.canJoinParty(partyId)); }
+        catch (e) { console.error(e); setCanJoinRank(null); }
+      } else {
+        setCanJoinRank(true);
       }
     }
   }, [partyId, user.id]);
@@ -932,7 +974,16 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
     ...(api.budgetLabel(party)
       ? [{ label: "お店の予算", value: api.budgetLabel(party).replace(/^お一人\s*/, ""), icon: Store }]
       : []),
+    // 参加条件（ランク）。条件の無い会には出さない。
+    ...(api.guestTierLabel(party)
+      ? [{ label: "参加条件", value: `${api.guestTierLabel(party)}以上のランク`, icon: Star }]
+      : []),
   ];
+
+  /* ランクが足りずに申し込めない会。案内は出すが、押せる状態にはしない
+     （押しても DB のトリガーが弾くので、先に理由を見せる）。 */
+  const rankLocked = !isHost && !isMember && canJoinRank === false;
+  const gateTierLabel = api.guestTierLabel(party);
 
   return (
     <div style={{ padding: "0 20px 24px" }}>
@@ -1222,7 +1273,29 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
             </div>
           )}
 
-          {!cancelled && !isHost && !isMember && reqStatus !== "accepted" && reqStatus !== "pending" && !isFull && (
+          {/* ランクの条件を満たしていない会。申し込みの手前で理由を出す。
+              「相手が誰か」ではなく「この会の条件」として書く。 */}
+          {rankLocked && !cancelled && reqStatus !== "accepted" && reqStatus !== "pending" && (
+            <div style={{
+              display: "flex", gap: 11, alignItems: "flex-start", marginBottom: 18,
+              borderRadius: 16, padding: "14px 16px",
+              background: tierColor(party.min_guest_tier).bg,
+              border: `1px solid ${tierColor(party.min_guest_tier).line}`,
+            }}>
+              <Lock size={16} strokeWidth={1.9} color={tierColor(party.min_guest_tier).fg} style={{ flexShrink: 0, marginTop: 2 }} />
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: C.text, letterSpacing: 0.3 }}>
+                  この会は{gateTierLabel}以上のランクの方が対象です
+                </div>
+                <div style={{ fontSize: 11.5, color: C.textSec, lineHeight: 1.75, marginTop: 3 }}>
+                  ランクは、相席した会の終了後に受け取る評価の平均で上がります。
+                  条件のついていない会から参加すると、評価が集まってランクが上がります。
+                </div>
+              </div>
+            </div>
+          )}
+
+          {!cancelled && !isHost && !isMember && !rankLocked && reqStatus !== "accepted" && reqStatus !== "pending" && !isFull && (
             <>
               {/* 参加は必ずグループ単位（2名以上） */}
               <div style={{ marginBottom: 14 }}>
@@ -1332,6 +1405,14 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
             <div style={{ ...ghostBtn, width: "100%", padding: "15px 0", borderRadius: 999, fontSize: 14, textAlign: "center", cursor: "default", color: C.textMuted }}>
               グループで参加できる枠が埋まりました
             </div>
+          ) : rankLocked ? (
+            <div style={{
+              ...ghostBtn, width: "100%", padding: "15px 0", borderRadius: 999, fontSize: 14, textAlign: "center",
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+              cursor: "default", color: C.textMuted,
+            }}>
+              <Lock size={15} strokeWidth={2} /> {gateTierLabel}以上のランクで申し込めます
+            </div>
           ) : !enough ? (
             <button className="press" onClick={onGoPoints} style={{
               ...popBtn, width: "100%", padding: "15px 0", borderRadius: 999, fontSize: 15,
@@ -1417,6 +1498,10 @@ const CreateScreen = ({ user, onCreated }) => {
   const [budgetTier, setBudgetTier] = useState(api.DEFAULT_RANK_KEY);
   const [shop, setShop] = useState(null);       // カタログから選んだお店（任意）
   const [pickingShop, setPickingShop] = useState(false);
+  /* 参加者に求めるランク。既定は最下位＝誰でも申し込める。
+     ⚠ 参加条件にできるのはランクだけ。性別・年齢その他の属性を
+       条件にする項目は作らないこと（src/lib/legal.js 第3条・第9条の4）。 */
+  const [minGuestTier, setMinGuestTier] = useState(api.DEFAULT_GUEST_TIER);
 
   useEffect(() => {
     let alive = true;
@@ -1465,6 +1550,7 @@ const CreateScreen = ({ user, onCreated }) => {
         title: title.trim(),
         shop_id: shop?.id ?? null,
         budget_tier: budgetTier,
+        min_guest_tier: minGuestTier,
         location: location.trim() || null,
         area: area.trim() || null,
         host_group_size: hostGroup,
@@ -1583,8 +1669,59 @@ const CreateScreen = ({ user, onCreated }) => {
                 : <>
                     いまのランクは<b style={{ color: C.primaryDeep, fontWeight: 700 }}>{rank?.tier_label ?? "—"}</b>です。
                     会の終了後に相席した方から受け取る評価の平均で上がります。
-                    ランクは他のユーザーには表示されません。
+                    ランクの名前は、参加が決まったメンバーには表示されます（平均点は表示されません）。
                   </>}
+            </span>
+          </div>
+        </div>
+
+        {/* ── 参加者に求めるランク ──────────────────────
+            会に条件を1つだけ付けられる。既定は「条件なし」。
+            ⚠ 条件にできるのはランクだけ。性別・年齢その他の属性で
+              絞る項目をここに足さないこと（インターネット異性紹介事業に
+              該当しないための前提が崩れる。src/lib/legal.js 第3条）。
+            ⚠ 出し分けは案内にすぎない。実際の判定は DB 側
+              （enforce_group_join）が改めて行う。 */}
+        <div style={{ marginBottom: 17 }}>
+          <label style={labelStyle}>参加する方に求めるランク</label>
+          <div style={{ display: "grid", gap: 7 }}>
+            {api.RANK_TIERS.map((t, i) => {
+              const on = minGuestTier === t.key;
+              const open = i === 0;
+              return (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => setMinGuestTier(t.key)}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 10, textAlign: "left",
+                    padding: "11px 14px", borderRadius: 14, cursor: "pointer",
+                    ...(on ? { ...popBtn, borderRadius: 14 } : { ...ghostBtn, borderRadius: 14 }),
+                  }}
+                >
+                  <span style={{ flexShrink: 0, display: "flex" }}>
+                    {open ? <UsersRound size={14} strokeWidth={2.2} /> : <Star size={13} strokeWidth={2.2} />}
+                  </span>
+                  <span style={{ minWidth: 0, flex: 1 }}>
+                    <span style={{ display: "block", fontSize: 13, fontWeight: 700 }}>
+                      {open ? "条件なし（どなたでも）" : `${t.label}以上の方`}
+                    </span>
+                    <span style={{ display: "block", fontSize: 10.5, fontWeight: 500, lineHeight: 1.6, marginTop: 2, opacity: 0.85 }}>
+                      {open
+                        ? "いちばん多くの方に届きます"
+                        : `${t.label}未満の方は申し込めなくなります`}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 6, marginTop: 9, fontSize: 10.5, color: C.textMuted, lineHeight: 1.7 }}>
+            <UsersRound size={12} strokeWidth={1.9} color={C.primary} style={{ flexShrink: 0, marginTop: 2 }} />
+            <span style={{ minWidth: 0 }}>
+              ランクは、相席した方から受け取った評価の平均で決まります。
+              条件を上げるほど申し込みは少なくなります。
+              <b style={{ color: C.textSec, fontWeight: 700 }}>性別で参加者を絞ることはできません。</b>
             </span>
           </div>
         </div>
@@ -2679,7 +2816,7 @@ const readTabParam = () => {
   return TAB_KEYS.includes(v) ? v : null;
 };
 
-/* 広告用のランディングページ（/lp/women · /lp/men）からの導線。
+/* 広告用のランディングページ（/lp/host · /lp/guest）からの導線。
    CTA は /?auth=signup で来るので、サービス紹介を飛ばして
    いきなり登録フォームを開く。?auth=login ならログイン。
    同時に付いてくる ?from=... は、どのLPから来たかの印（動作には影響しない）。

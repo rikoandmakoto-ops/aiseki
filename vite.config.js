@@ -11,12 +11,18 @@ export default defineConfig({
     rollupOptions: {
       /* ページは3つ。アプリ本体（index.html）と、広告用のLP2枚。
          LP はアプリのバンドル（supabase・認証）を読み込まない別ページなので、
-         ここでエントリを分ける。出力は dist/lp/women.html · dist/lp/men.html。
-         Vercel では /lp/women · /lp/men で開ける（vercel.json の rewrites）。 */
+         ここでエントリを分ける。出力は dist/lp/host.html · dist/lp/guest.html。
+         Vercel では /lp/host · /lp/guest で開ける（vercel.json の rewrites）。
+
+         ⚠ ファイル名は「募集する側（host）／参加する側（guest）」で付ける。
+           広告の宛先は分けているが、URL も含めてページ上に性別を出さない
+           （HANDOFF.md §10 の文言の約束と揃える）。
+           旧 URL（/lp/women · /lp/men）は vercel.json の redirects で
+           恒久リダイレクトしてある。 */
       input: {
         main: resolve(ROOT, "index.html"),
-        lpWomen: resolve(ROOT, "lp/women.html"),
-        lpMen: resolve(ROOT, "lp/men.html"),
+        lpHost: resolve(ROOT, "lp/host.html"),
+        lpGuest: resolve(ROOT, "lp/guest.html"),
       },
       output: {
         // 依存ライブラリはアプリ本体と分けておく。

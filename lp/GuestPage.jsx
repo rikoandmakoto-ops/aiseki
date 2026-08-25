@@ -27,7 +27,7 @@ import {
   signupUrl, panel, RULE, RULE_SOFT,
 } from "./LpKit.jsx";
 
-const FROM = "lp-men";
+const FROM = "lp-guest";
 const CTA = "相席を始める";
 const CTA_HREF = signupUrl(FROM);
 
@@ -191,7 +191,7 @@ const PointTable = () => (
   </div>
 );
 
-export default function MenPage() {
+export default function GuestPage() {
   return (
     <LpPage>
       <LpHeader tagline="グループで行く相席" ctaLabel={CTA} ctaHref={CTA_HREF} />

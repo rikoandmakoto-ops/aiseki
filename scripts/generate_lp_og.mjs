@@ -11,8 +11,8 @@
      node scripts/generate_lp_og.mjs
 
    生成されるもの:
-     public/og-women.png   … /lp/women 用（1200x630）
-     public/og-men.png     … /lp/men 用（1200x630）
+     public/og-host.png   … /lp/host 用（1200x630）
+     public/og-guest.png     … /lp/guest 用（1200x630）
    ===================================================================== */
 import { execFileSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
@@ -151,13 +151,13 @@ def og(path, glow, glow_x, eyebrow, line1, line2, sub, badges):
     img.save(path, "PNG", optimize=True)
     print("wrote", path)
 
-og(os.path.join(OUT, "og-women.png"), ROSE, 0.86,
+og(os.path.join(OUT, "og-host.png"), ROSE, 0.86,
    "F O R   H O S T   G R O U P S",
    "今夜のごはんは、", "ぜんぶ、おごられる。",
    "友だちと2名以上で会を立てるだけ。参加ポイントは0pt。",
    ["登録無料", "ポイント不要", "グループ限定", "20歳以上限定"])
 
-og(os.path.join(OUT, "og-men.png"), WINE, 0.14,
+og(os.path.join(OUT, "og-guest.png"), WINE, 0.14,
    "F O R   G U E S T   G R O U P S",
    "相席で、出会う。", "グループだから、気軽に。",
    "募集中の会にリクエスト。参加は1名あたり一律3,800pt。",

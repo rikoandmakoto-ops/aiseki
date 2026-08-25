@@ -15,14 +15,14 @@
   <!-- 広告用のランディングページ（募集する側／参加する側）。
        アプリ本体とは別ページで、検索からも入ってきてよい。 -->
   <url>
-    <loc>https://aisekimatch.com/lp/women</loc>
-    <lastmod>2026-08-22</lastmod>
+    <loc>https://aisekimatch.com/lp/host</loc>
+    <lastmod>2026-08-25</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://aisekimatch.com/lp/men</loc>
-    <lastmod>2026-08-22</lastmod>
+    <loc>https://aisekimatch.com/lp/guest</loc>
+    <lastmod>2026-08-25</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>

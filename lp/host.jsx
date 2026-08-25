@@ -3,11 +3,11 @@
    ここで読み込むのは React とこのページだけ（supabase は入れない）。 */
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import WomenPage from "./WomenPage.jsx";
+import HostPage from "./HostPage.jsx";
 import "../src/index.css";
 
 createRoot(document.getElementById("root")).render(
   <StrictMode>
-    <WomenPage />
+    <HostPage />
   </StrictMode>
 );

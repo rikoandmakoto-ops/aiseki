@@ -49,9 +49,17 @@
       "headers": [{ "key": "Cache-Control", "value": "no-store, max-age=0" }]
     }
   ],
+  "redirects": [
+    { "source": "/lp/women", "destination": "/lp/host", "permanent": true },
+    { "source": "/lp/men", "destination": "/lp/guest", "permanent": true },
+    { "source": "/lp/women.html", "destination": "/lp/host", "permanent": true },
+    { "source": "/lp/men.html", "destination": "/lp/guest", "permanent": true },
+    { "source": "/og-women.png", "destination": "/og-host.png", "permanent": true },
+    { "source": "/og-men.png", "destination": "/og-guest.png", "permanent": true }
+  ],
   "rewrites": [
-    { "source": "/lp/women", "destination": "/lp/women.html" },
-    { "source": "/lp/men", "destination": "/lp/men.html" },
+    { "source": "/lp/host", "destination": "/lp/host.html" },
+    { "source": "/lp/guest", "destination": "/lp/guest.html" },
     {
       "source": "/(.*)",
       "destination": "/"

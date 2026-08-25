@@ -27,7 +27,7 @@ import {
   signupUrl, panel, RULE, RULE_SOFT,
 } from "./LpKit.jsx";
 
-const FROM = "lp-women";
+const FROM = "lp-host";
 const CTA = "無料で始める";
 const CTA_HREF = signupUrl(FROM);
 
@@ -153,7 +153,7 @@ const BillCard = () => (
   </div>
 );
 
-export default function WomenPage() {
+export default function HostPage() {
   return (
     <LpPage>
       <LpHeader tagline="おごられる側の相席" ctaLabel={CTA} ctaHref={CTA_HREF} />
