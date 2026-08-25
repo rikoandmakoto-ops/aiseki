@@ -3,7 +3,7 @@ import {
   X, Crown, User, Utensils, Wine, Briefcase, MapPin, Ban, ShieldAlert, Lock,
 } from "lucide-react";
 import * as api from "../lib/api.js";
-import { C, FONT_HEAD, FONT_BODY, ghostBtn, Tag } from "../lib/theme.jsx";
+import { C, FONT_HEAD, FONT_BODY, ghostBtn, Tag, TierBadge } from "../lib/theme.jsx";
 import { useToast } from "../lib/toast.jsx";
 
 /* ══════════════════════════════════════════════════════════════
@@ -160,7 +160,10 @@ export default function MemberSheet({ member, isSelf, onClose, onBlocked, onRepo
             </div>
           )}
 
-          {/* ── 名前・年齢 ── */}
+          {/* ── 名前・年齢・ランク ──
+              ランクの区分だけは、同じ会に参加が承認されたメンバーに見える
+              （profiles の列単位 SELECT 権限に rank_tier だけを足してある）。
+              ⚠ 平均点・件数は本人だけのもので、ここには絶対に出さない。 */}
           <div style={{ textAlign: "center", marginBottom: 16 }}>
             <div style={{ fontFamily: FONT_HEAD, fontSize: 21, fontWeight: 600, color: C.text, letterSpacing: 0.5 }}>{name}</div>
             <div style={{ fontSize: 12, color: C.textSec, marginTop: 4, letterSpacing: 0.4 }}>
@@ -168,6 +171,11 @@ export default function MemberSheet({ member, isSelf, onClose, onBlocked, onRepo
                 : [profile.age ? `${profile.age}歳` : null, member.role === "host" ? "ホスト" : member.side === "guest" ? "参加グループ" : null]
                   .filter(Boolean).join(" · ") || "メンバー"}
             </div>
+            {claimed && profile.rank_tier && (
+              <div style={{ marginTop: 9, display: "flex", justifyContent: "center" }}>
+                <TierBadge tierKey={profile.rank_tier} label={api.rankTier(profile.rank_tier).label} size="sm" />
+              </div>
+            )}
           </div>
 
           {!claimed ? (

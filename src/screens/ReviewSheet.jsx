@@ -140,9 +140,10 @@ export default function ReviewSheet({ member, party, existing, onClose, onSaved 
               この評価は<b style={{ color: C.text, fontWeight: 700 }}>相手には表示されません</b>。
               点数もコメントも、あなたが評価したことも相手には伝わりません。
               <br />
-              ただし、受け取った評価の<b style={{ color: C.text, fontWeight: 700 }}>平均点</b>は、
-              その方が会を主催するときに選べるお店の予算帯（ランク）に反映されます。
-              相手に見えるのはこの平均点だけで、誰がどう付けたかは分かりません。
+              ただし、受け取った評価の平均は、その方の
+              <b style={{ color: C.text, fontWeight: 700 }}>ランク</b>に反映されます。
+              ランクは、主催するときに選べるお店の予算帯と、申し込める会の範囲を決めるものです。
+              平均点そのものはご本人だけが確認でき、誰がどう付けたかは誰にも分かりません。
             </div>
           </div>
 

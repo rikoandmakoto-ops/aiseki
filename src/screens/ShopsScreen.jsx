@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
 import { Lock, Store, MapPin, Check } from "lucide-react";
 import * as api from "../lib/api.js";
-import { C, FONT_HEAD, FONT_DISPLAY, card, SectionTitle, Eyebrow, EmptyState, SkeletonList } from "../lib/theme.jsx";
-import { TierBadge, tierColor } from "./RankCard.jsx";
+import {
+  C, FONT_HEAD, FONT_DISPLAY, card, SectionTitle, Eyebrow, EmptyState, SkeletonList,
+  TierBadge, tierColor,
+} from "../lib/theme.jsx";
 
 /* ══════════════════════════════════════════════════════════════
    お店の一覧（ランクごとの予算帯つき）

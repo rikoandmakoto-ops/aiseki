@@ -18,6 +18,9 @@ import {
   rankForReviews,
   budgetTierFor,
   canUseBudgetTier,
+  DEFAULT_GUEST_TIER,
+  canJoinWithTier,
+  hasGuestTierGate,
 } from "./pricing.js";
 
 /* =====================================================================
@@ -55,6 +58,9 @@ export {
   rankForReviews,
   budgetTierFor,
   canUseBudgetTier,
+  DEFAULT_GUEST_TIER,
+  canJoinWithTier,
+  hasGuestTierGate,
 };
 
 /* 飲みスタイルタグの値だけの配列（保存前の絞り込みに使う） */
@@ -787,10 +793,13 @@ export async function getParty(id) {
    PostgREST が「関係を特定できない」（PGRST201）で失敗する。
    重複そのものは migration_launch.sql で解消するが、
    未適用の環境でも動くよう、こちら側でも関係を一意に指定しておく。 */
+/* rank_tier（4段階の区分）は 2026-08-25 から同じ会のメンバーにだけ見える。
+   平均点・件数（review_average / review_count）は本人だけなので、
+   ここに足さないこと（DB 側の列単位 SELECT 権限にも入っていない）。 */
 const MEMBER_PROFILE =
   "profiles!party_members_user_id_fkey(" +
   "id, username, avatar_url, age, bio, photos, hobbies, " +
-  "favorite_food, favorite_drink, occupation, home_area, drinking_style)";
+  "favorite_food, favorite_drink, occupation, home_area, drinking_style, rank_tier)";
 
 export async function getPartyMembers(partyId) {
   const { data, error } = await supabase
@@ -861,6 +870,9 @@ export async function createParty(hostId, fields) {
       title,
       shop_id: fields.shop_id || null,
       budget_tier: fields.budget_tier || DEFAULT_RANK_KEY,
+      /* 参加者に求めるランク。既定は最下位＝誰でも申し込める。
+         性別その他の属性を参加条件にすることはできない（ランクだけ）。 */
+      min_guest_tier: fields.min_guest_tier || DEFAULT_GUEST_TIER,
       location: trimTo(fields.location, LIMITS.location),
       host_group_size: hostGroup,
       guest_group_size: guestGroup,
@@ -868,7 +880,7 @@ export async function createParty(hostId, fields) {
     })
     .select()
     .single();
-  if (error) throw wrapSchemaError(error);
+  if (error) throw wrapSchemaError(wrapMutualRankError(error));
   return data;
 }
 
@@ -901,8 +913,24 @@ export async function sendJoinRequest(userId, partyId, groupSize, memberNames) {
     })
     .select("id, status, group_size")
     .single();
-  if (error) throw wrapSchemaError(error);
+  /* ランクが足りないときの文言は DB のトリガーが日本語で返すので、
+     そのまま画面に出す（wrapSchemaError の分岐には掛からない）。 */
+  if (error) throw wrapSchemaError(wrapMutualRankError(error));
   return data;
+}
+
+/* この会に自分が申し込めるか（会が参加者に求めるランクを満たしているか）。
+   引数は会だけ。DB 側は auth.uid() に固定されていて、他人については判定できない。 */
+export async function canJoinParty(partyId) {
+  const { data, error } = await supabase.rpc("can_join_party", { p_party: partyId });
+  if (error) throw wrapMutualRankError(error);
+  return data === true;
+}
+
+/* 会が参加者に求めるランクの表示。条件が無い会（最下位）では null を返す。 */
+export function guestTierLabel(party) {
+  if (!party || !hasGuestTierGate(party.min_guest_tier)) return null;
+  return rankTier(party.min_guest_tier).label;
 }
 
 // この会への自分のリクエスト状態を取得（未送信なら null）
@@ -919,8 +947,13 @@ export async function getMyJoinRequest(userId, partyId) {
 }
 
 // 自分がホストの会に届いた参加リクエスト（受信箱）
-// 承認前に閲覧できるのは「代表者のニックネーム」と「グループ人数」のみ。
-// 顔写真・年齢・性別などの個人情報は承認後にのみ参照できる。
+// 承認前に閲覧できるのは「代表者のニックネーム」「グループ人数」
+// 「代表者のランク（4段階の区分）」のみ。
+// 顔写真・年齢・性別・評価の平均点は承認後も／承認後でさえ参照できない。
+//
+// ランクは join_requests には無い（profiles にあり、申請者はまだ会のメンバー
+// ではないので profiles_select でも読めない）。ホストにだけ区分を返す
+// list_incoming_request_ranks() で補い、上位のランクから並べる。
 export async function listIncomingRequests(userId) {
   const { data: myParties, error: pErr } = await supabase
     .from("parties")
@@ -937,7 +970,32 @@ export async function listIncomingRequests(userId) {
     .eq("status", "pending")
     .order("created_at", { ascending: false });
   if (error) throw error;
-  return data ?? [];
+  const rows = data ?? [];
+  if (rows.length === 0) return rows;
+
+  /* ランクが引けなくても受信箱そのものは出す（承認を止めない）。
+     migration_mutual_rank.sql が未適用の環境でも動くようにしておく。 */
+  let ranks = new Map();
+  try {
+    const { data: rankRows, error: rErr } = await supabase.rpc("list_incoming_request_ranks");
+    if (!rErr) ranks = new Map((rankRows ?? []).map((r) => [r.request_id, r]));
+  } catch { /* ランクなしで続行する */ }
+
+  return rows
+    .map((r) => {
+      const hit = ranks.get(r.id);
+      return {
+        ...r,
+        rank: hit
+          ? { tier_key: hit.tier_key, tier_label: hit.tier_label, tier_order: hit.tier_order }
+          : null,
+      };
+    })
+    /* ランクの高い順 → 同じなら申し込みが新しい順 */
+    .sort((a, b) =>
+      (b.rank?.tier_order ?? 0) - (a.rank?.tier_order ?? 0) ||
+      String(b.created_at).localeCompare(String(a.created_at))
+    );
 }
 
 // 参加リクエストへの応答。承認時に参加者→ホストへポイント移動（RPC）。
@@ -1122,20 +1180,26 @@ export async function listReviewableParties(userId) {
 }
 
 /* ==================== ランクと予算帯（お店） ====================
-   受け取った評価の平均星数で、会を主催するときに選べる
-   お店の予算帯が決まる（RANK_TIERS）。
+   受け取った評価の平均星数でランクが決まる（RANK_TIERS）。
+   ランクは主催する側にも参加する側にも効く。
 
-   ⚠ 性別では分けていない。規則は全ユーザー共通で、
-     「評価を受け取った人のランクが上がる」「主催者のランクで
-     選べる予算帯が決まる」の2つだけ。理由は
-     supabase/migration_caste_rank.sql の冒頭に書いてある。
+     ・主催するとき … 選べるお店の予算帯の上限
+     ・参加するとき … 申し込める会（会ごとの min_guest_tier）
 
-   ⚠ 見えるのは自分のランクだけ。他人のランク・平均点は
-     どの経路からも取得できない（profiles の列単位 SELECT 権限から
-     外してあり、my_rank() は auth.uid() に固定されている）。
+   ⚠ 性別では分けていない。評価も最初から双方向で、同じ会にいた相手なら
+     誰から誰へでも書ける。規則は全ユーザー共通。理由は
+     supabase/migration_caste_rank.sql と migration_mutual_rank.sql の冒頭。
+
+   ⚠ 見え方（2026-08-25 に一段だけ変えた）:
+     ・rank_tier（4段階の区分）は【同じ会に参加が承認されたメンバー】に
+       見える。氏名・写真・年齢と同じ範囲で、一覧には出ない。
+     ・平均点・件数（review_average / review_count）は【本人だけ】。
+       profiles の列単位 SELECT 権限に入っておらず、my_rank() は
+       auth.uid() に固定されている。ここは絶対に開けないこと。
+     ・個別の評価（点数・コメント・誰が付けたか）は今までどおり誰にも見えない。
    =============================================================== */
 
-/* 自分のランク。引数は取らない（他人のランクは引けない）。 */
+/* 自分のランク。引数は取らない（他人の平均点は引けない）。 */
 export async function getMyRank() {
   const { data, error } = await supabase.rpc("my_rank");
   if (error) throw wrapRankError(error);
@@ -1191,6 +1255,18 @@ function wrapRankError(error) {
     return new Error(
       "この機能に必要なデータベースの更新がまだ適用されていません。" +
       "supabase/migration_caste_rank.sql を実行してください。"
+    );
+  }
+  return error;
+}
+
+/* migration_mutual_rank.sql が未適用のときに分かりやすいエラーへ変換する */
+function wrapMutualRankError(error) {
+  const msg = error?.message || "";
+  if (/can_join_party|min_guest_tier|list_incoming_request_ranks|schema cache/i.test(msg)) {
+    return new Error(
+      "この機能に必要なデータベースの更新がまだ適用されていません。" +
+      "supabase/migration_mutual_rank.sql を実行してください。"
     );
   }
   return error;

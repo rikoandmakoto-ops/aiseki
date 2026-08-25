@@ -138,6 +138,35 @@ export const TreatBadge = () => (
   }}>◆ ゲストのおごり</span>
 );
 
+/* ランクの札。マイページ・お店の一覧・会のカード・メンバーのプロフィールと
+   広い範囲で使うので、部品はここに置く（RankCard は遅延読み込みなので、
+   そこから import すると出したいだけの札のために画面ごと引きずり込む）。
+
+   ⚠ 出してよいのは「区分の名前」だけ。平均点・件数は本人のものなので、
+     このバッジの隣に添えないこと（DB 側でも他人からは読めない）。
+   ランクごとの色。金一色だと段差が出ないので、下位ほど彩度を落とす。 */
+const TIER_COLOR = {
+  bronze:   { fg: "#c98f63", line: "rgba(201,143,99,0.42)",  bg: "rgba(201,143,99,0.10)" },
+  silver:   { fg: "#c7ced8", line: "rgba(199,206,216,0.40)", bg: "rgba(199,206,216,0.10)" },
+  gold:     { fg: C.primaryDeep, line: C.linePrimary,        bg: "rgba(232,201,135,0.12)" },
+  platinum: { fg: "#eae4f2", line: "rgba(234,228,242,0.50)", bg: "rgba(234,228,242,0.13)" },
+};
+export const tierColor = (key) => TIER_COLOR[key] ?? TIER_COLOR.bronze;
+
+export const TierBadge = ({ tierKey, label, size = "md" }) => {
+  const c = tierColor(tierKey);
+  const sm = size === "sm";
+  return (
+    <span style={{
+      display: "inline-flex", alignItems: "center", gap: 5,
+      padding: sm ? "3px 9px" : "5px 13px", borderRadius: 999,
+      fontSize: sm ? 10.5 : 12, fontWeight: 700, letterSpacing: 0.6,
+      color: c.fg, background: c.bg, border: `1px solid ${c.line}`,
+      whiteSpace: "nowrap",
+    }}>{label}</span>
+  );
+};
+
 export const Tag = ({ children }) => (
   <span style={{
     fontSize: 11, fontWeight: 400, color: C.textSec, whiteSpace: "nowrap", letterSpacing: 0.4,

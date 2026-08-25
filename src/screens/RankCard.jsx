@@ -1,42 +1,31 @@
 import { useState, useEffect, useCallback } from "react";
-import { Star, Lock, Store, ChevronRight, Wallet, TrendingUp } from "lucide-react";
+import { Star, Lock, Store, ChevronRight, Wallet, TrendingUp, Crown, DoorOpen } from "lucide-react";
 import * as api from "../lib/api.js";
-import { C, FONT_HEAD, FONT_DISPLAY, FONT_BODY, brandText, card, Eyebrow, Spinner } from "../lib/theme.jsx";
+import {
+  C, FONT_HEAD, FONT_DISPLAY, FONT_BODY, brandText, card, Eyebrow, Spinner,
+  TierBadge, tierColor,
+} from "../lib/theme.jsx";
+
+/* 札そのものは theme.jsx に移した（App.jsx など、遅延読み込みでない場所からも
+   使うため）。既存の import 経路を壊さないよう、ここからも出しておく。 */
+export { TierBadge, tierColor };
 
 /* ══════════════════════════════════════════════════════════════
-   ランク（会の終了後に受け取った評価で決まる予算帯）
+   ランク（会の終了後に受け取った評価で決まる）
 
-   ・見えるのは自分のランクだけ。他のユーザーのランク・平均点は
-     どの画面からも見えない（DB の列単位 SELECT 権限で遮断）。
+   ランクは主催する側にも参加する側にも効くので、両方をここに出す。
+     ・主催するとき … 選べるお店の予算帯
+     ・参加するとき … 申し込める会（会ごとの参加条件）
+
+   ・平均点・件数を見られるのは本人だけ（DB の列単位 SELECT 権限で遮断）。
    ・個別の評価（誰がいくつ付けたか・コメント）は、これまでどおり
-     本人にも表示しない。ここに出るのは平均点と件数だけ。
+     本人にも相手にも表示しない。
+   ・ランクの区分（ブロンズ〜プラチナ）だけは、同じ会に参加が承認された
+     メンバーに見える。氏名・写真と同じ範囲。ここを取り違えて
+     「誰にも見えません」と書かないこと（2026-08-25 に変わった）。
    ・規則は性別で分けていない（全ユーザー共通）。理由は
-     supabase/migration_caste_rank.sql の冒頭にある。
+     supabase/migration_caste_rank.sql と migration_mutual_rank.sql の冒頭。
    ══════════════════════════════════════════════════════════════ */
-
-/* ランクごとの色。金一色だと段差が出ないので、下位ほど彩度を落とす。 */
-const TIER_COLOR = {
-  bronze:   { fg: "#c98f63", line: "rgba(201,143,99,0.42)",  bg: "rgba(201,143,99,0.10)" },
-  silver:   { fg: "#c7ced8", line: "rgba(199,206,216,0.40)", bg: "rgba(199,206,216,0.10)" },
-  gold:     { fg: C.primaryDeep, line: C.linePrimary,        bg: "rgba(232,201,135,0.12)" },
-  platinum: { fg: "#eae4f2", line: "rgba(234,228,242,0.50)", bg: "rgba(234,228,242,0.13)" },
-};
-export const tierColor = (key) => TIER_COLOR[key] ?? TIER_COLOR.bronze;
-
-/* ランクの札。予算帯の選択肢にも使う。 */
-export const TierBadge = ({ tierKey, label, size = "md" }) => {
-  const c = tierColor(tierKey);
-  const sm = size === "sm";
-  return (
-    <span style={{
-      display: "inline-flex", alignItems: "center", gap: 5,
-      padding: sm ? "3px 9px" : "5px 13px", borderRadius: 999,
-      fontSize: sm ? 10.5 : 12, fontWeight: 700, letterSpacing: 0.6,
-      color: c.fg, background: c.bg, border: `1px solid ${c.line}`,
-      whiteSpace: "nowrap",
-    }}>{label}</span>
-  );
-};
 
 const Stars = ({ value, size = 14 }) => (
   <span style={{ display: "inline-flex", gap: 2 }}>
@@ -99,6 +88,11 @@ export default function RankCard({ onShops }) {
     ? `お一人 〜${Number(rank.budget_cap).toLocaleString()}円`
     : "お一人 上限なし";
   const remain = Math.max(0, (rank.min_reviews ?? 0) - (rank.review_count ?? 0));
+  /* 参加する側から見た効果。migration_mutual_rank.sql 未適用の環境では
+     my_rank() が返さないので、そのときは件数を出さずに文言だけにする。 */
+  const openParties = Number.isFinite(rank.open_parties) ? rank.open_parties : null;
+  const gatedParties = Number.isFinite(rank.gated_parties) ? rank.gated_parties : 0;
+  const unlocks = Number.isFinite(rank.next?.unlocks) ? rank.next.unlocks : 0;
 
   return (
     <div className="fade" style={{
@@ -141,6 +135,34 @@ export default function RankCard({ onShops }) {
         </div>
       </div>
 
+      {/* ── ランクが効く2つの場面 ──
+          主催のときだけでなく、参加のときにも効く。
+          「評価されると何が良くなるのか」を、この2行で分かるようにする。 */}
+      <div style={{ display: "flex", borderTop: `1px solid ${C.lineSoft}` }}>
+        <div style={{ flex: 1, padding: "13px 16px 14px" }}>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 10, color: C.textMuted, fontWeight: 700, letterSpacing: 0.5, marginBottom: 5 }}>
+            <Crown size={11} strokeWidth={2} color={C.primary} /> 主催するとき
+          </div>
+          <div style={{ fontSize: 11.5, color: C.textSec, lineHeight: 1.7 }}>
+            {capText}のお店で会を立てられます。
+          </div>
+        </div>
+        <div style={{ flex: 1, padding: "13px 16px 14px", borderLeft: `1px solid ${C.lineSoft}` }}>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 10, color: C.textMuted, fontWeight: 700, letterSpacing: 0.5, marginBottom: 5 }}>
+            <DoorOpen size={11} strokeWidth={2} color={C.primary} /> 参加するとき
+          </div>
+          <div style={{ fontSize: 11.5, color: C.textSec, lineHeight: 1.7 }}>
+            {openParties == null ? (
+              "ランクの条件が付いた会にも申し込めます。"
+            ) : gatedParties > 0 ? (
+              <>募集中の会 <b style={{ color: C.text, fontWeight: 700 }}>{openParties}件</b>に申し込めます（残り{gatedParties}件は上位ランク向け）。</>
+            ) : (
+              <>募集中の会 <b style={{ color: C.text, fontWeight: 700 }}>{openParties}件</b>すべてに申し込めます。</>
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* ── 次のランクまで ── */}
       <div style={{ padding: "15px 19px", borderTop: `1px solid ${C.lineSoft}` }}>
         {!rank.ranked ? (
@@ -165,6 +187,7 @@ export default function RankCard({ onShops }) {
               到達すると、お一人{rank.next.budget_cap
                 ? ` 〜${Number(rank.next.budget_cap).toLocaleString()}円`
                 : " 上限なし"}のお店で会を主催できます。
+              {unlocks > 0 && <>いま募集中の会のうち、あらたに{unlocks}件へ申し込めるようになります。</>}
             </div>
           </>
         ) : (
@@ -183,8 +206,10 @@ export default function RankCard({ onShops }) {
         <Lock size={13} strokeWidth={1.9} color={C.primary} style={{ flexShrink: 0, marginTop: 2 }} />
         <div style={{ fontSize: 10.5, color: C.textMuted, lineHeight: 1.8 }}>
           個別の評価（点数・コメント・誰が付けたか）は、あなたにも他の方にも表示されません。
-          ここに出るのは平均点と件数だけです。
-          <b style={{ color: C.textSec, fontWeight: 700 }}>あなたのランクは他のユーザーには見えません。</b>
+          <b style={{ color: C.textSec, fontWeight: 700 }}>平均点と件数を見られるのはあなただけです。</b>
+          <br />
+          ランクの名前（{rank.tier_label}）は、同じ会に参加が承認されたメンバーには表示されます
+          （お名前・お写真と同じ範囲です）。会の一覧には出ません。
         </div>
       </div>
 

@@ -73,11 +73,16 @@ export const DRINKING_STYLES = [
 export const MAX_DRINKING_STYLES = 4;
 
 /* ================ ランクと予算帯 ================
-   会の終了後に受け取った評価（user_reviews）の平均点で、
-   会を主催するときに選べる「お店の予算帯」が決まる。
+   会の終了後に受け取った評価（user_reviews）の平均点でランクが決まる。
+   ランクは主催する側にも参加する側にも同じように効く。
+
+     ・主催するとき … 選べるお店の予算帯の上限（budgetCap）
+     ・参加するとき … 申し込める会（会ごとの min_guest_tier）
 
    ⚠ この仕組みは性別で分けていない。全ユーザーに同じ規則が適用される。
-     理由は supabase/migration_caste_rank.sql の冒頭コメントに書いてある
+     評価も最初から双方向で、同じ会にいた相手なら誰から誰へでも書ける。
+     理由は supabase/migration_caste_rank.sql と
+     supabase/migration_mutual_rank.sql の冒頭コメントに書いてある
      （性別を会の条件に使うと、業態上の前提が崩れるため）。
 
    ⚠ DB 側にも同じ値がある（rank_tiers() / rank_min_reviews()）。
@@ -154,3 +159,21 @@ export function budgetTierFor(avgBudget) {
 /* 自分のランクで、その予算帯を選べるか */
 export const canUseBudgetTier = (myKey, tierKey) =>
   rankTier(myKey).order >= rankTier(tierKey).order;
+
+/* ============ 会が参加者に求めるランク（min_guest_tier） ============
+   会ごとにホストが決める。既定は最下位＝誰でも申し込める。
+   ⚠ 性別・年齢その他の属性を参加条件にすることはできない。
+     条件にできるのはランクだけで、ランクの算出に性別は入らない
+     （supabase/migration_mutual_rank.sql の冒頭）。
+   ⚠ DB 側にも同じ規則がある（enforce_group_join / can_join_party）。
+     ここで通しても、条件を満たさない申し込みは DB が弾く。
+   ================================================================= */
+export const DEFAULT_GUEST_TIER = RANK_TIERS[0].key;
+
+/* 自分のランクで、その会に申し込めるか（DB の can_join_party と同じ規則） */
+export const canJoinWithTier = (myKey, minGuestTier) =>
+  rankTier(myKey).order >= rankTier(minGuestTier ?? DEFAULT_GUEST_TIER).order;
+
+/* 会に参加条件が付いているか（最下位＝条件なし） */
+export const hasGuestTierGate = (minGuestTier) =>
+  rankTier(minGuestTier ?? DEFAULT_GUEST_TIER).order > RANK_TIERS[0].order;
