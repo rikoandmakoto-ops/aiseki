@@ -1,6 +1,6 @@
 # AISEKI 引き継ぎ書
 
-最終更新: 2026-08-24（ランクと店舗カタログを追加。§13。あわせて会の作成が壊れていたのを修正）
+最終更新: 2026-08-25（LP URLリネーム /lp/women→host, /lp/men→guest。ランク相互公開 §13-b）
 
 > ## ⚠️ まずこれを読む — Supabase プロジェクトが変わった（2026-08-20）
 >
@@ -81,7 +81,8 @@
 | 独自ドメイン | ✅ **`aisekimatch.com`**（2026-08-21 取得 / Vercel の `aiseki` に接続済み）。DNS は xdomain（`ns1〜3.xdomain.ne.jp`）で管理 |
 
 > ✅ **広告用LPを本番へデプロイ済み**（2026-08-22 / deployment id `dpl_HiacMC3pPVFuRwzsb6XVf8XVQHzi`）。
-> `https://aisekimatch.com/lp/women` · `/lp/men` が 200、canonical・OGP・`/og-women.png`（image/png）・
+> `https://aisekimatch.com/lp/host` · `/lp/guest` が 200、canonical・OGP・`/og-host.png`（image/png）・
+> ※ 旧URL `/lp/women` · `/lp/men` は 301 リダイレクトで新URLへ転送。
 > `/sitemap.xml` の3URL・CSP / HSTS / X-Frame-Options まで `curl` で確認済み。
 >
 > ⚠️ **このときリモートビルドが詰まった。** `vercel deploy` / `--prod` が
@@ -223,6 +224,7 @@ postgresql://postgres:<DBパスワード>@db.melfyxfvhyknqhruytms.supabase.co:54
   - `migration_security_hardening.sql`（2026-08-23）— セキュリティ修正4件（§12）
   - `migration_caste_rank.sql`（2026-08-24）— ランク・店舗カタログ・会の予算帯（§13）
   - `seed_shops_sample.sql`（2026-08-24）— **サンプル店舗11軒**（`【サンプル】` 付き。実店舗ではない）
+  - `migration_mutual_rank.sql`（2026-08-25）— ランク相互公開（`rank_tier` の列SELECT権限を `authenticated` に開放、`min_guest_tier` 追加）（§13-b）
 - **3機能の追加**（2026-08-23）— 詳細は §11。内部評価（`user_reviews`）／
   募集中の会へのアプローチ／飲みスタイルタグ。マイグレーション適用済み・
   `.e2e-tmp.mjs` の39項目が本番スキーマに対して全て成功。
@@ -234,8 +236,9 @@ postgresql://postgres:<DBパスワード>@db.melfyxfvhyknqhruytms.supabase.co:54
   HTTP 200 / `/api/stripe/status` = `{"enabled":false}` / セキュリティヘッダ（CSP・HSTS・X-Frame-Options）配信を確認。
 - **独自ドメイン `aisekimatch.com` への統一**（2026-08-22）— コード・`robots.txt` / `sitemap.xml`・
   Supabase の `site_url` / `uri_allow_list` まで反映（旧 Vercel ドメインは Redirect URLs に残置）。
-- **広告用ランディングページ**（2026-08-22）— `/lp/women`（募集する側＝おごられる側）と
-  `/lp/men`（参加する側＝相席する側）の2枚。詳細は §10。
+- **広告用ランディングページ**（2026-08-22）— `/lp/host`（募集する側＝おごられる側）と
+  `/lp/guest`（参加する側＝相席する側）の2枚。詳細は §10。
+  ※ 2026-08-25 に `/lp/women` → `/lp/host`、`/lp/men` → `/lp/guest` にリネーム。旧URLは301リダイレクト。
 
 ### ⛔ 完了していないもの
 
@@ -510,10 +513,10 @@ aiseki/
 ├── HANDOFF.md           このファイル
 ├── index.html           アプリ本体のページ
 ├── lp/                  ★ 広告用LP（§10）。ページも中身もここに一式ある
-│   ├── women.html / men.html    ページ（Vite のエントリ）
-│   ├── women.jsx / men.jsx      それぞれの入口（supabase を読み込まない）
-│   ├── WomenPage.jsx            /lp/women — 募集する側（おごられる側）向け
-│   ├── MenPage.jsx              /lp/men   — 参加する側（相席する側）向け
+│   ├── host.html / guest.html   ページ（Vite のエントリ）
+│   ├── host.jsx / guest.jsx     それぞれの入口（supabase を読み込まない）
+│   ├── HostPage.jsx             /lp/host  — 募集する側（おごられる側）向け
+│   ├── GuestPage.jsx            /lp/guest — 参加する側（相席する側）向け
 │   └── LpKit.jsx                2枚で共有する部品（ヘッダー/セクション/FAQ/フッター）
 ├── vite.config.js / vercel.json
 │
@@ -549,6 +552,7 @@ aiseki/
 │   ├── migration_security_hardening.sql     ✅適用済 セキュリティ修正4件（§12）
 │   ├── migration_caste_rank.sql             ✅適用済 ランク/店舗カタログ/予算帯（§13）
 │   ├── seed_shops_sample.sql                ✅適用済 サンプル店舗11軒（実店舗ではない）
+│   ├── migration_mutual_rank.sql            ✅適用済 ランク相互公開/min_guest_tier（§13-b）
 │   └── migration_*.sql               （それ以前の履歴）
 │
 └── scripts/
@@ -575,8 +579,8 @@ node scripts/generate_icons.mjs   # アイコン・OGP画像を作り直す
 node scripts/generate_lp_og.mjs   # LPのOGP画像を作り直す
 ```
 
-> `npm run dev` では **LP は `/lp/women.html` / `/lp/men.html`** で開く
-> （拡張子なしの `/lp/women` は Vercel の cleanUrls / rewrites による本番の挙動）。
+> `npm run dev` では **LP は `/lp/host.html` / `/lp/guest.html`** で開く
+> （拡張子なしの `/lp/host` は Vercel の cleanUrls / rewrites による本番の挙動）。
 
 ### Git
 
@@ -592,19 +596,20 @@ node scripts/generate_lp_og.mjs   # LPのOGP画像を作り直す
 
 ---
 
-## 10. 広告用ランディングページ（`/lp/women` · `/lp/men`）
+## 10. 広告用ランディングページ（`/lp/host` · `/lp/guest`）
 
 2026-08-22 追加。広告の受け皿。**アプリ本体の LandingScreen（`/` の未ログイン画面）とは別物**で、
 出口は「アプリの登録画面」ひとつに絞ってある。
 
-| | `/lp/women` | `/lp/men` |
+| | `/lp/host` | `/lp/guest` |
 |---|---|---|
 | 宛先 | 会を**募集する側**（＝おごられる側） | 会に**参加する側**（＝相席する側） |
 | 主訴求 | 参加ポイント0pt・当日の飲食代も0円 | グループ同士で気軽・一律3,800ptの明朗会計 |
 | CTA | 「無料で始める」 | 「相席を始める」 |
-| リンク先 | `/?auth=signup&from=lp-women` | `/?auth=signup&from=lp-men` |
-| OGP | `public/og-women.png` | `public/og-men.png` |
-| 実体 | `lp/women.html` + `lp/WomenPage.jsx` | `lp/men.html` + `lp/MenPage.jsx` |
+| リンク先 | `/?auth=signup&from=lp-host` | `/?auth=signup&from=lp-guest` |
+| OGP | `public/og-host.png` | `public/og-guest.png` |
+| 実体 | `lp/host.html` + `lp/HostPage.jsx` | `lp/guest.html` + `lp/GuestPage.jsx` |
+| 旧URL | `/lp/women`（301→`/lp/host`） | `/lp/men`（301→`/lp/guest`） |
 
 構成はどちらも ヒーロー → 特徴3つ → 使い方3ステップ →（男性向けのみポイント表）→ FAQ → CTA。
 
@@ -644,9 +649,10 @@ node scripts/generate_lp_og.mjs   # LPのOGP画像を作り直す
   広告からの初回表示にアプリのバンドルが乗らない。**LP から `src/lib/api.js` を import しないこと**
   （supabase クライアントが丸ごと入る）。数字が要るときは `../src/lib/pricing.js` から読む。
   テーマ（色・書体・部品）はアプリと同じ `../src/lib/theme.jsx` を共有している。
-- **`/lp/women` で開けるのは `vercel.json` の rewrites のおかげ。**
-  `"/(.*)" → "/"` のSPA用catch-allより**前**に `/lp/women → /lp/women.html` を置いてある。
+- **`/lp/host` で開けるのは `vercel.json` の rewrites のおかげ。**
+  `"/(.*)" → "/"` のSPA用catch-allより**前**に `/lp/host → /lp/host.html` を置いてある。
   順番を入れ替えるとLPがアプリに吸われる。
+  旧URL `/lp/women` · `/lp/men` は 301 リダイレクトで新URLへ転送（2026-08-25 追加）。
 - **CTA は `/?auth=signup`。** `App.jsx` がこれを読んで、ランディングを飛ばして登録フォームを開く。
   ⚠ `onAuthStateChange` は起動直後に **セッション無しの `INITIAL_SESSION`** を必ず一度流す。
   ここで `setAuthMode(null)` していたため、開いた登録フォームがその場で閉じていた（修正済み）。
@@ -659,7 +665,7 @@ node scripts/generate_lp_og.mjs   # LPのOGP画像を作り直す
 
 - **AISEKI は性別を登録しない。** 広告の宛先は分けているが、ページ上の説明は必ず
   「募集する側（ホスト）／参加する側（ゲスト）」で書く。「女性は無料」とは書かない。
-  `/lp/women` の FAQ にその旨を明記してある。
+  `/lp/host` の FAQ にその旨を明記してある。
 - ホストがおごられること、参加側が**ポイントに加えて当日の飲食代（ホスト分を含む）を負担する**ことは、
   両方のページに明記する。あとで揉めるので隠さない。
 - グループ限定（2名以上×2名以上）／個室での相席なし／20歳以上限定／接待・サクラなし／
@@ -925,9 +931,28 @@ delete from public.shops where name like '【サンプル】%';
 
 ### 規約
 
-`src/lib/legal.js` を **2.2** に改訂（第9条の4 を新設。第9条の3・プライバシーポリシーも修正）。
-旧 2.1 は「評価は平均点その他の形式で公開されない」と言い切っていたので、
-**そのままでは規約違反になる**状態だった。
+`src/lib/legal.js` を **2.3** に改訂（第9条の4 を新設・ランク区分の他メンバーへの表示を明記。第9条の3・プライバシーポリシーも修正）。
+
+---
+
+## 13-b. ランク相互公開（2026-08-25）
+
+`supabase/migration_mutual_rank.sql` の1本にまとまっている（冪等・**適用済み**）。
+
+### 何が変わったか
+
+§13 のランクシステムは「本人のみ確認可能」だったが、会への参加条件として使えるように変更:
+
+| 変更 | 内容 |
+|---|---|
+| `rank_tier` 列SELECT権限 | `authenticated` に開放。同じ会のメンバーに限り他人のランク区分が見える |
+| `min_guest_tier` | 会の作成時にホストが設定可能。ランク不足の参加申込を `enforce_group_join()` が弾く |
+| `legal.js` | 2.3 に改訂。第9条の4 にランク区分の他メンバーへの表示を明記 |
+
+⚠️ **§13 の元の方針（「足してはいけない」）から方向転換した。** 平均点・件数は引き続き本人のみ。
+ランクの**区分名（ブロンズ/シルバー等）だけ**が同じ会のメンバーに見える。
+
+既定値は安全側（`min_guest_tier` = `bronze` ＝条件なし）。UI は既存の `RankCard.jsx` 等で動作。
 
 ---
 

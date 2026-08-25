@@ -1,0 +1,17 @@
+import { readFileSync } from "node:fs";
+import { createClient } from "@supabase/supabase-js";
+const ROOT="/Users/ayukiyamazaki/Developer/aiseki";
+const env=Object.fromEntries(readFileSync(`${ROOT}/.env`,"utf8").split("\n").filter(l=>l.includes("=")&&!l.trim().startsWith("#")).map(l=>{const i=l.indexOf("=");return[l.slice(0,i).trim(),l.slice(i+1).trim().replace(/^["']|["']$/g,"")]}));
+const { login } = JSON.parse(readFileSync(`${ROOT}/.e2e-uisetup.json`,"utf8"));
+const c=createClient(env.VITE_SUPABASE_URL, env.VITE_SUPABASE_ANON_KEY,{auth:{persistSession:false}});
+const { error: le } = await c.auth.signInWithPassword(login);
+console.log("login:", le?.message ?? "ok");
+const p = await c.from("parties").select("*").eq("status","recruiting").order("created_at",{ascending:false});
+console.log("listParties:", p.error?.message ?? `${p.data.length}件`, p.data?.[0]?.min_guest_tier);
+const me = (await c.auth.getUser()).data.user.id;
+const mp = await c.from("parties").select("id").eq("host_id", me);
+console.log("myParties:", mp.error?.message ?? `${mp.data.length}件`);
+const rr = await c.rpc("list_incoming_request_ranks");
+console.log("ranks rpc:", rr.error?.message ?? `${rr.data.length}件`);
+const bal = await c.from("point_balances").select("balance").eq("user_id", me).single();
+console.log("balance:", bal.error?.message ?? bal.data?.balance);

@@ -6,6 +6,13 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--", "--port", "5199", "--strictPort"],
       "port": 5199
+    },
+    {
+      "//": "5199 が別のセッションで塞がっているときの確認用。ポートだけが違う。",
+      "name": "aiseki-verify",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--port", "5200", "--strictPort"],
+      "port": 5200
     }
   ]
 }
