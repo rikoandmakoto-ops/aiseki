@@ -42,6 +42,8 @@ const ReviewSheet = lazy(() => import("./screens/ReviewSheet.jsx"));
 const CardRegisterSheet = lazy(() => import("./screens/CardRegisterSheet.jsx"));
 /* ランク（評価で決まる予算帯）。マイページで出す。 */
 const RankCard = lazy(() => import("./screens/RankCard.jsx"));
+/* 運営用の管理画面（/admin）。利用者は開かないので、必ず遅延読み込みにする。 */
+const AdminScreen = lazy(() => import("./screens/AdminScreen.jsx"));
 
 /* 分割した画面を読み込んでいる間のつなぎ */
 const Loading = ({ label }) => (
@@ -2861,6 +2863,18 @@ const INITIAL_AUTH_MODE = (() => {
   return AUTH_MODES.includes(v) ? v : null;
 })();
 
+/* 運営用の管理画面（/admin）。ルーターは入れていないので、パスだけを見る。
+   vercel.json の catch-all（"/(.*)" → "/"）で index.html が返るため、
+   /admin でもアプリと同じバンドルが起動する。
+
+   ⚠ ここは「どの画面を出すか」を決めているだけで、権限の判定ではない。
+     運営かどうかを決めるのはサーバ（/api/admin/inquiries の ADMIN_EMAILS）だけで、
+     管理画面の中身は API が 200 を返さなければ1件も出てこない。 */
+const IS_ADMIN_ROUTE = (() => {
+  if (typeof window === "undefined") return false;
+  return /^\/admin\/?$/.test(window.location.pathname);
+})();
+
 /* パスワード再設定メールから戻ってきたかを判定する。
    Supabase はリンク先に #access_token=…&type=recovery を付けて返す
    （バージョンによっては ?type=recovery のクエリ）。両方を見る。 */
@@ -3019,6 +3033,26 @@ export default function App() {
     return shell(
       <Suspense fallback={<Loading label="読み込み中…" />}>
         <ResetPasswordScreen onDone={() => { setRecovery(false); clearRecoveryParams(); setAuthMode("login"); }} />
+      </Suspense>
+    );
+  }
+
+  /* 運営用の管理画面（/admin）。
+     未ログインならログインだけさせる（ここにランディングを出す意味がない）。
+     権限が無いアカウントで開いた場合は、AdminScreen が API の 403 を受けて
+     「権限がありません」に切り替わる。 */
+  if (IS_ADMIN_ROUTE) {
+    const toApp = () => { window.location.assign("/"); };
+    if (!session) {
+      return shell(
+        <Suspense fallback={<Loading label="読み込み中…" />}>
+          <AuthScreen initialMode="login" onBack={toApp} />
+        </Suspense>
+      );
+    }
+    return shell(
+      <Suspense fallback={<Loading label="読み込み中…" />}>
+        <AdminScreen user={session.user} onExit={toApp} />
       </Suspense>
     );
   }

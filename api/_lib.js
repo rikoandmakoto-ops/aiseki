@@ -14,6 +14,15 @@
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
 
+/* 運営（/admin の管理画面）を使えるメールアドレス。**ここが唯一の出典。**
+   画面側には持たせない（ブラウザに配る値は書き換えられるので判定に使えない）。
+   AdminScreen は API が 403 を返すかどうかだけで可否を決めている。
+
+   ⚠ 完全一致で比べる。Gmail の +エイリアス（theoffzaki+xxx@gmail.com）は
+     同じ受信箱に届くが、別アカウントとして登録できてしまうため運営とは見なさない
+     （実際にテスト用の +ui... アカウントが存在する）。 */
+export const ADMIN_EMAILS = ["theoffzaki@gmail.com"];
+
 /* 未設定と placeholder のままの値を同じ「未設定」として扱う。
    （.env / .env.example にはサンプル値を置いてあるため、値の有無だけでは判定できない。
      sk_test_placeholder のように接頭辞の後ろに置かれる形も拾う） */
@@ -66,6 +75,23 @@ export async function requireUser(request) {
   const { data, error } = await supabase.auth.getUser(token);
   if (error) return null;
   return data?.user ?? null;
+}
+
+/* 管理画面用。ログイン中のユーザーが運営かどうかまで見る。
+   拒否のときは、そのまま返せる Response を error に入れて返す
+   （呼び出し側で 401 と 403 を書き分けなくて済むようにする）。 */
+export async function requireAdmin(request) {
+  const user = await requireUser(request);
+  if (!user) return { user: null, error: json({ error: "ログインが必要です。" }, 401) };
+
+  const email = String(user.email ?? "").trim().toLowerCase();
+  const allowed = ADMIN_EMAILS.some((a) => a.toLowerCase() === email);
+  // メール未確認のアカウントは運営として扱わない（確認 ON の今は起こらないが、
+  // 設定が変わったときに素通しにならないようにしておく）
+  if (!allowed || !user.email_confirmed_at) {
+    return { user: null, error: json({ error: "この画面を利用する権限がありません。" }, 403) };
+  }
+  return { user, error: null };
 }
 
 /* success_url / cancel_url の組み立て。
