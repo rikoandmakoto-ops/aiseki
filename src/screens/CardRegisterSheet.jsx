@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { X, CreditCard, ShieldCheck, Gem, Lock } from "lucide-react";
+import { X, CreditCard, ShieldCheck, Gem, Lock, AlertTriangle } from "lucide-react";
 import * as api from "../lib/api.js";
 import { renderTurnstile } from "../lib/captcha.js";
 import { C, FONT_HEAD, FONT_DISPLAY, brandText, popBtn } from "../lib/theme.jsx";
@@ -48,6 +48,9 @@ export default function CardRegisterSheet({ onClose, onGranted }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState(null); // { points, balance } | null
+  /* 既に別のアカウントで使われているカードだった（カード1枚につき1回）。
+     カードの登録そのものは済んでいるので、赤いエラーではなく専用の案内を出す。 */
+  const [duplicate, setDuplicate] = useState("");
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape" && !busy) onClose(); };
@@ -153,6 +156,12 @@ export default function CardRegisterSheet({ onClose, onGranted }) {
       setDone({ points: granted.points ?? 0, balance: granted.balance ?? 0 });
       onGranted?.(granted);
     } catch (e) {
+      /* 同じカードでのボーナスの取り直し。カードは登録できているので、
+         文面を分ける（別のカードなら受け取れる旨も伝える）。 */
+      if (e.duplicateCard) {
+        setDuplicate(e.message || "このカードは既に別のアカウントでご登録済みです。");
+        return;
+      }
       setError(e.message || "カードを登録できませんでした。");
     } finally {
       setBusy(false);
@@ -218,6 +227,34 @@ export default function CardRegisterSheet({ onClose, onGranted }) {
               <div style={{ fontSize: 12, color: C.textSec, lineHeight: 1.9, marginTop: 14 }}>
                 現在の残高は {done.balance.toLocaleString()}pt です。<br />
                 そのまま会にお申し込みいただけます。
+              </div>
+
+              <button className="lux-cta" onClick={onClose} style={{
+                ...popBtn, width: "100%", padding: "15px 0", borderRadius: 999, fontSize: 15, marginTop: 22,
+              }}>閉じる</button>
+            </div>
+          ) : duplicate ? (
+            /* ── 既に別のアカウントで使われているカードだった ──
+                  カードの登録そのものは済んでいる（請求は発生しない）。
+                  付かないのはボーナスだけなので、そう伝える。 */
+            <div style={{ textAlign: "center", padding: "18px 0 6px" }}>
+              <div style={{
+                width: 62, height: 62, borderRadius: 31, margin: "0 auto 16px",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                background: "rgba(168,32,58,0.16)", border: "1px solid rgba(200,56,79,0.4)", color: C.accentDeep,
+              }}><AlertTriangle size={26} strokeWidth={1.9} /></div>
+
+              <div style={{ fontFamily: FONT_HEAD, fontSize: 18, fontWeight: 600, color: C.text, letterSpacing: 0.4 }}>
+                ボーナスをお付けできませんでした
+              </div>
+
+              <div role="alert" style={{ fontSize: 12, color: C.textSec, lineHeight: 1.95, marginTop: 14, textAlign: "left" }}>
+                {duplicate}
+              </div>
+
+              <div style={{ fontSize: 10.5, color: C.textMuted, lineHeight: 1.85, marginTop: 14, textAlign: "left" }}>
+                カードのご登録自体は完了しております（請求は発生しません）。
+                ポイントのご購入は購入タブからご利用いただけます。
               </div>
 
               <button className="lux-cta" onClick={onClose} style={{

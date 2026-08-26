@@ -1638,6 +1638,10 @@ async function callPaymentApi(path, body) {
     const err = new Error(payload?.error || "通信に失敗しました。");
     // CAPTCHA で弾かれたときは、画面がウィジェットを描き直せるように印を残す。
     if (payload?.captcha) err.captcha = true;
+    /* 既に別のアカウントで登録済みのカードだった（カード1枚につき1回）。
+       カードの登録自体は済んでいるので、画面は「失敗」ではなく
+       専用の案内を出す。 */
+    if (payload?.duplicateCard) err.duplicateCard = true;
     throw err;
   }
   return payload;

@@ -14,11 +14,14 @@
        metadata.user_id がログイン中の本人であることを確かめる。
      ・**CAPTCHA を通って作られた SetupIntent かどうかも見る**
        （metadata の印。押すのは /api/stripe/setup-intent だけ）。
+     ・**そのカードが既に別のアカウントで使われていないかも見る**
+       （Stripe の fingerprint。判定は api/_card.js → grant_card_bonus()）。
      ・付与は grant_card_bonus()（service_role 専用・冪等）。
        Webhook と両方から呼ばれても二重には付かない。
    ===================================================================== */
+import { DUPLICATE_CARD_MESSAGE, grantCardBonus } from "../_card.js";
 import { hasCaptchaStamp } from "../_captcha.js";
-import { ConfigError, getStripe, json, requireUser, serviceClient } from "../_lib.js";
+import { ConfigError, getStripe, json, requireUser } from "../_lib.js";
 
 export async function POST(request) {
   try {
@@ -34,7 +37,11 @@ export async function POST(request) {
     }
 
     const stripe = getStripe();
-    const intent = await stripe.setupIntents.retrieve(setupIntentId);
+    /* payment_method を展開して取る。カードの fingerprint を見るため
+       （同じカードでボーナスを何度も受け取らせない。api/_card.js）。 */
+    const intent = await stripe.setupIntents.retrieve(setupIntentId, {
+      expand: ["payment_method"],
+    });
 
     if (intent.status !== "succeeded") {
       return json({ error: "カードのご登録がまだ完了していません。" }, 409);
@@ -53,15 +60,34 @@ export async function POST(request) {
       return json({ error: "カードのご登録をやり直してください。" }, 403);
     }
 
-    const supabase = serviceClient();
-    const { data, error } = await supabase.rpc("grant_card_bonus", { p_user: user.id });
-    if (error) throw error;
+    const result = await grantCardBonus(stripe, intent, user.id);
 
-    console.log(`[stripe/confirm-card] ${setupIntentId} → granted=${data?.granted} balance=${data?.balance}`);
+    /* カード1枚につき1アカウント。既に別の方が使っているカードだった。
+       カードの登録そのもの（Stripe 側）は成立しているので、
+       「登録に失敗した」ではなく「ボーナスは付かない」と伝える。
+       profiles.card_registered は false のままなので、
+       別の未使用カードで登録し直せば受け取れる。 */
+    if (result.reason === "duplicate") {
+      return json({
+        error: DUPLICATE_CARD_MESSAGE,
+        duplicateCard: true,
+        granted: false,
+        points: 0,
+        balance: result.balance,
+      }, 409);
+    }
+
+    /* カードの識別子が取れなかった。付与しない（api/_card.js の fail-closed）。
+       通常の登録では起きない。 */
+    if (result.reason === "no_fingerprint") {
+      return json({ error: "カード情報を確認できませんでした。お手数ですがもう一度お試しください。" }, 409);
+    }
+
+    console.log(`[stripe/confirm-card] ${setupIntentId} → granted=${result.granted} balance=${result.balance}`);
     return json({
-      granted: data?.granted ?? false,
-      points: data?.points ?? 0,
-      balance: data?.balance ?? 0,
+      granted: result.granted,
+      points: result.points,
+      balance: result.balance,
     });
   } catch (e) {
     if (e instanceof ConfigError) {

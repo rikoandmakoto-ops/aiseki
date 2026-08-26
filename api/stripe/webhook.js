@@ -18,6 +18,7 @@
    Vercel のダッシュボード / Stripe CLI で、この URL をエンドポイントに登録する:
      stripe listen --forward-to localhost:3000/api/stripe/webhook
    ===================================================================== */
+import { grantCardBonus } from "../_card.js";
 import { hasCaptchaStamp } from "../_captcha.js";
 import { ConfigError, env, getStripe, json, serviceClient } from "../_lib.js";
 
@@ -29,8 +30,11 @@ const PAID_EVENTS = new Set([
 
 /* カード登録の完了。5,000pt（signup_bonus）の付与はここが正規の経路。
    付与は grant_card_bonus() 側で profiles.card_registered を使って
-   冪等にしているので、再送されても増えない。 */
-async function handleSetupIntent(event) {
+   冪等にしているので、再送されても増えない。
+
+   カードの fingerprint も見る（api/_card.js）。既に別のアカウントで
+   使われているカードにはボーナスを付けない。 */
+async function handleSetupIntent(stripe, event) {
   const intent = event.data.object;
   const userId = intent.metadata?.user_id;
 
@@ -50,12 +54,18 @@ async function handleSetupIntent(event) {
   }
 
   try {
-    const supabase = serviceClient();
-    const { data, error } = await supabase.rpc("grant_card_bonus", { p_user: userId });
-    if (error) throw error;
+    const result = await grantCardBonus(stripe, intent, userId);
 
-    console.log(`[stripe/webhook] ${event.type} ${intent.id} → granted=${data?.granted} balance=${data?.balance}`);
-    return json({ received: true, granted: data?.granted ?? false });
+    /* 既に別のアカウントで使われているカード、または識別子が取れなかった。
+       どちらも 200 で返す（再送されても結果は変わらないため）。
+       画面から /api/stripe/confirm-card も呼ばれていて、
+       そちらが利用者に理由を伝えている。 */
+    if (result.ok === false) {
+      return json({ received: true, skipped: result.reason });
+    }
+
+    console.log(`[stripe/webhook] ${event.type} ${intent.id} → granted=${result.granted} balance=${result.balance}`);
+    return json({ received: true, granted: result.granted });
   } catch (e) {
     if (e instanceof ConfigError) {
       console.error("[stripe/webhook] 設定エラー:", e.message);
@@ -95,7 +105,7 @@ export async function POST(request) {
   }
 
   if (event.type === "setup_intent.succeeded") {
-    return handleSetupIntent(event);
+    return handleSetupIntent(stripe, event);
   }
 
   if (!PAID_EVENTS.has(event.type)) {

@@ -1,6 +1,6 @@
 # AISEKI 引き継ぎ書
 
-最終更新: 2026-08-26（カード登録に CAPTCHA を導入。**キーはテスト用のまま** §16）
+最終更新: 2026-08-26（同じカードでの 5,000pt の取り直しを封じた §17。CAPTCHA の**キーはテスト用のまま** §16）
 
 > ## ⚠️ まずこれを読む — Supabase プロジェクトが変わった（2026-08-20）
 >
@@ -313,6 +313,10 @@ postgresql://postgres:<DBパスワード>@db.melfyxfvhyknqhruytms.supabase.co:54
    Supabase の Auth 設定を触る必要があり、設定が丸ごと消えた実績があるため
    （§12 の囲み）。紹介ボーナス 3,800pt はサインアップだけで付くので、
    **アカウントの量産自体はまだ止まっていない**（§16「残っているもの」）。
+
+9-c. ~~**同じカードで 5,000pt を何度も取れないようにする**~~ ✅ **2026-08-26 完了（§17）。**
+   CAPTCHA は「自動化」を止めるだけで、手作業でアカウントを作り直せば
+   同じカードで何度でも受け取れた。**カード1枚につき1アカウント**にした。
 
 ### 🟡 P2 — 決済を有効にするとき
 
@@ -1196,3 +1200,126 @@ node scripts/verify_captcha.mjs --base https://aisekimatch.com \
   ON にすれば塞がるが、Auth 設定が丸ごと消えた実績があるため見送っている（§12 の囲み）。
   **触るなら Resend の APIキーを手元に用意してから。**
 - 実機（スマートフォン）でウィジェットが出ることの確認。
+
+---
+
+## 17. 同じカードで 5,000pt を取り直せないようにした（2026-08-26）
+
+§16 の CAPTCHA は「**自動化**された登録」を止めるものであって、
+**手作業でアカウントを作り直せば、同じカードで何度でも 5,000pt を受け取れた。**
+（登録の時点では請求が発生しないので、コストゼロで繰り返せる。）
+
+**カード1枚につき1アカウント**にした。
+
+### 何を使って同じカードだと判定しているか
+
+Stripe の PaymentMethod が持つ **`card.fingerprint`**。
+カード番号ごとに一意な文字列（例 `Xt5EWLLDS7FJjR1c`）で、
+
+- **Customer が違っても、登録し直しても、同じカード番号なら同じ値になる**
+- カード番号を復元できる値ではない（＝こちらのDBに保存してよい）
+
+> ⚠ 判定に使えるのは fingerprint だけ。下4桁＋有効期限では別カードとぶつかる。
+
+### どこで効かせているか
+
+付与経路は §16 と同じ2つ。**判定は片方ではなく、DB 関数の中で1回だけ行う。**
+
+| 経路 | 変えたこと |
+|---|---|
+| `POST /api/stripe/confirm-card` | SetupIntent を `expand: ["payment_method"]` で引く |
+| `setup_intent.succeeded` の Webhook | `payment_method` は ID の文字列なので `paymentMethods.retrieve()` する |
+
+どちらも `api/_card.js` の `grantCardBonus()` を呼ぶだけ。
+その中で fingerprint を取り、`grant_card_bonus(p_user, p_fingerprint)` に渡す。
+
+**「持ち主の確定」と「付与」は DB の1トランザクションでやる**のが要点。
+`card_fingerprints` に先に insert できた側だけが持ち主になる（fingerprint が主キー）。
+2アカウントから同時に登録されても、後発は先発の commit を待ってから弾かれる。
+アプリ側で「先に select して、無ければ insert」とやると、この競合で両方通る。
+
+### 入れたもの
+
+| どこ | 何 |
+|---|---|
+| `supabase/migration_card_fingerprint.sql`（新規） | `card_fingerprints` テーブル・`grant_card_bonus` の差し替え |
+| `api/_card.js`（新規） | fingerprint の取得と付与。2経路の共通処理 |
+| `api/stripe/confirm-card.js` | 重複なら **409 + `duplicateCard: true`** |
+| `api/stripe/webhook.js` | 重複なら 200 `{skipped:"duplicate"}`（再送されても結果は変わらないため） |
+| `src/lib/api.js` | 409 の `duplicateCard` をエラーに載せる |
+| `src/screens/CardRegisterSheet.jsx` | 専用の案内を出す（赤いエラーにはしない） |
+
+### 拒否するのは**ボーナスだけ**（ここを間違えないこと）
+
+重複だと分かる時点で、カードは既に Stripe 側に登録できている（`confirmCardSetup` は成功している）。
+だから画面には「登録に失敗しました」ではなく「**ボーナスをお付けできませんでした**」と出す。
+
+そして **`profiles.card_registered` は false のままにする。**
+→ 別の未使用カードで登録し直せば、ボーナスは受け取れる。
+（ここで true にすると、他人が使ったカードを一度触っただけで
+　ボーナスを永久に失う。家族でカードを共有している人が該当してしまう。）
+
+### `card_fingerprints`
+
+```sql
+fingerprint text primary key            -- カードごとに一意
+user_id     uuid references auth.users(id) on delete set null
+created_at  timestamptz not null default now()
+```
+
+- **RLS 有効・ポリシー0件**。加えて anon / authenticated から `revoke all`。
+  読めると「このカードは使用済みか」を総当たりで調べられるし、
+  書けると他人のカードを先に登録してボーナスを封じられる。
+  `/api` は service_role なので RLS を迂回して読み書きできる。
+- **`on delete set null`**（cascade にしない）。cascade だと
+  **退会 → 再登録で同じカードのボーナスをもう一度受け取れてしまう。**
+  持ち主が null の行は「別人のもの」として扱う（＝カードは使用済みのまま）。
+
+### 🚨 `grant_card_bonus` の引数が変わった（1つ → 2つ）
+
+```
+public.grant_card_bonus(p_user uuid)              ← 落とした
+public.grant_card_bonus(p_user uuid, p_fingerprint text)  ← これだけ
+```
+
+**旧シグネチャは残していない。** 残して2つにすると、PostgREST が
+どちらを呼ぶか決められず **PGRST201（曖昧な関数）** になる。
+
+そのため **migration を当てたら、間を空けずにデプロイすること。**
+古い `api/` が動いているあいだは、引数が合わずカード登録ボーナスが失敗する
+（`confirm-card` は 500、Webhook は Stripe が再送するのでデプロイ後に自然に回復する）。
+
+### fingerprint が取れなかったら付与しない（fail-closed）
+
+`payment_method_types` は `["card"]` に限っているので通常は起きないが、
+取れないものを通すとそこが抜け道になる。DB 関数側でも
+`p_fingerprint` が空なら例外にしてある（アプリ側の判定だけに頼らない）。
+
+### 適用と確認
+
+```bash
+AISEKI_DB_PASSWORD=... node scripts/apply_sql.mjs supabase/migration_card_fingerprint.sql
+```
+
+適用時に検算（RLS が有効か・アプリから読めないか・旧シグネチャが残っていないか）が走る。
+実際の挙動は本番DBに対して**トランザクションを張って ROLLBACK** して確かめた:
+
+| 試したこと | 結果 |
+|---|---|
+| A が登録 | `granted:true, points:5000` |
+| **B が同じカードを登録** | **`granted:false, duplicate:true, points:0`** |
+| A が再送（Webhook の二重着信） | `granted:false`（増えない） |
+| B が別のカードで登録 | `granted:true, points:5000` |
+| fingerprint が空 | 例外 `カードの識別子が渡されていません` |
+| anon / authenticated から select・実行 | どちらも `permission denied` |
+
+適用時点で `card_registered=true` のユーザーは **0人**、`card_fingerprints` も 0 行だった。
+
+### 残っているもの
+
+- ⛔ **この migration より前に登録されたカードは記録が無い**（Stripe から遡って
+  埋めていない）。上のとおり該当は0人なので、いまは実害が無い。
+- ⛔ **実際にカードを2アカウントで登録して弾かれることの実機確認**（live なので
+  カード登録自体に請求は発生しないが、本物のカードが要る）。
+- ⛔ 紹介ボーナス 3,800pt は**カード登録なしで付く**ので、
+  アカウントの量産にはまだ有効（§16「残っているもの」と同じ話）。
