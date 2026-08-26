@@ -18,6 +18,7 @@
    Vercel のダッシュボード / Stripe CLI で、この URL をエンドポイントに登録する:
      stripe listen --forward-to localhost:3000/api/stripe/webhook
    ===================================================================== */
+import { hasCaptchaStamp } from "../_captcha.js";
 import { ConfigError, env, getStripe, json, serviceClient } from "../_lib.js";
 
 /* 支払い済みとみなすイベント（コンビニ決済などは後から確定する） */
@@ -37,6 +38,15 @@ async function handleSetupIntent(event) {
     console.error("[stripe/webhook] setup_intent に user_id がありません:", intent.id);
     // 200 で返す。再送されても直らないため。
     return json({ received: true, skipped: "no user_id" });
+  }
+
+  /* CAPTCHA を通って作られた SetupIntent でなければ付与しない（api/_captcha.js）。
+     印を押すのは /api/stripe/setup-intent だけ。ここが抜けていると、
+     Stripe 側で直接作った SetupIntent を成功させるだけでボーナスが取れてしまう。
+     200 を返す（再送されても結果は変わらないため）。 */
+  if (!hasCaptchaStamp(intent)) {
+    console.error("[stripe/webhook] CAPTCHA の印がない setup_intent:", intent.id, userId);
+    return json({ received: true, skipped: "no captcha stamp" });
   }
 
   try {

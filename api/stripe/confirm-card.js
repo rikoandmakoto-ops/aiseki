@@ -12,9 +12,12 @@
      ・受け取るのは SetupIntent の ID だけ。
      ・その ID を Stripe から引き直し、status が succeeded で、
        metadata.user_id がログイン中の本人であることを確かめる。
+     ・**CAPTCHA を通って作られた SetupIntent かどうかも見る**
+       （metadata の印。押すのは /api/stripe/setup-intent だけ）。
      ・付与は grant_card_bonus()（service_role 専用・冪等）。
        Webhook と両方から呼ばれても二重には付かない。
    ===================================================================== */
+import { hasCaptchaStamp } from "../_captcha.js";
 import { ConfigError, getStripe, json, requireUser, serviceClient } from "../_lib.js";
 
 export async function POST(request) {
@@ -40,6 +43,14 @@ export async function POST(request) {
     if (intent.metadata?.user_id !== user.id) {
       console.error("[stripe/confirm-card] user_id が一致しません:", setupIntentId, user.id);
       return json({ error: "カード登録の情報が一致しませんでした。" }, 403);
+    }
+    /* CAPTCHA を通っていない SetupIntent にはボーナスを付けない。
+       印を押すのは /api/stripe/setup-intent だけなので、通常の画面操作では必ず付いている。
+       付いていないのは、CAPTCHA を入れる前に作られたものか、
+       Stripe 側で直接作られたもの（＝経路を迂回している）。 */
+    if (!hasCaptchaStamp(intent)) {
+      console.error("[stripe/confirm-card] CAPTCHA の印がありません:", setupIntentId, user.id);
+      return json({ error: "カードのご登録をやり直してください。" }, 403);
     }
 
     const supabase = serviceClient();

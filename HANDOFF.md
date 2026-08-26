@@ -1,6 +1,6 @@
 # AISEKI 引き継ぎ書
 
-最終更新: 2026-08-26（Stripe を live モードで有効化。Webhook 登録・疎通確認・デプロイまで完了 §15）
+最終更新: 2026-08-26（カード登録に CAPTCHA を導入。**キーはテスト用のまま** §16）
 
 > ## ⚠️ まずこれを読む — Supabase プロジェクトが変わった（2026-08-20）
 >
@@ -305,9 +305,14 @@ postgresql://postgres:<DBパスワード>@db.melfyxfvhyknqhruytms.supabase.co:54
 
 9. **提携店舗の飲食店営業許可・深夜酒類提供飲食店営業の届出を確認する**
 
-9-b. **サインアップに CAPTCHA を入れる**（§12「未対応」）。
-   登録ボーナス 10,000pt ＋ 紹介ボーナス 3,800pt を自動登録で量産できる。
-   **決済を有効にする（P2）より先にやること。**
+9-b. ~~**カード登録に CAPTCHA を入れる**~~ ✅ **2026-08-26 完了（§16）。**
+   登録ボーナス 5,000pt はカード登録後に付くので、その入口
+   （`/api/stripe/setup-intent`）に Cloudflare Turnstile を入れた。
+   ⚠ **いまはテスト用キー（常に成功する）。本番キーへの差し替えが残っている**（§16）。
+   ⚠ **サインアップそのものの CAPTCHA（`security_captcha_enabled`）は入れていない。**
+   Supabase の Auth 設定を触る必要があり、設定が丸ごと消えた実績があるため
+   （§12 の囲み）。紹介ボーナス 3,800pt はサインアップだけで付くので、
+   **アカウントの量産自体はまだ止まっていない**（§16「残っているもの」）。
 
 ### 🟡 P2 — 決済を有効にするとき
 
@@ -538,6 +543,7 @@ aiseki/
 │   │   ├── legal.js     ★ 規約・プライバシーポリシーの単一の出典
 │   │   │                  CONTACT_EMAIL / SERVICE_URL / LEGAL_VERSION
 │   │   ├── packs.js     ★ ポイントプランの単価（唯一の出典）
+│   │   ├── captcha.js   ★ Turnstile の読み込み・描画（§16）
 │   │   ├── supabase.js  クライアント生成
 │   │   ├── theme.jsx / toast.jsx / pwa.js
 │   │   └── screens/     Auth / Landing / ProfileEdit / Terms / Safety /
@@ -546,6 +552,7 @@ aiseki/
 │
 ├── api/                 Vercel Functions（決済のみ）
 │   ├── _lib.js
+│   ├── _captcha.js      ★ CAPTCHA（Turnstile）の検証（§16）
 │   └── stripe/          checkout.js / status.js / webhook.js
 │
 ├── supabase/
@@ -564,6 +571,7 @@ aiseki/
     ├── apply_sql.mjs            ★ SQL適用（node pg / IPv6直結）
     ├── apply_auth_config.mjs    ★ Auth設定適用（PAT必須）
     ├── create_test_user.mjs     テストユーザー作成
+    ├── verify_captcha.mjs       ★ CAPTCHA が効いているかの確認（§16）
     ├── generate_icons.mjs       アイコン・OGP画像の生成
     ├── generate_lp_og.mjs       LPのOGP画像（og-women.png / og-men.png）の生成
     ├── test_join_fee.mjs        `npm test` の本体
@@ -819,7 +827,7 @@ API・保存領域を通しで点検した。**実証できた4件は同日に�
 
 | 重大度 | 内容 |
 |---|---|
-| Medium | **サインアップに CAPTCHA が無い**（`security_captcha_enabled: false`）。登録ボーナス 10,000pt ＋ 紹介ボーナス 3,800pt × 双方 なので、自動登録でポイントを量産できる。ポイントは現金で売る予定のものなので、決済を有効にする前に対処すること |
+| Medium | **サインアップに CAPTCHA が無い**（`security_captcha_enabled: false`）。→ 🟡 **一部対処（2026-08-26 / §16）。** 登録ボーナス 5,000pt はカード登録の入口に CAPTCHA を入れて塞いだ。**サインアップ自体は素通しのままなので、紹介ボーナス 3,800pt × 双方 は依然として自動登録で取れる**（Supabase の Auth 設定を触る必要があるため見送り。下の囲みと同じ理由） |
 | Medium | **パスワードの下限がサーバ側で 6 文字**（`password_min_length: 6`）。画面は 8 文字を求めているので、API を直接叩くと 6 文字で登録できる。漏洩パスワード検査（`password_hibp_enabled`）も無効 |
 | Medium | `security_update_password_require_reauthentication: false`。セッションを奪われた場合、現在のパスワードを知らなくても変更できる |
 | Low | 自分の `age` は後から書き換えられる（`birth_date` は変えられず `is_legal_age()` はそちらを優先するので、年齢確認自体は迂回できない。表示上の年齢だけの話） |
@@ -1081,6 +1089,110 @@ vercel deploy --prebuilt --prod --yes
 - ⛔ **カードを登録して 5,000pt のボーナスが付くことの確認**
 - ⛔ 購入画面の表示が「準備中」から金額のボタンに変わっていることの実機確認
 
-> 🚨 **決済より先に CAPTCHA を入れること**（§5 の 9-b）。
-> 登録ボーナスを自動登録で量産できる穴が開いたまま、
-> 出口（購入）だけ開いた状態になっている。
+> ✅ **カード登録の CAPTCHA は 2026-08-26 に入れた**（§16）。
+> ただし本番キーへの差し替えと、サインアップ側の CAPTCHA は残っている。
+
+---
+
+## 16. カード登録に CAPTCHA を入れた（2026-08-26）
+
+登録ボーナス 5,000pt をカード登録で自動的に量産されないよう、
+**Cloudflare Turnstile** を入れた（無料・プライバシー重視・Cloudflare の顧客でなくても使える）。
+
+### どこで効かせているか（ここが要点）
+
+ボーナスの付与経路は**2つ**ある。片方だけ塞いでも意味が無い。
+
+| 付与経路 | 前提 |
+|---|---|
+| `POST /api/stripe/confirm-card`（画面から） | SetupIntent が succeeded であること |
+| `setup_intent.succeeded` の Webhook（Stripe から） | 同上 |
+
+どちらも **SetupIntent が要る**。そして SetupIntent を作れるのは
+`POST /api/stripe/setup-intent` **だけ**（Stripe のシークレットキーが要るため）。
+だから:
+
+1. **`/api/stripe/setup-intent` でトークンを検証する**（`api/_captcha.js`）。
+   ここが唯一の入口なので、通らなければカード登録自体が始まらない。
+2. 検証を通った SetupIntent の `metadata` に印（`captcha_verified_at`）を押す。
+3. **付与する2経路は、その印が無ければポイントを付けない。**
+   → 画面から2回トークンを取らずに、付与の直前で確かめられる。
+
+> 🚨 **`CardRegisterSheet.jsx` の順番を変えないこと。**
+> 「CAPTCHA → SetupIntent → カード入力欄を描く」の順。
+> 以前のように最初に SetupIntent を作る作りへ戻すと、CAPTCHA が素通しになる。
+> 利用者から見ると、ふだんは操作が要らない（「確認しています…」が一瞬出るだけ）。
+
+> 🚨 **`TURNSTILE_SECRET_KEY` が未設定なら 503 でカード登録を止める（fail-closed）。**
+> 「未設定なら素通し」にすると、環境変数が消えた瞬間に穴が開いたことに誰も気づけない。
+> Vercel の環境変数を消すときは、カード登録が止まることを承知の上で消すこと。
+
+### 入れたもの
+
+| どこ | 何 |
+|---|---|
+| `api/_captcha.js`（新規） | siteverify への問い合わせ・印の定義・エラーの切り分け |
+| `api/stripe/setup-intent.js` | トークンを検証してから SetupIntent を作る／印を押す |
+| `api/stripe/confirm-card.js` · `webhook.js` | 印が無ければ付与しない |
+| `api/stripe/status.js` | `captchaSiteKey` を配る（`cardEnabled` の条件にも追加） |
+| `src/lib/captcha.js`（新規） | Turnstile の読み込みと explicit 描画 |
+| `src/screens/CardRegisterSheet.jsx` | ウィジェット表示・トークン取得後にカード入力欄 |
+| `vercel.json` | CSP に `https://challenges.cloudflare.com`（`script-src` / `frame-src`） |
+| Vercel 環境変数（Production / Preview / Development） | `TURNSTILE_SECRET_KEY` · `VITE_TURNSTILE_SITE_KEY` |
+
+サイトキーは `/api/stripe/status` からも配っている。
+`VITE_` の値は `--prebuilt` デプロイで空になることがあるため（§15 と同じ理由）。
+
+### ⛔ いまはテスト用キー。本番キーに差し替えること
+
+Cloudflare のアカウントが無いため、**Cloudflare が公開しているテスト用キー**を入れてある。
+**これは「常に成功する」キーなので、現状ボットは止まらない**（配線だけが完成している）。
+
+| | 値 |
+|---|---|
+| サイトキー | `1x00000000000000000000AA` |
+| シークレット | `1x0000000000000000000000000000000AA` |
+
+差し替え手順:
+
+1. https://dash.cloudflare.com → Turnstile → Add Site
+   （ドメイン `aisekimatch.com`。**Cloudflare で DNS を管理していなくても使える**。
+   本サービスの DNS は xdomain のまま）。Widget Mode は **Managed** でよい。
+2. 発行された Site Key / Secret Key を Vercel の3環境へ入れ直す:
+
+```bash
+vercel env rm TURNSTILE_SECRET_KEY production --yes
+printf '<新しいシークレット>' | vercel env add TURNSTILE_SECRET_KEY production
+vercel env rm VITE_TURNSTILE_SITE_KEY production --yes
+printf '<新しいサイトキー>' | vercel env add VITE_TURNSTILE_SITE_KEY production
+```
+
+3. ローカルの `.env` も直す。
+4. **再デプロイするまで反映されない**（§5 の 10 と同じ）。
+5. `node scripts/verify_captcha.mjs` で確認（本番キーなら「でたらめなトークンを
+   拒否した」と出るのが正解）。
+
+> ⚠ CLI 53.1.1 は `vercel env add <name> preview` が非対話で通らない
+> （`--value` も効かない）。Preview は `POST /v10/projects/{id}/env` を直接叩いた。
+
+### 確認のしかた
+
+```bash
+node scripts/verify_captcha.mjs                     # Cloudflare への疎通と鍵の種別
+node scripts/verify_captcha.mjs --base https://aisekimatch.com \
+  --email <テストユーザー> --password <パスワード>   # 実際のエンドポイント
+```
+
+2つ目は **CAPTCHA トークン無しの `POST /api/stripe/setup-intent` が 400 で断られること**
+を確かめる（＝ボーナスの入口が塞がっていること）。
+テストユーザーは `scripts/create_test_user.mjs` で作る（§8）。
+
+### 残っているもの
+
+- ⛔ **本番キーへの差し替え**（上記）。これをやるまでボットは止まらない。
+- ⛔ **サインアップ自体の CAPTCHA は未対応。**
+  紹介ボーナス 3,800pt（双方）はカード登録なしで付くので、
+  **アカウントの量産で取れる**。Supabase の `security_captcha_enabled` を
+  ON にすれば塞がるが、Auth 設定が丸ごと消えた実績があるため見送っている（§12 の囲み）。
+  **触るなら Resend の APIキーを手元に用意してから。**
+- 実機（スマートフォン）でウィジェットが出ることの確認。

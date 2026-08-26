@@ -1538,16 +1538,17 @@ export function stripeStatus() {
     try {
       const res = await fetch("/api/stripe/status", { headers: { accept: "application/json" } });
       if (!res.headers.get("content-type")?.includes("application/json")) {
-        return { enabled: false, cardEnabled: false, publishableKey: null };
+        return { enabled: false, cardEnabled: false, publishableKey: null, captchaSiteKey: null };
       }
       const body = await res.json();
       return {
         enabled: body?.enabled === true,
         cardEnabled: body?.cardEnabled === true,
         publishableKey: body?.publishableKey || null,
+        captchaSiteKey: body?.captchaSiteKey || null,
       };
     } catch {
-      return { enabled: false, cardEnabled: false, publishableKey: null };
+      return { enabled: false, cardEnabled: false, publishableKey: null, captchaSiteKey: null };
     }
   })();
   return stripeStatusPromise;
@@ -1633,13 +1634,28 @@ async function callPaymentApi(path, body) {
     throw new Error("決済APIに接続できませんでした。ローカルでは `vercel dev` で起動してください。");
   }
   const payload = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(payload?.error || "通信に失敗しました。");
+  if (!res.ok) {
+    const err = new Error(payload?.error || "通信に失敗しました。");
+    // CAPTCHA で弾かれたときは、画面がウィジェットを描き直せるように印を残す。
+    if (payload?.captcha) err.captcha = true;
+    throw err;
+  }
   return payload;
 }
 
-/* カード登録用の SetupIntent を作る。返るのは client_secret。 */
-export async function createSetupIntent() {
-  return callPaymentApi("/api/stripe/setup-intent");
+/* CAPTCHA（Turnstile）のサイトキー。サーバから受け取る値を優先する。
+   ビルド時に焼き込む VITE_ の値は --prebuilt デプロイで空になることがあるため
+   （HANDOFF §15。公開可能キーと同じ扱い）。 */
+export async function captchaSiteKey() {
+  const fromServer = (await stripeStatus()).captchaSiteKey;
+  return fromServer || import.meta.env?.VITE_TURNSTILE_SITE_KEY || "";
+}
+
+/* カード登録用の SetupIntent を作る。返るのは client_secret。
+   🚨 CAPTCHA のトークンが要る。サーバが Cloudflare に問い合わせて
+     検証し、通ったものにだけ印を押す（＝ボーナスが付く条件）。 */
+export async function createSetupIntent(captchaToken) {
+  return callPaymentApi("/api/stripe/setup-intent", { captchaToken });
 }
 
 /* 登録できたことをサーバに確かめてもらい、ボーナスを受け取る。

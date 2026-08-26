@@ -1,5 +1,5 @@
 /* =====================================================================
-   POST /api/stripe/setup-intent
+   POST /api/stripe/setup-intent   { captchaToken }
 
    カードを登録する（＝あとで請求できる状態にする）ための SetupIntent を作る。
    返すのは client_secret だけ。カード番号はブラウザから Stripe へ直接送られ、
@@ -11,9 +11,16 @@
    ・Stripe の Customer はユーザーごとに1つだけ作り、
      2回目以降は metadata から引き当てて使い回す。
 
+   🚨 **ボーナス付与経路の入口はここだけ。CAPTCHA はここで検証する。**
+     付与する2経路（confirm-card / setup_intent.succeeded の Webhook）は
+     どちらも SetupIntent の存在が前提で、SetupIntent を作れるのはこの関数だけ。
+     検証を通ったものには metadata に印（CAPTCHA_STAMP）を押し、
+     付与する側はその印を見る。詳しくは `api/_captcha.js` の冒頭。
+
    POST 応答:
      { clientSecret, publishableKey }
    ===================================================================== */
+import { CAPTCHA_STAMP, CaptchaError, verifyCaptcha } from "../_captcha.js";
 import { ConfigError, env, getStripe, json, requireUser } from "../_lib.js";
 
 /* ユーザーに対応する Stripe Customer を返す（無ければ作る）。
@@ -41,6 +48,12 @@ export async function POST(request) {
     const user = await requireUser(request);
     if (!user) return json({ error: "ログインが必要です。" }, 401);
 
+    let body = {};
+    try { body = await request.json(); } catch { /* 下の検証で弾く */ }
+
+    /* CAPTCHA。Stripe を呼ぶ前に確かめる（無駄な Customer を作らないため）。 */
+    await verifyCaptcha(body?.captchaToken);
+
     const stripe = getStripe();
     const customer = await findOrCreateCustomer(stripe, user);
 
@@ -50,7 +63,9 @@ export async function POST(request) {
       // あとから本人がいない場面でも請求できるようにしておく
       usage: "off_session",
       // Webhook でボーナスを付けるときに、どのユーザーの登録かを見る
-      metadata: { user_id: user.id },
+      // CAPTCHA_STAMP は「人手の確認を通って作られた」印。
+      // これが無い SetupIntent にはボーナスを付けない（api/_captcha.js）。
+      metadata: { user_id: user.id, [CAPTCHA_STAMP]: new Date().toISOString() },
     });
 
     return json({
@@ -61,6 +76,10 @@ export async function POST(request) {
       publishableKey: env("VITE_STRIPE_PUBLISHABLE_KEY", "STRIPE_PUBLISHABLE_KEY"),
     });
   } catch (e) {
+    if (e instanceof CaptchaError) {
+      // 人手の確認が取れなかった。画面はウィジェットをやり直させる。
+      return json({ error: e.message, captcha: true }, 400);
+    }
     if (e instanceof ConfigError) {
       console.error("[stripe/setup-intent] 設定エラー:", e.message);
       return json({ error: "ただいまカードのご登録をご利用いただけません。" }, 503);
