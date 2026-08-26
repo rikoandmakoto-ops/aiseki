@@ -1,6 +1,6 @@
 # AISEKI 引き継ぎ書
 
-最終更新: 2026-08-25（LP URLリネーム /lp/women→host, /lp/men→guest。ランク相互公開 §13-b）
+最終更新: 2026-08-26（Stripe を live モードで有効化。Webhook 登録・疎通確認・デプロイまで完了 §15）
 
 > ## ⚠️ まずこれを読む — Supabase プロジェクトが変わった（2026-08-20）
 >
@@ -59,7 +59,7 @@
 | アイコン | lucide-react |
 | バックエンド | Supabase（PostgreSQL + Auth + Storage + Realtime） |
 | サーバー関数 | Vercel Functions（`api/` 配下。Stripe決済のみ） |
-| 決済 | Stripe（**現在は placeholder で無効**） |
+| 決済 | Stripe（**2026-08-26 に live モードで有効化済み**。§15） |
 | ホスティング | Vercel |
 | PWA | 手書きの Service Worker（`src/lib/pwa.js`） |
 
@@ -202,7 +202,7 @@ postgresql://postgres:<DBパスワード>@db.melfyxfvhyknqhruytms.supabase.co:54
 |---|---|
 | Supabase Personal Access Token（`sbp_...`） | ✅ 受領済み（org `zack`）。**旧 ref には使えない**（403） |
 | Supabase secret（service_role 相当）キー | ✅ 新プロジェクトのものを `.env` と Vercel Production に設定済み |
-| Stripe の各キー | すべて placeholder（意図的） |
+| Stripe の各キー | ✅ **live キーを設定済み**（2026-08-26）。`sk_live_` / `pk_live_` / `whsec_` の3種が `.env` と Vercel Production に入っている（§15） |
 
 ---
 
@@ -250,7 +250,7 @@ postgresql://postgres:<DBパスワード>@db.melfyxfvhyknqhruytms.supabase.co:54
 | ~~メール本文の日本語化~~ | ✅ **2026-08-22 完了。** Management API で件名・本文を日本語化（`scripts/apply_email_templates.mjs`）。GET で保存値を照合し、実アドレスへの signup が 200 を返すことまで確認 |
 | ~~最新コミットのデプロイ~~ | ✅ 2026-08-20 実施済み |
 | ~~Production の `SUPABASE_SERVICE_ROLE_KEY`~~ | ✅ **2026-08-22 に入れ替え。** ⚠️ ここには「2026-08-20 に入れ替え済み」と書いてあったが**誤りだった**。`vercel env ls production` の作成日が 13日前（＝現行プロジェクトが存在する前）で、実際には旧プロジェクトのキーが残っていた。`.env` の `sb_secret_...` に差し替えて再デプロイ済み |
-| Stripe決済 | placeholder のまま（意図的。無効でもアプリは動く） |
+| ~~Stripe決済~~ | ✅ **2026-08-26 に live モードで有効化。** キー3種 + Webhook 登録 + デプロイまで完了し、`/api/stripe/status` が `{"enabled":true,"cardEnabled":true}` を返すことと、署名付きイベントが 200 で通ることを確認済み（§15）。⛔ **実課金でのテストは未実施** |
 | ~~独自ドメイン~~ | ✅ 2026-08-21 に `aisekimatch.com` 取得・接続済み |
 | 実機での動作確認 | 未実施（チェックリストは `LAUNCH.md` §5） |
 | 運営体制（通報対応者・営業許可確認・本店所在地） | 未確定 |
@@ -316,7 +316,8 @@ postgresql://postgres:<DBパスワード>@db.melfyxfvhyknqhruytms.supabase.co:54
    `.env` の値へ入れ替え、環境変数を反映させるために `vercel deploy --prod` も実行済み。
    → **環境変数を変えたら再デプロイするまで実行時には反映されない。**
 
-11. **Stripe の本番キー設定 + Webhook 登録** — 手順は `LAUNCH.md` §4。
+11. ~~**Stripe の本番キー設定 + Webhook 登録**~~ ✅ **2026-08-26 完了**（`LAUNCH.md` §4 / §15）。
+   **残り: live で1回購入してポイントが増えることの確認（実課金が発生する）。**
 
 ### 🟢 P3 — 落ち着いてから
 
@@ -358,10 +359,14 @@ DB到達性と Auth 設定変更は別レイヤー。
 
 ### その他
 
-- **Stripe は placeholder のまま**（意図的）。決済無しでもアプリは動く。
-  購入画面は `/api/stripe/status` を見て「準備中」に切り替わる（現在 `{"enabled":false}`）。
-  `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` / `SUPABASE_SERVICE_ROLE_KEY` が
-  **3つとも**揃って初めて有効になる。
+- **Stripe は live モードで有効**（2026-08-26〜）。`/api/stripe/status` は `{"enabled":true,...}`。
+  **本物の課金が発生する。** 動作確認で購入ボタンを押すときは、それを承知の上で押すこと。
+  - `enabled` の判定に `STRIPE_WEBHOOK_SECRET` は**入っていない**（`api/stripe/status.js` の
+    コメント参照。署名シークレットは Webhook を登録して初めて手に入るので、必須にすると
+    堂々巡りになる）。**`enabled:true` は「ポイントが付く」の保証ではない。**
+    付与経路は Webhook なので、シークレットが欠けると**支払いだけ通ってポイントが付かない**。
+  - 有効/無効を切り替えたいときは `STRIPE_SECRET_KEY` を消す/戻す
+    （消せば購入画面が自動で「準備中」に戻る）。
 - **`VITE_` を付けてよい変数を間違えない。** `VITE_` 付きはブラウザに埋め込まれる。
   `SUPABASE_SERVICE_ROLE_KEY` と `STRIPE_SECRET_KEY` に **絶対に付けない**。
 - **`npm run dev` では `/api` が動かない**（Vite にサーバー関数は無い）。決済を触るなら `vercel dev`。
@@ -973,3 +978,109 @@ insert 全体が `42501 permission denied for table parties` で落ちていた�
 
 > **教訓: 権限を絞ったら、その経路を実際に1回通すこと。**
 > RLS ポリシーだけを見ても、列単位の GRANT 不足は見つからない。
+
+---
+
+## 15. Stripe決済を live モードで有効化した（2026-08-26）
+
+**それまで意図的に placeholder のままだった Stripe を、本番（live）モードで有効にした。**
+`/api/stripe/status` は `{"enabled":true,"cardEnabled":true,"publishableKey":"pk_live_..."}` を返す。
+購入画面の「準備中」は消え、金額のボタンが出ている。
+
+> 🚨 **live モード＝本物の課金が発生する。** テストモードではない。
+> 動作確認で購入ボタンを押すと実際に決済される。
+
+### 入れたもの
+
+| どこ | 何 |
+|---|---|
+| Vercel Production | `STRIPE_SECRET_KEY`（`sk_live_...`）· `VITE_STRIPE_PUBLISHABLE_KEY`（`pk_live_...`）· `PUBLIC_BASE_URL` |
+| Vercel Production | `STRIPE_WEBHOOK_SECRET`（`whsec_...`）← 今回追加 |
+| Stripe | Webhook エンドポイント `we_1U8XyzGIVjir6FEViYguczWc` |
+| ローカル `.env` | `STRIPE_WEBHOOK_SECRET` を placeholder から実値へ（`.env` は gitignore 済み） |
+
+Webhook: `https://aisekimatch.com/api/stripe/webhook` / status `enabled` / livemode `true`。
+
+### 受け取るイベントは3種類（1つでも欠けると穴が開く）
+
+`api/stripe/webhook.js` が処理するのはこの3つ。**`LAUNCH.md` の旧記述は
+`checkout.session.completed` だけを挙げていたが、それでは足りない。**
+
+| イベント | 無いとどうなるか |
+|---|---|
+| `checkout.session.completed` | 通常の購入分のポイントが付かない |
+| `checkout.session.async_payment_succeeded` | **コンビニ決済など後から確定する支払いのポイントが永久に付かない** |
+| `setup_intent.succeeded` | **カード登録ボーナス 5,000pt が付かない**（これが正規の付与経路） |
+
+### 疎通の確認方法（`enabled:true` を見るだけでは不十分）
+
+🚨 **`/api/stripe/status` の `enabled` に `STRIPE_WEBHOOK_SECRET` は入っていない**
+（`api/stripe/status.js` のコメント参照。署名シークレットは Webhook を登録して初めて
+手に入るので、必須にすると堂々巡りになるため意図的にそうしてある）。
+つまり **`enabled:true` は「ポイントが付く」の保証にならない。**
+シークレットが欠けたままだと、**支払いだけ通ってポイントが付かない**という
+いちばん困る壊れ方をする。だから Webhook 側を直接叩いて確かめること。
+
+| 叩き方 | 期待 | ずれたときの意味 |
+|---|---|---|
+| 署名なしで `POST` | `400 {"error":"invalid signature"}` | **`503 {"error":"not configured"}` なら `STRIPE_WEBHOOK_SECRET` が未設定か未反映** |
+| `GET` | `405` | — |
+| 正しい署名の `ping` イベント | `200 {"received":true,"ignored":"ping"}` | 400 なら Vercel 側と Stripe 側でシークレットが食い違っている |
+
+3つ目が通れば、**Vercel に入れた値と Stripe のエンドポイントの値が一致している**証拠になる。
+`ping` は `webhook.js` が処理しないイベントなので、**ポイントは1ptも動かない**（安全に何度でも打てる）。
+
+```bash
+node -e '
+const s=new (require("stripe"))("sk_live_x");   # 署名生成にキーは使われない
+const secret="whsec_...";
+const payload=JSON.stringify({id:"evt_probe",object:"event",type:"ping",data:{object:{}}});
+const header=s.webhooks.generateTestHeaderString({payload,secret});
+require("child_process").execSync(`curl -s -w "\n%{http_code}" -X POST \
+  https://aisekimatch.com/api/stripe/webhook -H "content-type: application/json" \
+  -H "stripe-signature: ${header}" --data-binary @-`,{input:payload,stdio:["pipe",1,2]});'
+```
+
+> ⚠️ **署名を手で作るなら `whsec_` の接頭辞まで含めて HMAC の鍵にする。**
+> 「`whsec_` を剥がして鍵にする」と書いてある解説があるが、stripe-node は
+> **渡された文字列をそのまま鍵にする**。剥がすと必ず `invalid signature` になる。
+> 実際に一度これで詰まった。**素直に `generateTestHeaderString()` を使えばよい。**
+
+### `secret` は作成レスポンスでしか返ってこない
+
+`POST /v1/webhook_endpoints` のレスポンスの `"secret"` を控え忘れたら、
+**あとから API で取り出す方法は無い**（`GET` しても返らない）。エンドポイントを作り直すこと。
+登録手順の curl は `LAUNCH.md` §4 にそのまま貼ってある。
+
+### `--prebuilt` の埋め戻しが復活した
+
+🚨 **今回追加した Vercel 環境変数は Sensitive 扱いで、`vercel pull` が空文字で書き出す。**
+§2 に「`VITE_SUPABASE_*` は Sensitive ではなくなったので埋め戻しは要らない」と書いてあるが、
+**`VITE_STRIPE_PUBLISHABLE_KEY` には当てはまらない**（`len=2` ＝空で落ちてくる）。
+
+```bash
+vercel pull --environment=production --yes
+awk -F= '/^VITE_/{v=$0; sub(/^[^=]*=/,"",v); print $1" len="length(v)}' .vercel/.env.production.local
+# ↑ VITE_STRIPE_PUBLISHABLE_KEY が len=2 なら .env の実値で埋め戻してから build する
+vercel build --prod
+grep -rl 'melfyxfvhyknqhruytms' .vercel/output/static/assets/   # ★ヒット必須
+grep -rl 'sk_live\|whsec_' .vercel/output/static/               # ★0件必須（秘密鍵の漏れ）
+vercel deploy --prebuilt --prod --yes
+```
+
+`sk_live` / `whsec_` の grep は今回から足した。**`VITE_` を付け間違えた秘密鍵は
+バンドルに焼き込まれて公開されるので、出す前に必ず見る。**
+
+埋め戻しを忘れても**画面は壊れない**。`src/lib/api.js` の `loadStripe()` が
+`/api/stripe/status` の `publishableKey` を先に見て、`import.meta.env` は最後の予備だから。
+それでも予備が空のままなのは事故のもとなので埋める。
+
+### まだやっていないこと
+
+- ⛔ **live で1回購入してポイントが増えることの確認**（実課金が発生する）
+- ⛔ **カードを登録して 5,000pt のボーナスが付くことの確認**
+- ⛔ 購入画面の表示が「準備中」から金額のボタンに変わっていることの実機確認
+
+> 🚨 **決済より先に CAPTCHA を入れること**（§5 の 9-b）。
+> 登録ボーナスを自動登録で量産できる穴が開いたまま、
+> 出口（購入）だけ開いた状態になっている。

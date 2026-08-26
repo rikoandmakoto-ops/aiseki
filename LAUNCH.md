@@ -338,12 +338,24 @@ SUPABASE_ACCESS_TOKEN=sbp_xxxx node scripts/apply_email_templates.mjs
 | `VITE_SUPABASE_URL` | `https://melfyxfvhyknqhruytms.supabase.co` | ✅ |
 | `VITE_SUPABASE_ANON_KEY` | `sb_publishable_...` | ✅ |
 | `SUPABASE_SERVICE_ROLE_KEY` | service_role キー | 決済を使うなら |
-| `STRIPE_SECRET_KEY` | `sk_live_...` | 決済を使うなら |
-| `STRIPE_WEBHOOK_SECRET` | `whsec_...` | 決済を使うなら |
-| `PUBLIC_BASE_URL` | `https://aisekimatch.com` | 決済を使うなら |
+| `STRIPE_SECRET_KEY` | `sk_live_...` | ✅ 2026-08-26 設定済 |
+| `VITE_STRIPE_PUBLISHABLE_KEY` | `pk_live_...` | ✅ 2026-08-26 設定済 |
+| `STRIPE_WEBHOOK_SECRET` | `whsec_...` | ✅ 2026-08-26 設定済 |
+| `PUBLIC_BASE_URL` | `https://aisekimatch.com` | ✅ 2026-08-26 設定済 |
 
 `VITE_` が付く変数はブラウザに埋め込まれる。
 **`SUPABASE_SERVICE_ROLE_KEY` と `STRIPE_SECRET_KEY` には絶対に `VITE_` を付けないこと。**
+
+> 🚨 **2026-08-26 に追加した4つは Sensitive 扱いで、`vercel pull` が空文字で書き出す。**
+> `HANDOFF.md` §2 の「埋め戻しはもう要らない」は **`VITE_STRIPE_PUBLISHABLE_KEY` には当てはまらない**。
+> `--prebuilt` で出すときは `vercel build` の前に `.vercel/.env.production.local` の
+> `VITE_STRIPE_PUBLISHABLE_KEY` をローカル `.env` の実値で埋め戻すこと。
+> （サーバ側だけで読む `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` /
+>   `SUPABASE_SERVICE_ROLE_KEY` / `PUBLIC_BASE_URL` は実行時に読むので、空のままでよい。）
+>
+> 埋め戻さなくても**画面は壊れない**。`src/lib/api.js` の `loadStripe()` が
+> `/api/stripe/status` の `publishableKey` を先に見て、`import.meta.env` は最後の予備だから。
+> ただし予備が空のままなのは事故のもとなので埋める。
 
 **2026-08-20 時点の状態（整理済み）**
 
@@ -374,23 +386,75 @@ SUPABASE_ACCESS_TOKEN=sbp_xxxx node scripts/apply_email_templates.mjs
 
 ## 4. 決済（ポイント購入）
 
-現在 Stripe のキーはすべて placeholder。
-このままでも**アプリは動く**。購入画面は `/api/stripe/status` を見て
-「ポイントの購入は準備中です」に切り替わり、購入ボタンは「準備中」で押せなくなる
-（押しても何も起きないボタンを黙って置かないため）。
-そのあいだも、新規登録ボーナス 10,000pt と友達招待 3,800pt で参加できる。
+> ## ✅ 2026-08-26 に **本番（live）モードで有効化済み**
+>
+> `/api/stripe/status` は `{"enabled":true,"cardEnabled":true,"publishableKey":"pk_live_..."}` を返す。
+> 購入画面の「準備中」は消え、金額のボタンが出る。
+>
+> | 項目 | 値 |
+> |---|---|
+> | モード | **live**（テストモードではない。実際に課金される） |
+> | Webhook エンドポイント id | `we_1U8XyzGIVjir6FEViYguczWc` |
+> | Webhook URL | `https://aisekimatch.com/api/stripe/webhook` |
+> | 受け取るイベント | `checkout.session.completed` / `checkout.session.async_payment_succeeded` / `setup_intent.succeeded` |
+> | status | `enabled` |
+>
+> **イベントは3種類とも要る**（`webhook.js` がこの3つを処理する）。
+> `checkout.session.completed` だけでは足りない:
+> - `checkout.session.async_payment_succeeded` … コンビニ決済など、後から確定するもの。
+>   これが無いと後払いの購入分のポイントが永久に付かない。
+> - `setup_intent.succeeded` … **カード登録ボーナス 5,000pt の正規の付与経路**。
+>   これが無いとカードを登録してもボーナスが付かない。
+>
+> 疎通は確認済み:
+>
+> | 確認 | 結果 |
+> |---|---|
+> | 署名なしで POST | `400 {"error":"invalid signature"}` ← 503 が返るなら `STRIPE_WEBHOOK_SECRET` 未設定 |
+> | `GET` | `405` |
+> | 正しい署名を付けた `ping` イベント | `200 {"received":true,"ignored":"ping"}` |
+>
+> 最後の1つが通れば、**Vercel 側の秘密鍵と Stripe 側のエンドポイントの秘密鍵が一致している**証拠になる。
+> 署名の作り方（`whsec_` の**接頭辞まで含めて** HMAC の鍵にする。剥がすと落ちる）:
+>
+> ```bash
+> node -e '
+> const s=new (require("stripe"))("sk_live_x");
+> const secret="whsec_...";
+> const payload=JSON.stringify({id:"evt_probe",object:"event",type:"ping",data:{object:{}}});
+> const header=s.webhooks.generateTestHeaderString({payload,secret});
+> require("child_process").execSync(`curl -s -w "\\n%{http_code}" -X POST https://aisekimatch.com/api/stripe/webhook \
+>   -H "content-type: application/json" -H "stripe-signature: ${header}" --data-binary @-`,
+>   {input:payload,stdio:["pipe",1,2]});'
+> ```
+>
+> ⛔ **まだ実売買のテストはしていない。** live モードなので、実際に1回購入して
+> ポイントが増えることを確認するには本物の課金が発生する。下の「残り」を参照。
 
-決済を有効にするときにやること:
+Webhook をゼロから登録し直すときの手順（curl で完結する。ダッシュボードは要らない）:
 
-1. Stripe ダッシュボードでキーを取得し、上の環境変数に設定
-2. Webhook エンドポイントを登録
-   `https://aiseki-xi.vercel.app/api/stripe/webhook`
-   受け取るイベント: `checkout.session.completed`
-3. 表示された `whsec_...` を `STRIPE_WEBHOOK_SECRET` に設定
-4. テストモードで1回購入し、ポイントが増えることを確認
-5. 購入画面の「準備中」表示が消え、金額のボタンになることを確認
-   （`STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` / `SUPABASE_SERVICE_ROLE_KEY` が
-     3つとも入って初めて有効になる）
+```bash
+curl -s https://api.stripe.com/v1/webhook_endpoints -u "$STRIPE_SECRET_KEY:" \
+  -d "url=https://aisekimatch.com/api/stripe/webhook" \
+  -d "enabled_events[]=checkout.session.completed" \
+  -d "enabled_events[]=checkout.session.async_payment_succeeded" \
+  -d "enabled_events[]=setup_intent.succeeded"
+# レスポンスの "secret": "whsec_..." を控える（あとから取得できない）
+printf 'whsec_...' | vercel env add STRIPE_WEBHOOK_SECRET production
+# 環境変数は再デプロイするまで実行時に反映されない
+```
+
+> 🚨 **`secret` はこの作成レスポンスでしか返ってこない。**
+> 控え忘れたらエンドポイントを作り直すこと。
+
+### 残り
+
+- [ ] live で1回購入し、ポイントが増えることを確認する（**実課金が発生する**）
+- [ ] カードを登録し、5,000pt のボーナスが付くことを確認する
+- [ ] 購入画面の「準備中」表示が消え、金額のボタンになっていることを実機で確認する
+
+> ⚠️ **決済より先に CAPTCHA を入れること**（`HANDOFF.md` §5 の 9-b）。
+> 登録ボーナスを自動登録で量産できる穴が開いたままになっている。
 
 > **プランの単価は `src/lib/packs.js` が唯一の出典。**
 > Stripe には金額を保存していないので、値を変えるときはこのファイルだけを直す。
