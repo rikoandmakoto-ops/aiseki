@@ -11,3 +11,6 @@ dist
 
 # DB認証情報を含むローカル用スクリプト
 apply_migrations.command
+
+# Claude Code のローカル設定（DBパスワード等が入るため必ず除外）
+.claude/settings.local.json
