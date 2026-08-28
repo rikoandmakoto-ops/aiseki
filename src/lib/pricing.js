@@ -14,16 +14,89 @@
        （SIGNUP_BONUS は「カード登録後に付与」に変わった。下の注記を読むこと）
    ══════════════════════════════════════════════════════════════ */
 
-/* 会が成立する最小人数（ホスト側・参加側ともに）。1対1は作れない。 */
-export const MIN_GROUP_SIZE = 2;
+/* ===================== 人数 =====================
+   ⚠ 2026-08-28 に「ホスト側」と「参加側」で下限が分かれた。
+     ・募集する側（ホスト）… 2名以上のまま。1対1の会は作れない
+     ・参加する側（ゲスト）… 1名から申し込める（ただし2名分をお支払いいただく）
+   ゲストが1名でも、相手のホストグループは必ず2名以上なので、
+   「1対1のマッチング」は依然として成立しない（§1 の担保は維持）。
+
+   ⚠ DB 側にも同じ値がある（min_host_group_size() / min_guest_group_size() /
+     guest_slot_size()）。片方だけ変えると保存時に弾かれる。
+   ================================================ */
+
+/* 募集する側（ホスト）のグループ最小人数。 */
+export const MIN_HOST_GROUP_SIZE = 2;
+
+/* 参加する側（ゲスト）のグループ最小人数。 */
+export const MIN_GUEST_GROUP_SIZE = 1;
+
+/* 卓が確保するゲスト側の枠。ホストは人数を選ばない（常に2名分）。 */
+export const GUEST_SLOT_SIZE = 2;
+
+/* 既存の呼び出し向け（LP・規約・安全センターの「2名以上のグループ同士」）。
+   意味としてはホスト側の下限＝会が1対1にならないことの根拠。 */
+export const MIN_GROUP_SIZE = MIN_HOST_GROUP_SIZE;
 
 /* ===================== 料金（一律・変更不可） =====================
-   ・募集する側（ホスト）は無料。会はいくつでも自由に立てられる。
+   ・募集する側（ホスト）は完全無料。カード登録も要らず、ボーナスも無い。
    ・参加する側は 1人あたり一律 3,800pt。会ごとの金額設定は無い。
+   ・ただし課金は最低2名分。1人で参加する場合も 7,600pt（＝ SOLO_FEE）。
    ・支払われたポイントは全額が運営の収益で、ホストへの報酬は無い。
    ・そのかわり、当日のホストグループの飲食代は参加グループが負担する。
+
+   支払い方法（相方が既存会員のときだけ選べる）:
+     ・各自払い   … 3,800pt ずつ、二人がそれぞれの残高から払う
+     ・まとめ払い … 7,600pt を代表者がまとめて払う
+   相方が招待（簡易登録）の場合は、相方に残高が無いのでまとめ払いのみ。
+
+   ⚠ 決済のタイミングは「ホストが承認した時点（＝マッチ成立）」。
+     リクエストを送っただけでは1ptも動かない（accept_join_request）。
    ================================================================= */
 export const JOIN_FEE_PER_PERSON = 3800;
+
+/* 課金人数の下限。1名で参加しても2名分を頂く。
+   DB の billable_guests() / guest_slot_size() と一致させる。 */
+export const BILLABLE_MIN_GUESTS = GUEST_SLOT_SIZE;
+
+/* 1人で参加するときの金額（2名分）。DB の solo_fee() と一致させる。 */
+export const SOLO_FEE = JOIN_FEE_PER_PERSON * BILLABLE_MIN_GUESTS;
+
+/* 支払い方法。DB の pay_modes() と一致させる。 */
+export const PAY_MODE_BUNDLE = "bundle";
+export const PAY_MODE_SPLIT = "split";
+export const PAY_MODES = [
+  {
+    key: PAY_MODE_SPLIT,
+    label: "各自払い",
+    note: `お二人が ${JOIN_FEE_PER_PERSON.toLocaleString()}pt ずつお支払いします`,
+  },
+  {
+    key: PAY_MODE_BUNDLE,
+    label: "まとめ払い",
+    note: `あなたが ${SOLO_FEE.toLocaleString()}pt をまとめてお支払いします`,
+  },
+];
+
+/* アカウント種別。DB の account_types() と一致させる。
+   'simple' は招待リンクからの簡易登録（名前＋年齢確認＋写真だけ）。
+   卓を立てることも、参加を申し込むこともできない。 */
+export const ACCOUNT_FULL = "full";
+export const ACCOUNT_SIMPLE = "simple";
+
+/* 1つのグループに登録できる人数（代表者を含む）。DB の max_group_members()。 */
+export const MAX_GROUP_MEMBERS = 8;
+
+/* 課金人数（1名でも2名分） */
+export const billableGuests = (size) =>
+  Math.max(Number(size) || 0, BILLABLE_MIN_GUESTS);
+
+/* 参加グループが支払う合計ポイント */
+export const joinFeeTotal = (size) => JOIN_FEE_PER_PERSON * billableGuests(size);
+
+/* 自分がいくら払うか（各自払いなら半分） */
+export const myJoinCharge = (size, payMode) =>
+  payMode === PAY_MODE_SPLIT ? joinFeeTotal(size) / 2 : joinFeeTotal(size);
 
 /* 登録ボーナス。参加は1人あたり 3,800pt。
 
@@ -32,7 +105,10 @@ export const JOIN_FEE_PER_PERSON = 3800;
      handle_new_user() から付与を外した）。付けるのは grant_card_bonus() で、
      呼ぶのは /api/stripe/webhook（setup_intent.succeeded）と
      /api/stripe/confirm-card の2経路だけ。どちらも service_role。
-     ここに残しているのは金額の表示用（DB 側の出典は signup_bonus()）。 */
+     ここに残しているのは金額の表示用（DB 側の出典は signup_bonus()）。
+
+   ⚠ 2026-08-28 から、カード登録を求めるのは【参加する側】だけ。
+     募集する側（ホスト）はカード登録不要・ボーナスなしで完全無料。 */
 export const SIGNUP_BONUS = 5000;
 
 /* 友達紹介ボーナス（紹介した側・された側の双方に付与）。参加1名分。 */

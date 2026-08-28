@@ -5,6 +5,7 @@ import {
   Mail, LogOut, Wine, History, Wallet, ShieldCheck, Lock, FileText, UsersRound,
   Ticket, Copy, DoorClosed, Ban, CreditCard, LifeBuoy, ShieldAlert, XCircle,
   Search, SlidersHorizontal, CalendarDays, Gift, Star, Beer, Heart, Store,
+  UserPlus, EyeOff,
 } from "lucide-react";
 import { supabase, configError } from "./lib/supabase";
 import * as api from "./lib/api";
@@ -35,6 +36,10 @@ const CompletionMeter = lazy(() =>
   import("./screens/ProfileEditScreen.jsx").then((m) => ({ default: m.CompletionMeter }))
 );
 const ReferralScreen = lazy(() => import("./screens/ReferralScreen.jsx"));
+/* ホスト側のグループ（卓を立てる前に友達を集めておく箱） */
+const GroupScreen = lazy(() => import("./screens/GroupScreen.jsx"));
+/* 招待リンクからの簡易登録（ホストの友達が来る入口） */
+const InviteSignupScreen = lazy(() => import("./screens/InviteSignupScreen.jsx"));
 const SafetyScreen = lazy(() => import("./screens/SafetyScreen.jsx"));
 const MemberSheet = lazy(() => import("./screens/MemberSheet.jsx"));
 const ReviewSheet = lazy(() => import("./screens/ReviewSheet.jsx"));
@@ -70,12 +75,16 @@ const AREAS = ["渋谷", "恵比寿", "中目黒", "六本木", "西麻布", "�
    ══════════════════════════════════════════════════════════════ */
 const MIN_GROUP = api.MIN_GROUP_SIZE;
 const MIN_AGE = api.MIN_AGE;
-const GROUP_OPTIONS = [2, 3, 4, 5, 6];
 
 /* 参加ポイント（1人あたり）。全ての会で一律で、ホストは金額を設定できない。
-   DB 側（join_fee_per_person）でも同じ値が強制されている。 */
+   DB 側（join_fee_per_person）でも同じ値が強制されている。
+
+   ⚠ これは「単価 × n」であって、請求額ではない。
+     実際にお預かりする額は最低2名分（api.joinFeeFor / SOLO_FEE）なので、
+     金額を出すときは必ずどちらの意味かを確かめること。
+     お一人での申し込みでも 7,600pt になる。 */
 const JOIN_FEE = api.JOIN_FEE_PER_PERSON;
-const feeText = (n = 1) => api.joinFeeFor(n).toLocaleString();
+const feeText = (n = 1) => (JOIN_FEE * n).toLocaleString();
 
 /* 会のグループ構成（ホスト側 / 募集側）。旧データにも安全にフォールバック */
 const groupSizes = (p) => {
@@ -216,41 +225,6 @@ const MetaLine = ({ icon: Icon, children }) => (
   </span>
 );
 
-/* ════════════════════════════════════════════ 同伴者の登録フィールド
-   グループの人数分だけ「席」を作るため、代表者を除く同伴者の
-   ニックネームをここで登録する。空欄でも既定名で席は作られる。 */
-const MemberNamesField = ({ size, names, onChange, label, hint }) => {
-  const count = Math.max(Number(size) - 1, 0);
-  if (count === 0) return null;
-  return (
-    <div style={{ marginBottom: 17 }}>
-      <label style={labelStyle}>{label}</label>
-      <div style={{ display: "grid", gap: 8 }}>
-        {Array.from({ length: count }, (_, i) => (
-          <input
-            key={i}
-            value={names[i] ?? ""}
-            maxLength={20}
-            onChange={(e) => {
-              const next = [...names];
-              next[i] = e.target.value;
-              onChange(next);
-            }}
-            placeholder={`${i + 2}人目のニックネーム`}
-            style={fieldStyle}
-          />
-        ))}
-      </div>
-      {hint && (
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 6, marginTop: 9, fontSize: 10.5, color: C.textMuted, lineHeight: 1.65 }}>
-          <UsersRound size={12} strokeWidth={1.9} color={C.primary} style={{ flexShrink: 0, marginTop: 1 }} />
-          {hint}
-        </div>
-      )}
-    </div>
-  );
-};
-
 /* ═══════════════════════════════════════════ 招待コードで席を引き受ける
    代表者が登録した同伴者の席を、同伴者本人のアカウントに紐づける。
    これでグループチャットとメンバー一覧が見えるようになる。 */
@@ -314,6 +288,31 @@ const InviteCodeCard = ({ onJoined }) => {
   );
 };
 
+/* ═══════════════════════════════════ ホストの写真（マッチ前は薄モザイク）
+   ⚠ ここで CSS の filter をかけているのではない。マッチが成立するまでは、
+     サーバが「ぼかした別画像」しか返さない（元の写真の URL は渡ってこない）。
+     見た目の演出ではなく、配信そのものを分けてある。
+     ぼかし画像が無い方（未設定・古いアカウント）は今までどおり絵文字を出す。 */
+const HostThumb = ({ party, size = 48 }) => {
+  const blur = api.partyHostBlurUrl(party);
+  if (!blur) return <AvatarBubble size={size}>{partyEmoji(party.id)}</AvatarBubble>;
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: size / 2, flexShrink: 0,
+      overflow: "hidden", position: "relative",
+      border: `1px solid ${C.linePrimary}`, background: "#0c1122",
+    }}>
+      <img src={blur} alt="" aria-hidden="true" loading="lazy"
+        style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+      <span style={{
+        position: "absolute", right: 1, bottom: 1, width: 15, height: 15, borderRadius: 8,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        background: "rgba(10,14,28,0.86)", border: `1px solid ${C.linePrimary}`, color: C.primary,
+      }}><EyeOff size={8} strokeWidth={2.4} /></span>
+    </div>
+  );
+};
+
 /* ═══════════════════════════════════════════ Featured (hero) card */
 const FeaturedCard = ({ p, onTap }) => (
   <div className="lux-card" onClick={onTap} style={{
@@ -332,10 +331,8 @@ const FeaturedCard = ({ p, onTap }) => (
         <Eyebrow style={{ letterSpacing: 2, textShadow: "0 1px 3px rgba(0,0,0,0.5)" }}>◆ 本日のおすすめ</Eyebrow>
       </div>
       <div style={{ position: "absolute", top: 12, right: 14 }}><TreatBadge /></div>
-      <div style={{ position: "absolute", left: 16, bottom: -22, width: 66, height: 66, borderRadius: 33, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 30,
-        background: "linear-gradient(150deg, #1a2340 0%, #0c1122 100%)",
-        border: `1px solid ${C.linePrimary}`, boxShadow: "0 10px 24px rgba(0,0,0,0.6)" }}>
-        {partyEmoji(p.id)}
+      <div style={{ position: "absolute", left: 16, bottom: -22, boxShadow: "0 10px 24px rgba(0,0,0,0.6)", borderRadius: 33 }}>
+        <HostThumb party={p} size={66} />
       </div>
     </div>
 
@@ -351,7 +348,7 @@ const FeaturedCard = ({ p, onTap }) => (
       </div>
       <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginTop: 11, alignItems: "center" }}>
         <Tag>ホスト側 {groupSizes(p).host}名</Tag>
-        <Tag>募集 {groupSizes(p).guest}名グループ</Tag>
+        <Tag>お相手 {groupSizes(p).guest}名枠</Tag>
         <BudgetTag party={p} />
         <GuestTierTag party={p} />
       </div>
@@ -378,13 +375,13 @@ const FeaturedCard = ({ p, onTap }) => (
 const PartyCard = ({ p, onTap }) => {
   // 表示するのは会の情報のみ。参加者個人の属性（性別・年齢・写真）は一覧に出さない。
   const { host, guest } = groupSizes(p);
-  const tags = [`ホスト側 ${host}名`, `募集 ${guest}名グループ`];
+  const tags = [`ホスト側 ${host}名`, `お相手 ${guest}名枠`];
   return (
     <div className="lux-card" onClick={onTap} style={{ ...card, padding: 15, marginBottom: 12, cursor: "pointer", position: "relative", overflow: "hidden" }}>
       <div style={{ position: "absolute", top: 0, left: 18, right: 18, height: 1, background: "linear-gradient(90deg, transparent, rgba(232,201,135,0.38), transparent)" }} />
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 11 }}>
         <div style={{ display: "flex", gap: 12, alignItems: "center", minWidth: 0 }}>
-          <AvatarBubble size={48}>{partyEmoji(p.id)}</AvatarBubble>
+          <HostThumb party={p} size={48} />
           <div style={{ minWidth: 0 }}>
             <div style={{ fontFamily: FONT_HEAD, fontWeight: 600, fontSize: 15.5, color: C.text, letterSpacing: 0.2, lineHeight: 1.35, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.title}</div>
             <div style={{ marginTop: 4 }}><MetaLine icon={MapPin}>{[p.location, p.area].filter(Boolean).join(" · ") || "場所未定"}</MetaLine></div>
@@ -627,7 +624,11 @@ const HomeScreen = ({ user, onDetail, onCreate }) => {
         <div style={{ padding: "8px 20px 0" }}>
           <Eyebrow style={{ marginBottom: 11 }}>◆ グループ参加リクエスト</Eyebrow>
           {incoming.map((r, i) => {
-            const size = Math.max(MIN_GROUP, r.group_size ?? MIN_GROUP);
+            /* 1名での申し込みもある（その場合も課金は2名分）。
+               人数は申告どおりに出し、金額は課金人数で出す。 */
+            const size = Math.max(1, r.group_size ?? api.GUEST_SLOT_SIZE);
+            const billable = r.billable_size ?? api.billableGuests(size);
+            const split = r.pay_mode === api.PAY_MODE_SPLIT;
             return (
               <div key={r.id} className="rise" style={{ ...card, padding: 16, marginBottom: 10, animationDelay: `${i * 60}ms`,
                 background: "linear-gradient(135deg, rgba(168,32,58,0.30), rgba(232,201,135,0.07))", border: `1px solid ${C.linePrimary}` }}>
@@ -641,7 +642,9 @@ const HomeScreen = ({ user, onDetail, onCreate }) => {
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div style={{ fontSize: 13.5, color: C.text, lineHeight: 1.5 }}>
                       <b style={{ color: C.primaryDeep, fontWeight: 700 }}>{r.applicant_name || "ゲスト"}</b>
-                      <span style={{ color: C.textMuted, fontSize: 11.5 }}> さんのグループ（{size}名）</span>
+                      <span style={{ color: C.textMuted, fontSize: 11.5 }}>
+                        {size === 1 ? " さん（お一人）" : ` さんのグループ（${size}名）`}
+                      </span>
                     </div>
                     <div style={{ fontSize: 11.5, color: C.textSec }}>「{r.party?.title}」への参加希望</div>
                   </div>
@@ -652,8 +655,10 @@ const HomeScreen = ({ user, onDetail, onCreate }) => {
                   )}
                 </div>
                 <div style={{ fontSize: 11.5, color: C.textSec, marginBottom: 7, display: "inline-flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
-                  <Gem size={12} strokeWidth={1.8} color={C.primary} /> このグループが <b style={{ color: C.primaryDeep }}>{feeText(size)}pt</b> を支払います
-                  <span style={{ color: C.textMuted }}>（{feeText()}pt × {size}名）</span>
+                  <Gem size={12} strokeWidth={1.8} color={C.primary} /> 承認すると <b style={{ color: C.primaryDeep }}>{api.joinFeeFor(size).toLocaleString()}pt</b> をお預かりします
+                  <span style={{ color: C.textMuted }}>
+                    （{feeText()}pt × {billable}名分{split ? " · 各自払い" : ""}）
+                  </span>
                 </div>
                 <div style={{ fontSize: 10.5, color: C.textMuted, marginBottom: 9, lineHeight: 1.6 }}>
                   ポイントは運営が受け取るため、あなたへの支払いはありません。
@@ -745,8 +750,17 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [sending, setSending] = useState(false);
-  const [groupSize, setGroupSize] = useState(MIN_GROUP); // 申し込むグループの人数（2名以上）
-  const [guestNames, setGuestNames] = useState([]);      // 同伴者のニックネーム
+  /* ── 参加申請（2026-08-28 の新フロー）──────────────
+     既定は2名。相方は「招待（簡易登録）」か「既存会員」を指定する。
+     下部の小さな導線から1人でも申し込める（その場合も2名分をお支払い）。 */
+  const [groupSize, setGroupSize] = useState(api.GUEST_SLOT_SIZE);
+  const [guestNames, setGuestNames] = useState([]);      // 招待する相方のニックネーム
+  const [partnerMode, setPartnerMode] = useState("invite"); // 'invite' | 'member'
+  const [partner, setPartner] = useState(null);          // { user_id, username }
+  const [partnerCode, setPartnerCode] = useState("");
+  const [lookingUp, setLookingUp] = useState(false);
+  const [payMode, setPayMode] = useState(api.PAY_MODE_BUNDLE);
+  const [hostPreview, setHostPreview] = useState(null);  // マッチ前はぼかし写真
   const [cancelling, setCancelling] = useState(false);
   const [openMember, setOpenMember] = useState(null);    // プロフィールを開いているメンバー
   const [reviewTarget, setReviewTarget] = useState(null); // 評価を書いているメンバー
@@ -770,6 +784,11 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
     setMembers(ms);
     setBalance(bal);
     setReqStatus(req?.status ?? null);
+
+    /* ホストの見え方。マッチが成立するまでは、サーバが「ぼかした別画像」
+       だけを返す（素の写真の URL はそもそも渡ってこない）。 */
+    try { setHostPreview(await api.getPartyHostPreview(partyId)); }
+    catch (e) { console.error(e); setHostPreview(null); }
 
     const iAmMember = ms.some((m) => m.user_id === user.id);
     // 自分がこの会のメンバーのときだけ、自分のグループの招待コードを取得する
@@ -844,16 +863,41 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
     return () => { alive = false; };
   }, [load, reloadKey]);
 
+  /* リクエストを送るだけ。この時点では1ptも動かない
+     （決済はホストが承認した時点＝マッチ成立）。 */
   const sendRequest = async () => {
+    const usingMember = groupSize === 2 && partnerMode === "member";
+    if (usingMember && !partner) {
+      toast.error("相方の会員コードを確認してください。");
+      return;
+    }
     setSending(true);
     try {
-      await api.sendJoinRequest(user.id, party.id, groupSize, guestNames);
+      await api.sendJoinRequest(user.id, party.id, groupSize, guestNames, {
+        partnerId: usingMember ? partner.user_id : null,
+        payMode: usingMember ? payMode : api.PAY_MODE_BUNDLE,
+      });
       setReqStatus("pending");
-      toast.success("参加リクエストを送りました。ホストの承認をお待ちください。");
+      toast.success("参加リクエストを送りました。ホストの承認をお待ちください。ポイントは承認された時点でお預かりします。");
     } catch (e) {
       toast.error("リクエスト送信に失敗しました: " + e.message);
     } finally {
       setSending(false);
+    }
+  };
+
+  /* 相方（既存会員）を会員コードで指定する */
+  const lookupPartner = async () => {
+    setLookingUp(true);
+    try {
+      const found = await api.findPartnerByCode(partnerCode);
+      setPartner(found);
+      toast.success(`${found.username}さんを相方に指定しました。`);
+    } catch (e) {
+      setPartner(null);
+      toast.error(e.message);
+    } finally {
+      setLookingUp(false);
     }
   };
 
@@ -947,14 +991,18 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
 
   const { host: hostGroup, guest: guestGroup } = groupSizes(party);
   const seatsLeft = Math.max(0, party.max_members - party.current_members);
-  // 参加できるグループ人数の選択肢（2名以上、かつ残枠まで）
-  const sizeOptions = GROUP_OPTIONS.filter((n) => n <= seatsLeft);
-  const cost = api.joinFeeFor(groupSize);                   // 参加グループが支払うポイント合計（一律）
+  /* 相方が既存会員のときだけ「各自払い」を選べる。
+     招待（簡易登録）の相方は自分の残高を持たないため、まとめ払いのみ。 */
+  const partnerIsMember = groupSize === 2 && partnerMode === "member" && !!partner;
+  const effectivePayMode = partnerIsMember ? payMode : api.PAY_MODE_BUNDLE;
+  const cost = api.joinFeeFor(groupSize);                   // グループ合計（1名でも2名分）
+  const myCost = api.myJoinCharge(groupSize, effectivePayMode);
   const isHost = party.host_id === user.id;
   const isMember = members.some((m) => m.user_id === user.id);
   const canSeeMembers = isHost || isMember;                 // 承認後のみ個人プロフィールを表示
-  const isFull = seatsLeft < MIN_GROUP;
-  const enough = (balance ?? 0) >= cost;
+  /* 1人で申し込む場合も枠は2名分を押さえる（DB 側も課金人数で判定する） */
+  const isFull = seatsLeft < api.GUEST_SLOT_SIZE;
+  const enough = (balance ?? 0) >= myCost;
   const cancelled = party.status === "cancelled";
   // ゲスト側の席が1つでも埋まっていたら、ホストはもう取り消せない
   const hasGuests = members.some((m) => m.side === "guest");
@@ -974,7 +1022,7 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
     { label: "席", value: "オープンスペース", icon: DoorClosed },
     { label: "年齢", value: `${MIN_AGE}歳以上限定`, icon: ShieldCheck },
     // 金額とお会計の区分は全ての会で共通（ホストは設定できない）
-    { label: "参加ポイント", value: `${feeText()}pt / 1名`, icon: Gem },
+    { label: "参加ポイント", value: `${feeText()}pt / 1名（${api.GUEST_SLOT_SIZE}名分から）`, icon: Gem },
     { label: "お会計", value: "参加グループが負担", icon: Wallet },
     // お店の予算の目安。当日の飲食代は参加グループが負担するため、
     // ポイントとは別に、いくらかかる会なのかを先に見せる。
@@ -1028,6 +1076,51 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
             </div>
           )}
 
+          {/* ── ホストの雰囲気（マッチ前は薄モザイク）──────────
+              ⚠ 画面でぼかしているのではない。マッチが成立するまで、
+                サーバは「ぼかした別画像」しか返さない
+                （src/lib/api.js の getPartyHostPreview / DB の party_host_preview）。
+                返る項目にも性別・評価は入っていない。 */}
+          {!canSeeMembers && hostPreview && (
+            <div style={{
+              marginBottom: 22, borderRadius: 16, padding: "15px 16px",
+              background: "rgba(255,255,255,0.045)", border: `1px solid ${C.lineSoft}`,
+            }}>
+              <div style={{ display: "flex", gap: 13, alignItems: "center" }}>
+                {hostPreview.avatar_url ? (
+                  <div style={{
+                    width: 60, height: 60, borderRadius: 30, overflow: "hidden", flexShrink: 0,
+                    border: `1px solid ${C.linePrimary}`, background: "#0c1122",
+                  }}>
+                    <img src={api.safeImageUrl(hostPreview.avatar_url) ?? ""} alt=""
+                      style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                  </div>
+                ) : (
+                  <AvatarBubble size={60}>{partyEmoji(party.id)}</AvatarBubble>
+                )}
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: C.text, letterSpacing: 0.3 }}>
+                    {hostPreview.username || "ホスト"}
+                    {hostPreview.age ? <span style={{ fontSize: 12, color: C.textSec, fontWeight: 600 }}> · {hostPreview.age}歳</span> : null}
+                  </div>
+                  <div style={{ display: "inline-flex", alignItems: "center", gap: 5, marginTop: 5, fontSize: 10.5, color: C.primaryDeep, fontWeight: 700 }}>
+                    <EyeOff size={11} strokeWidth={2.2} /> マッチ成立まで写真は伏せられています
+                  </div>
+                </div>
+              </div>
+              {hostPreview.bio && (
+                <div style={{ fontSize: 11.5, color: C.textSec, lineHeight: 1.75, marginTop: 11, paddingTop: 11, borderTop: `1px solid ${C.lineSoft}` }}>
+                  {hostPreview.bio}
+                </div>
+              )}
+              {(hostPreview.hobbies?.length ?? 0) > 0 && (
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
+                  {hostPreview.hobbies.slice(0, 6).map((h) => <Tag key={h}>{h}</Tag>)}
+                </div>
+              )}
+            </div>
+          )}
+
           {!canSeeMembers && (
             <div style={{
               display: "flex", gap: 11, alignItems: "flex-start", marginBottom: 22,
@@ -1040,7 +1133,8 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
               <div>
                 <div style={{ fontSize: 12.5, fontWeight: 700, color: C.text, letterSpacing: 0.3 }}>メンバーのプロフィールは非公開です</div>
                 <div style={{ fontSize: 11.5, color: C.textSec, lineHeight: 1.75, marginTop: 3 }}>
-                  参加メンバーの名前・写真は、参加が承認されたあとに表示されます。
+                  参加メンバーの名前・写真は、マッチが成立したあとに表示されます。
+                  それまでお写真は薄くぼかした状態でのみ配信されます。
                 </div>
               </div>
             </div>
@@ -1304,43 +1398,136 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
 
           {!cancelled && !isHost && !isMember && !rankLocked && reqStatus !== "accepted" && reqStatus !== "pending" && !isFull && (
             <>
-              {/* 参加は必ずグループ単位（2名以上） */}
-              <div style={{ marginBottom: 14 }}>
-                <label style={labelStyle}>参加するグループの人数（{MIN_GROUP}名以上）</label>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  {sizeOptions.map((n) => {
-                    const on = groupSize === n;
-                    return (
-                      <button key={n} className="chip" onClick={() => setGroupSize(n)} style={{
-                        flex: 1, minWidth: 58, padding: "10px 0", borderRadius: 12, fontSize: 13.5, fontWeight: 700, cursor: "pointer",
-                        ...(on ? { ...popBtn, borderRadius: 999 } : { ...ghostBtn, borderRadius: 999 }),
-                      }}>{n}名</button>
-                    );
-                  })}
-                </div>
-                <div style={{ fontSize: 10.5, color: C.textMuted, marginTop: 8, lineHeight: 1.6 }}>
-                  1対1でのマッチングは行っていません。残り{seatsLeft}名分の枠があります。
-                  <br />同伴者を含め、参加者は全員{MIN_AGE}歳以上である必要があります。
-                </div>
-              </div>
+              {/* ── 相方 ────────────────────────────────
+                  既定は2名。相方は「招待リンク（簡易登録）」か
+                  「既存会員（会員コードで指定）」のどちらか。 */}
+              {groupSize === 2 && (
+                <div style={{ marginBottom: 14 }}>
+                  <label style={labelStyle}>一緒に参加する相方</label>
+                  <div style={{ display: "flex", gap: 8, marginBottom: 11 }}>
+                    {[
+                      { key: "invite", label: "招待して呼ぶ", icon: UserPlus },
+                      { key: "member", label: "既存の会員", icon: Users },
+                    ].map((m) => {
+                      const on = partnerMode === m.key;
+                      return (
+                        <button key={m.key} type="button" className="chip"
+                          onClick={() => { setPartnerMode(m.key); if (m.key === "invite") setPartner(null); }}
+                          style={{
+                            flex: 1, padding: "10px 0", borderRadius: 999, fontSize: 12.5, fontWeight: 700, cursor: "pointer",
+                            display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
+                            ...(on ? popBtn : ghostBtn),
+                          }}>
+                          <m.icon size={13} strokeWidth={2.2} /> {m.label}
+                        </button>
+                      );
+                    })}
+                  </div>
 
-              {/* 同伴者を登録して、人数分の席を確保する */}
-              <MemberNamesField
-                size={groupSize}
-                names={guestNames}
-                onChange={setGuestNames}
-                label="一緒に参加する同伴者（あなた以外）"
-                hint={`承認されると、この人数分の席がグループに確保されます。同伴者はあとで招待コードを使って自分のアカウントでグループチャットに参加できます。同伴者が${MIN_AGE}歳以上であることをご確認のうえ登録してください。`}
-              />
+                  {partnerMode === "invite" ? (
+                    <>
+                      <input
+                        value={guestNames[0] ?? ""}
+                        onChange={(e) => setGuestNames([e.target.value])}
+                        maxLength={api.LIMITS.username}
+                        placeholder="相方のニックネーム"
+                        style={fieldStyle}
+                      />
+                      <div style={{ fontSize: 10.5, color: C.textMuted, marginTop: 8, lineHeight: 1.7 }}>
+                        承認されると相方の席が確保され、招待コードが表示されます。
+                        相方はお名前・年齢確認・お写真だけの簡単な登録でグループチャットに参加できます。
+                        お支払いは<b style={{ color: C.primaryDeep, fontWeight: 700 }}>あなたがまとめて</b>お預かりします。
+                      </div>
+                    </>
+                  ) : partner ? (
+                    <div style={{
+                      display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", borderRadius: 14,
+                      background: "rgba(232,201,135,0.09)", border: `1px solid ${C.linePrimary}`,
+                    }}>
+                      <Check size={15} strokeWidth={2.6} color={C.primary} style={{ flexShrink: 0 }} />
+                      <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 700, color: C.text }}>
+                        {partner.username} さん
+                      </span>
+                      <button className="press" onClick={() => { setPartner(null); setPartnerCode(""); }} style={{
+                        ...ghostBtn, padding: "6px 12px", borderRadius: 999, fontSize: 11, flexShrink: 0,
+                      }}>変更</button>
+                    </div>
+                  ) : (
+                    <>
+                      <div style={{ display: "flex", gap: 9 }}>
+                        <input
+                          value={partnerCode}
+                          onChange={(e) => setPartnerCode(e.target.value.toUpperCase())}
+                          maxLength={12}
+                          placeholder="相方の会員コード"
+                          aria-label="相方の会員コード"
+                          style={{ ...fieldStyle, letterSpacing: 1.5, fontFamily: FONT_DISPLAY }}
+                        />
+                        <button className="press" onClick={lookupPartner} disabled={lookingUp || !partnerCode.trim()} style={{
+                          ...popBtn, padding: "0 18px", borderRadius: 999, fontSize: 13, flexShrink: 0,
+                          opacity: lookingUp || !partnerCode.trim() ? 0.5 : 1,
+                        }}>{lookingUp ? "確認中…" : "確認"}</button>
+                      </div>
+                      <div style={{ fontSize: 10.5, color: C.textMuted, marginTop: 8, lineHeight: 1.7 }}>
+                        相方の会員コードは、相方のマイページ「友達を招待」に表示されています。
+                        既存の会員なら、お支払いを<b style={{ color: C.primaryDeep, fontWeight: 700 }}>各自払い</b>にもできます。
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* ── お支払い方法（相方が既存会員のときだけ選べる）── */}
+              {partnerIsMember && (
+                <div style={{ marginBottom: 14 }}>
+                  <label style={labelStyle}>お支払い方法</label>
+                  <div style={{ display: "grid", gap: 7 }}>
+                    {api.PAY_MODES.map((m) => {
+                      const on = payMode === m.key;
+                      return (
+                        <button key={m.key} type="button" onClick={() => setPayMode(m.key)} style={{
+                          display: "flex", alignItems: "center", gap: 10, textAlign: "left",
+                          padding: "12px 14px", borderRadius: 14, cursor: "pointer",
+                          ...(on ? { ...popBtn, borderRadius: 14 } : { ...ghostBtn, borderRadius: 14 }),
+                        }}>
+                          <span style={{ flexShrink: 0, display: "flex" }}>
+                            {on ? <Check size={14} strokeWidth={2.6} /> : <Wallet size={14} strokeWidth={2.2} />}
+                          </span>
+                          <span style={{ minWidth: 0, flex: 1 }}>
+                            <span style={{ display: "block", fontSize: 13, fontWeight: 700 }}>{m.label}</span>
+                            <span style={{ display: "block", fontSize: 10.5, fontWeight: 500, lineHeight: 1.6, marginTop: 2, opacity: 0.85 }}>
+                              {m.note}
+                            </span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div style={{ fontSize: 10.5, color: C.textMuted, marginTop: 8, lineHeight: 1.7 }}>
+                    各自払いを選ぶと、ホストが承認した時点でお二人の残高からそれぞれお預かりします。
+                    どちらかの残高が足りないと承認が通りません。
+                  </div>
+                </div>
+              )}
 
               <div style={{
                 borderRadius: 16, padding: 18, marginBottom: 18, position: "relative", overflow: "hidden",
                 background: "linear-gradient(135deg, rgba(168,32,58,0.28), rgba(232,201,135,0.10))",
                 border: `1px solid ${C.linePrimary}`,
               }}>
-                <div style={{ fontSize: 10.5, color: C.textSec, fontWeight: 800, marginBottom: 6, letterSpacing: 0.2 }}>参加に必要なポイント（グループ合計）</div>
-                <div style={{ fontSize: 32, fontWeight: 700, fontFamily: FONT_DISPLAY, lineHeight: 1, ...brandText }}>{cost.toLocaleString()}<span style={{ fontSize: 15, fontFamily: FONT_BODY, fontWeight: 600 }}> pt</span></div>
-                <div style={{ fontSize: 11, color: C.textSec, marginTop: 6 }}>一律 {feeText()}pt × {groupSize}名</div>
+                <div style={{ fontSize: 10.5, color: C.textSec, fontWeight: 800, marginBottom: 6, letterSpacing: 0.2 }}>
+                  {effectivePayMode === api.PAY_MODE_SPLIT ? "あなたのお支払い（各自払い）" : "あなたのお支払い（グループ合計）"}
+                </div>
+                <div style={{ fontSize: 32, fontWeight: 700, fontFamily: FONT_DISPLAY, lineHeight: 1, ...brandText }}>
+                  {myCost.toLocaleString()}<span style={{ fontSize: 15, fontFamily: FONT_BODY, fontWeight: 600 }}> pt</span>
+                </div>
+                <div style={{ fontSize: 11, color: C.textSec, marginTop: 6 }}>
+                  {groupSize === 1
+                    ? `お一人でのご参加は ${api.GUEST_SLOT_SIZE}名分（${feeText()}pt × ${api.GUEST_SLOT_SIZE}）です`
+                    : effectivePayMode === api.PAY_MODE_SPLIT
+                      ? `お二人で合計 ${cost.toLocaleString()}pt（${feeText()}pt ずつ）`
+                      : `一律 ${feeText()}pt × ${api.GUEST_SLOT_SIZE}名`}
+                </div>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 9, paddingTop: 9, borderTop: `1px solid ${C.lineSoft}` }}>
                   <span style={{ fontSize: 11, color: C.textSec }}>現在の残高</span>
                   <span style={{ fontSize: 12.5, fontWeight: 700, fontFamily: FONT_DISPLAY, color: enough ? C.primary : C.accent }}>
@@ -1348,7 +1535,8 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
                   </span>
                 </div>
                 <div style={{ fontSize: 10.5, color: C.textMuted, marginTop: 7, lineHeight: 1.65 }}>
-                  ※ 参加ポイントは全ての会で一律です。承認された時点で消費され、運営が受け取ります（ホストには支払われません）。
+                  ※ <b style={{ color: C.textSec, fontWeight: 700 }}>リクエストの時点ではお預かりしません。</b>
+                  ホストが承認してマッチが成立した時点でポイントをお預かりし、運営が受け取ります（ホストには支払われません）。
                 </div>
               </div>
 
@@ -1366,6 +1554,31 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
                     参加ポイントとは別に、当日そのままお店でご精算ください。
                   </div>
                 </div>
+              </div>
+
+              {/* ── 1人で参加する ──────────────────────
+                  裏技的な位置づけなので、目立たせず、必ず見つかる場所に置く。
+                  料金は2名分（SOLO_FEE）で、枠も2名分を押さえる。 */}
+              <div style={{ textAlign: "center", marginBottom: 16 }}>
+                {groupSize === 1 ? (
+                  <button className="press" onClick={() => setGroupSize(api.GUEST_SLOT_SIZE)} style={{
+                    background: "none", border: "none", cursor: "pointer", padding: "6px 10px",
+                    fontSize: 11.5, color: C.primaryDeep, letterSpacing: 0.3,
+                    display: "inline-flex", alignItems: "center", gap: 6,
+                  }}>
+                    <Users size={12} strokeWidth={2} /> 相方と2人で参加する
+                  </button>
+                ) : (
+                  <button className="press"
+                    onClick={() => { setGroupSize(1); setPartner(null); setGuestNames([]); setPayMode(api.PAY_MODE_BUNDLE); }}
+                    style={{
+                      background: "none", border: "none", cursor: "pointer", padding: "6px 10px",
+                      fontSize: 11, color: C.textMuted, letterSpacing: 0.3,
+                      display: "inline-flex", alignItems: "center", gap: 6,
+                    }}>
+                    <User size={11} strokeWidth={1.9} /> 1人で参加する（{api.SOLO_FEE.toLocaleString()}pt）
+                  </button>
+                )}
               </div>
             </>
           )}
@@ -1433,7 +1646,7 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
               display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8,
               opacity: sending ? 0.7 : 1, cursor: sending ? "default" : "pointer",
             }}>
-              {sending ? "送信中…" : <><Send size={16} strokeWidth={2.2} /> {groupSize}名グループで参加を申し込む</>}
+              {sending ? "送信中…" : <><Send size={16} strokeWidth={2.2} /> {groupSize === 1 ? "1人で参加を申し込む" : "2人で参加を申し込む"}</>}
             </button>
           )}
         </div>
@@ -1482,14 +1695,17 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
 };
 
 /* ═══════════════════════════════════════════════════════ Create */
-const CreateScreen = ({ user, onCreated }) => {
+const CreateScreen = ({ user, onCreated, onManageGroups }) => {
   const { toast } = useToast();
   const [title, setTitle] = useState("");
   const [location, setLocation] = useState("");
   const [area, setArea] = useState("");
-  const [hostGroup, setHostGroup] = useState(MIN_GROUP);   // ホスト側グループの人数（2名以上）
-  const [hostNames, setHostNames] = useState([]);          // ホスト側同伴者のニックネーム
-  const [guestGroup, setGuestGroup] = useState(MIN_GROUP); // 募集するグループの人数（2名以上）
+  /* 2026-08-28 の新フロー: 人数は「先に作ったグループ」から決まる。
+     ホストが人数を打ち込むのではなく、招待して集まった実体をそのまま使う。
+     募集するゲスト側の枠はホストが選ばない（常に api.GUEST_SLOT_SIZE 名分）。 */
+  const [groups, setGroups] = useState(null);   // null = 読み込み中
+  const [groupId, setGroupId] = useState(null);
+  const [groupsError, setGroupsError] = useState("");
   // 開催日。既定は今日（当日の会がいちばん多いため）。過去日は選べない。
   const [date, setDate] = useState(() => api.toDateString(new Date()));
   const [time, setTime] = useState("20:00");
@@ -1514,8 +1730,20 @@ const CreateScreen = ({ user, onCreated }) => {
     api.getMyRank()
       .then((r) => { if (alive) setRank(r); })
       .catch((e) => { if (alive) setRankError(e.message); });
+    api.listMyGroups()
+      .then((gs) => {
+        if (!alive) return;
+        setGroups(gs);
+        /* 人数がそろっているグループを既定で選ぶ（無ければ未選択） */
+        setGroupId(gs.find(api.groupIsReady)?.id ?? null);
+      })
+      .catch((e) => { if (alive) { setGroups([]); setGroupsError(e.message); } });
     return () => { alive = false; };
   }, []);
+
+  const selectedGroup = (groups ?? []).find((g) => g.id === groupId) ?? null;
+  const hostGroup = selectedGroup?.members?.length ?? 0;
+  const readyGroups = (groups ?? []).filter(api.groupIsReady);
 
   const myRankKey = rank?.tier_key ?? api.DEFAULT_RANK_KEY;
   /* 参加条件にできるランク（自分のランク以下だけ）。
@@ -1533,9 +1761,14 @@ const CreateScreen = ({ user, onCreated }) => {
     if (!title.trim()) { toast.error("会の名前を入力してください。"); return; }
     // お店はホストが自由に書く（カタログから選ぶ方式は廃止した）。名前だけ必須。
     if (!location.trim()) { toast.error("お店の名前を入力してください。"); return; }
-    // グループ限定：1対1のマッチングは作成できない
-    if (hostGroup < MIN_GROUP || guestGroup < MIN_GROUP) {
-      toast.error(`相席は${MIN_GROUP}名以上のグループ同士のみのため、ホスト側・募集側ともに${MIN_GROUP}名以上で設定してください。`);
+    /* グループ限定：1対1のマッチングは作成できない。
+       ホスト側は、実際に集まっているグループが2名以上であること。 */
+    if (!groupId) {
+      toast.error("会を立てるグループを選んでください。");
+      return;
+    }
+    if (hostGroup < api.MIN_HOST_GROUP_SIZE) {
+      toast.error(`会を立てるには、あなたを含めて${api.MIN_HOST_GROUP_SIZE}名以上のグループが必要です。先に友達を招待してください。`);
       return;
     }
     // 個室での相席は提供しない（オープンスペース以外は作成できない）
@@ -1559,9 +1792,9 @@ const CreateScreen = ({ user, onCreated }) => {
         min_guest_tier: minGuestTier,
         location: location.trim(),
         area: area.trim() || null,
-        host_group_size: hostGroup,
-        host_member_names: hostNames,
-        guest_group_size: guestGroup,
+        /* 人数・同伴者名はサーバがグループの実体から確定させる
+           （クライアントの申告は使わない）。 */
+        group_id: groupId,
         party_date: date || null,
         party_time: time,
         room_type: roomType,
@@ -1574,20 +1807,6 @@ const CreateScreen = ({ user, onCreated }) => {
       setSaving(false);
     }
   };
-
-  const GroupPicker = ({ value, onChange }) => (
-    <div style={{ display: "flex", gap: 7 }}>
-      {GROUP_OPTIONS.map((n) => {
-        const on = value === n;
-        return (
-          <button key={n} className="chip" onClick={() => onChange(n)} style={{
-            flex: 1, padding: "10px 0", borderRadius: 12, fontSize: 13.5, fontWeight: 700, cursor: "pointer",
-            ...(on ? { ...popBtn, borderRadius: 999 } : { ...ghostBtn, borderRadius: 999 }),
-          }}>{n}</button>
-        );
-      })}
-    </div>
-  );
 
   return (
     <div style={{ padding: "16px 20px 24px" }}>
@@ -1824,27 +2043,104 @@ const CreateScreen = ({ user, onCreated }) => {
           </div>
         </div>
 
+        {/* ── どのグループで立てるか ──────────────────────
+            人数を打ち込むのではなく、先に招待して集まったグループを選ぶ。
+            ⚠ ホスト側が2名以上であることが、1対1の会を作らせないための
+              担保そのもの（DB 側 enforce_group_party でも判定する）。 */}
         <div style={{ marginBottom: 17 }}>
-          <label style={labelStyle}>ホスト側のグループ人数（あなたを含む · {MIN_GROUP}名以上）</label>
-          <GroupPicker value={hostGroup} onChange={setHostGroup} />
+          <label style={labelStyle}>この会を立てるグループ</label>
+
+          {groups === null ? (
+            <div style={{ fontSize: 12, color: C.textMuted, padding: "10px 0" }}>グループを読み込んでいます…</div>
+          ) : groupsError ? (
+            <div style={{ fontSize: 11.5, color: C.accentDeep, lineHeight: 1.7 }}>
+              グループを読み込めませんでした（{groupsError}）
+            </div>
+          ) : readyGroups.length === 0 ? (
+            <div style={{
+              borderRadius: 16, padding: "15px 16px",
+              background: "rgba(232,201,135,0.09)", border: `1px solid ${C.linePrimary}`,
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5 }}>
+                <UsersRound size={14} strokeWidth={2} color={C.primary} />
+                <span style={{ fontSize: 12.5, fontWeight: 700, color: C.text, letterSpacing: 0.3 }}>
+                  まず友達を招待してください
+                </span>
+              </div>
+              <div style={{ fontSize: 11.5, color: C.textSec, lineHeight: 1.75, marginBottom: 13 }}>
+                会を立てるには、あなたを含めて<b style={{ color: C.primaryDeep, fontWeight: 700 }}>{api.MIN_HOST_GROUP_SIZE}名以上</b>のグループが必要です。
+                招待リンクを送ると、友達はお名前・年齢確認・お写真だけの簡単な登録で参加できます（費用はかかりません）。
+              </div>
+              <button className="lux-cta" onClick={onManageGroups} style={{
+                ...popBtn, width: "100%", padding: "13px 0", borderRadius: 999, fontSize: 13.5,
+                display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8,
+              }}>
+                <UserPlus size={15} strokeWidth={2.2} /> 友達を招待する
+              </button>
+            </div>
+          ) : (
+            <>
+              <div style={{ display: "grid", gap: 7 }}>
+                {readyGroups.map((g) => {
+                  const on = groupId === g.id;
+                  const joined = g.members.filter((m) => m.joined).length;
+                  return (
+                    <button key={g.id} type="button" onClick={() => setGroupId(g.id)} style={{
+                      display: "flex", alignItems: "center", gap: 10, textAlign: "left",
+                      padding: "12px 14px", borderRadius: 14, cursor: "pointer",
+                      ...(on ? { ...popBtn, borderRadius: 14 } : { ...ghostBtn, borderRadius: 14 }),
+                    }}>
+                      <span style={{ flexShrink: 0, display: "flex" }}>
+                        {on ? <Check size={14} strokeWidth={2.6} /> : <UsersRound size={14} strokeWidth={2.2} />}
+                      </span>
+                      <span style={{ minWidth: 0, flex: 1 }}>
+                        <span style={{ display: "block", fontSize: 13, fontWeight: 700 }}>
+                          {g.name} · {g.members.length}名
+                        </span>
+                        <span style={{ display: "block", fontSize: 10.5, fontWeight: 500, lineHeight: 1.6, marginTop: 2, opacity: 0.85 }}>
+                          {g.members.map((m) => m.display_name).join(" · ")}
+                          {joined < g.members.length && `（${g.members.length - joined}名は登録待ち）`}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <button className="press" onClick={onManageGroups} style={{
+                ...ghostBtn, width: "100%", padding: "11px 0", borderRadius: 999, fontSize: 12.5, marginTop: 9,
+                display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7,
+              }}>
+                <UserPlus size={14} strokeWidth={2} /> グループを編集・友達を追加する
+              </button>
+            </>
+          )}
+
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 6, marginTop: 9, fontSize: 10.5, color: C.textMuted, lineHeight: 1.7 }}>
+            <UsersRound size={12} strokeWidth={1.9} color={C.primary} style={{ flexShrink: 0, marginTop: 2 }} />
+            <span style={{ minWidth: 0 }}>
+              まだ登録していない友達の席も、グループの人数分だけ確保されます。
+              あとから招待リンクを開いてもらえば、その方のアカウントでグループチャットに参加できます。
+              同伴者が{MIN_AGE}歳以上であることをご確認ください。
+            </span>
+          </div>
         </div>
 
-        {/* 同伴者を登録して、人数分の席を確保する */}
-        <MemberNamesField
-          size={hostGroup}
-          names={hostNames}
-          onChange={setHostNames}
-          label="一緒に参加する同伴者（あなた以外）"
-          hint={`会を作成すると、この人数分の席がグループに確保されます。作成後に表示される招待コードを渡すと、同伴者も自分のアカウントでグループチャットに参加できます。同伴者が${MIN_AGE}歳以上であることをご確認のうえ登録してください。`}
-        />
-
+        {/* 募集する人数はホストが選ばない（相席のかたちを揃えるため） */}
         <div style={{ marginBottom: 17 }}>
-          <label style={labelStyle}>募集するグループの人数（{MIN_GROUP}名以上）</label>
-          <GroupPicker value={guestGroup} onChange={setGuestGroup} />
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 10, padding: "10px 13px", borderRadius: 12, background: "rgba(255,255,255,0.045)", border: `1px solid ${C.lineSoft}` }}>
-            <span style={{ fontSize: 11.5, color: C.textSec }}>合計人数</span>
+          <label style={labelStyle}>お相手として募集する枠</label>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "12px 14px", borderRadius: 14, background: "rgba(255,255,255,0.045)", border: `1px solid ${C.lineSoft}` }}>
+            <span style={{ fontSize: 12.5, color: C.textSec }}>
+              参加グループ {api.GUEST_SLOT_SIZE}名分 ／ 合計
+            </span>
             <span style={{ fontSize: 14, fontWeight: 700, fontFamily: FONT_DISPLAY, ...brandText }}>
-              {hostGroup + guestGroup}<span style={{ fontSize: 11, fontFamily: FONT_BODY, fontWeight: 600 }}> 名</span>
+              {hostGroup + api.GUEST_SLOT_SIZE}<span style={{ fontSize: 11, fontFamily: FONT_BODY, fontWeight: 600 }}> 名</span>
+            </span>
+          </div>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 6, marginTop: 9, fontSize: 10.5, color: C.textMuted, lineHeight: 1.7 }}>
+            <Gem size={12} strokeWidth={1.9} color={C.primary} style={{ flexShrink: 0, marginTop: 2 }} />
+            <span style={{ minWidth: 0 }}>
+              募集する枠は全ての会で{api.GUEST_SLOT_SIZE}名分に揃えています。
+              お一人でお申し込みの方もいますが、その場合も{api.GUEST_SLOT_SIZE}名分をお支払いいただきます。
             </span>
           </div>
         </div>
@@ -2534,7 +2830,7 @@ const ChatRoom = ({ user, party, onBack }) => {
 };
 
 /* ═══════════════════════════════════════════════════════ MyPage */
-const MyPageScreen = ({ user, onTerms, onSupport, onReport, onInvite, onSafety }) => {
+const MyPageScreen = ({ user, onTerms, onSupport, onReport, onInvite, onSafety, onGroups }) => {
   const { toast, confirm } = useToast();
   const [profile, setProfile] = useState(null);
   const [balance, setBalance] = useState(null);
@@ -2629,6 +2925,9 @@ const MyPageScreen = ({ user, onTerms, onSupport, onReport, onInvite, onSafety }
     { icon: Gem, label: "ポイント残高", value: `${(balance ?? 0).toLocaleString()} pt`, highlight: true },
     { icon: Mail, label: "メール", value: user.email },
     { icon: Settings, label: "プロフィール編集", action: () => setEditing(true) },
+    /* 会を立てる前に友達を集めておく箱。ホスト側は完全無料なので、
+       ポイントの案内（友達を招待する）とは別の導線にしてある。 */
+    { icon: UsersRound, label: "一緒に行く友達（グループ）", action: onGroups },
     { icon: Gift, label: "友達を招待する", value: `+${api.REFERRAL_BONUS.toLocaleString()} pt`, action: onInvite, accent: true },
     { icon: ShieldCheck, label: "安心してご利用いただくために", action: onSafety },
     { icon: LifeBuoy, label: "お問い合わせ・ご意見", action: onSupport },
@@ -2848,6 +3147,25 @@ const INITIAL_AUTH_MODE = (() => {
   return AUTH_MODES.includes(v) ? v : null;
 })();
 
+/* 招待リンク（?invite=CODE）。ホストの友達が簡易登録に来る入口。
+   ?auth= と同じ理由で、モジュールの読み込み時に一度だけ確定させる。 */
+const INITIAL_INVITE_CODE = (() => {
+  if (typeof window === "undefined") return "";
+  const v = new URLSearchParams(window.location.search).get("invite") || "";
+  return /^[0-9A-Za-z]{4,16}$/.test(v) ? v.toUpperCase() : "";
+})();
+
+/* LP からの導線（?from=lp-host / ?from=lp-guest）。
+   ホストはカード登録が要らないので、登録後の案内を出し分けるために記録する。
+   権限には一切影響しない。 */
+const INITIAL_SIGNUP_INTENT = (() => {
+  if (typeof window === "undefined") return null;
+  const v = new URLSearchParams(window.location.search).get("from") || "";
+  if (/host/i.test(v)) return "host";
+  if (/guest/i.test(v)) return "guest";
+  return null;
+})();
+
 /* 運営用の管理画面（/admin）。ルーターは入れていないので、パスだけを見る。
    vercel.json の catch-all（"/(.*)" → "/"）で index.html が返るため、
    /admin でもアプリと同じバンドルが起動する。
@@ -2930,6 +3248,7 @@ export default function App() {
   const [overlay, setOverlay] = useState(null);
   const [reportTarget, setReportTarget] = useState(null);  // 通報の対象ユーザー（あれば）
   const [notifyKey, setNotifyKey] = useState(0);      // ベルの再計算トリガ
+  const [inviteCode, setInviteCode] = useState(INITIAL_INVITE_CODE); // 招待リンクから来たか
 
   useEffect(() => {
     if (configError) { setAuthReady(true); return; }
@@ -2960,11 +3279,34 @@ export default function App() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const url = new URL(window.location.href);
-    const keys = ["tab", "auth", "from"].filter((k) => url.searchParams.has(k));
+    const keys = ["tab", "auth", "from", "invite"].filter((k) => url.searchParams.has(k));
     if (keys.length === 0) return;
     keys.forEach((k) => url.searchParams.delete(k));
     window.history.replaceState({}, "", url.pathname + url.search + url.hash);
   }, []);
+
+  /* 招待リンクから登録した人が、確認メールを踏んでログインしてきたときに
+     グループの枠を引き受ける。メール確認が有効なので、登録した直後には
+     セッションが無く、その場では引き受けられない（コードは端末に控えてある）。 */
+  useEffect(() => {
+    if (!session?.user) return;
+    let alive = true;
+    (async () => {
+      const { readPendingInvite, clearPendingInvite } =
+        await import("./screens/InviteSignupScreen.jsx");
+      const code = readPendingInvite();
+      if (!code || !alive) return;
+      try {
+        await api.claimGroupInvite(code);
+        clearPendingInvite();
+      } catch (e) {
+        /* 既に引き受け済み・期限切れなど。何度も試さないよう必ず消す。 */
+        console.error("[aiseki] 招待の引き受けに失敗:", e);
+        clearPendingInvite();
+      }
+    })();
+    return () => { alive = false; };
+  }, [session?.user?.id]);
 
   /* 決済結果を読み終えたら、アドレスバーから ?checkout=... を消す。
      リロードで案内が繰り返し出るのを防ぐ（履歴は増やさない）。 */
@@ -3042,6 +3384,20 @@ export default function App() {
     );
   }
 
+  /* 招待リンク（?invite=CODE）… ホストの友達の簡易登録。
+     ランディングやカード登録の案内を挟まず、まっすぐ登録に運ぶ。 */
+  if (!session && inviteCode) {
+    return shell(
+      <Suspense fallback={<Loading label="読み込み中…" />}>
+        <InviteSignupScreen
+          code={inviteCode}
+          onBack={() => { setInviteCode(""); setAuthMode(null); }}
+          onLogin={() => { setInviteCode(""); setAuthMode("login"); }}
+        />
+      </Suspense>
+    );
+  }
+
   /* 未ログイン … まずサービス紹介（LP）、そこからログイン／新規登録へ */
   if (!session) {
     if (!authMode) {
@@ -3055,7 +3411,11 @@ export default function App() {
     }
     return shell(
       <Suspense fallback={<Loading label="読み込み中…" />}>
-        <AuthScreen initialMode={authMode} onBack={() => setAuthMode(null)} />
+        <AuthScreen
+          initialMode={authMode}
+          signupIntent={INITIAL_SIGNUP_INTENT}
+          onBack={() => setAuthMode(null)}
+        />
       </Suspense>
     );
   }
@@ -3104,6 +3464,7 @@ export default function App() {
       );
     }
     if (overlay === "invite") return <ReferralScreen onBack={backToApp} />;
+    if (overlay === "groups") return <GroupScreen onBack={backToApp} />;
     if (overlay === "safety") {
       return (
         <SafetyScreen
@@ -3127,7 +3488,13 @@ export default function App() {
     }
     switch (tab) {
       case "home": return <HomeScreen user={user} onDetail={setDetailId} onCreate={() => setTab("create")} />;
-      case "create": return <CreateScreen user={user} onCreated={(id) => { setTab("home"); setDetailId(id); }} />;
+      case "create": return (
+        <CreateScreen
+          user={user}
+          onCreated={(id) => { setTab("home"); setDetailId(id); }}
+          onManageGroups={() => setOverlay("groups")}
+        />
+      );
       case "chat": return <ChatScreen user={user} openRoom={setChatRoom} openParty={setDetailId} />;
       case "points": return (
         <PointsScreen
@@ -3145,6 +3512,7 @@ export default function App() {
           onReport={() => { setReportTarget(null); setOverlay("report"); }}
           onInvite={() => setOverlay("invite")}
           onSafety={() => setOverlay("safety")}
+          onGroups={() => setOverlay("groups")}
         />
       );
       default: return <HomeScreen user={user} onDetail={setDetailId} onCreate={() => setTab("create")} />;

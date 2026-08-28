@@ -5,9 +5,14 @@
      1. 参加ポイントは 1人あたり一律 3,800pt であること
      2. ホストが金額を設定しようとしても、その値は保存されないこと
      3. お会計の区分は「ゲストのおごり」に固定されること
-     4. 承認時、ゲストの残高から 3,800pt × 人数 が引かれること
+     4. 承認時、ゲストの残高から 3,800pt × 課金人数 が引かれること
      5. その全額が platform_revenues（運営の収益）に記録されること
      6. ホストの残高は 1pt も増えないこと
+     7. お一人での参加でも 2名分（7,600pt）を頂くこと（2026-08-28〜）
+
+   ⚠ 2026-08-28 の新フローで、課金は最低2名分になった。
+     ゲスト側は1名から申し込めるが、金額は常に 3,800 × 2 = 7,600pt。
+     ホストは募集人数を選べない（ゲスト枠は常に2名分）。
 
    実行方法
      DB_PASSWORD=... node scripts/test_join_fee.mjs
@@ -40,7 +45,10 @@ if (!PASSWORD) {
 
 const FEE = 3800;
 const TREAT = "ゲストのおごり";
-const GROUP_SIZE = 3;
+/* ゲスト側の申し込み人数。枠は常に2名分（guest_slot_size）。 */
+const GROUP_SIZE = 2;
+/* 課金人数の下限（billable_guests）。1名で申し込んでも2名分を頂く。 */
+const BILLABLE_MIN = 2;
 
 let passed = 0;
 let failed = 0;
@@ -111,16 +119,17 @@ try {
   // --- 4〜6. 参加リクエスト → 承認 ---
   const req = await one(
     `insert into public.join_requests (party_id, user_id, group_size, member_names)
-     values ($1, $2, $3, array['同伴A','同伴B']) returning id`,
+     values ($1, $2, $3, array['同伴A']) returning id, billable_size`,
     [party.id, guestId, GROUP_SIZE]
   );
+  check("課金人数はサーバが決める（2名）", req.billable_size, BILLABLE_MIN);
 
   // ホストとして承認する（auth.uid() をホストに見せる）
   await client.query(`select set_config('request.jwt.claim.sub', $1, true)`, [hostId]);
   await client.query(`select public.accept_join_request($1)`, [req.id]);
 
-  const cost = FEE * GROUP_SIZE;
-  check("ゲストの残高から 3,800pt × 人数 が引かれる", guestBefore - (await balanceOf(guestId)), cost);
+  const cost = FEE * BILLABLE_MIN;
+  check("ゲストの残高から 3,800pt × 課金人数 が引かれる", guestBefore - (await balanceOf(guestId)), cost);
   check("ホストの残高は 1pt も増えない", (await balanceOf(hostId)) - hostBefore, 0);
 
   const rev = await one(
@@ -129,7 +138,7 @@ try {
   );
   check("運営の収益として全額が記録される", rev?.points, cost);
   check("記録される単価は 3,800pt", rev?.fee_per_person, FEE);
-  check("記録される人数が一致する", rev?.group_size, GROUP_SIZE);
+  check("記録される人数は課金人数と一致する", rev?.group_size, BILLABLE_MIN);
 
   const earned = await one(
     `select count(*) as n from public.points where user_id = $1 and amount > 0 and type = 'earn'
@@ -146,7 +155,37 @@ try {
 
   // 席が人数分できていること（既存仕様の回帰確認）
   const seats = await one(`select count(*) as n from public.party_members where party_id = $1`, [party.id]);
-  check("席は ホスト2名 + ゲスト3名 = 5席", seats.n, "5");
+  check("席は ホスト2名 + ゲスト2名 = 4席", seats.n, "4");
+
+  /* --- 7. お一人での参加でも 2名分（7,600pt）を頂く（2026-08-28〜） --- */
+  await client.query(`select set_config('request.jwt.claim.sub', $1, true)`, [hostId]);
+  const soloParty = await one(
+    `insert into public.parties (host_id, title, area, host_group_size, guest_group_size)
+     values ($1, 'お一人参加のテスト', '渋谷', 2, 2) returning id, guest_group_size, max_members`,
+    [hostId]
+  );
+  check("ホストはゲスト枠の人数を選べない（常に2名分）", soloParty.guest_group_size, 2);
+
+  const soloGuest = await mkUser("テストお一人");
+  await client.query(`select public.purchase_points($1, 50000, 'テスト用')`, [soloGuest]);
+  const soloBefore = await balanceOf(soloGuest);
+
+  const soloReq = await one(
+    `insert into public.join_requests (party_id, user_id, group_size)
+     values ($1, $2, 1) returning id, group_size, billable_size`,
+    [soloParty.id, soloGuest]
+  );
+  check("1名でも申し込める", soloReq.group_size, 1);
+  check("1名でも課金人数は2名分", soloReq.billable_size, BILLABLE_MIN);
+  check("申し込んだ時点では1ptも減らない", soloBefore - (await balanceOf(soloGuest)), 0);
+
+  await client.query(`select set_config('request.jwt.claim.sub', $1, true)`, [hostId]);
+  await client.query(`select public.accept_join_request($1)`, [soloReq.id]);
+  check("承認（＝マッチ成立）した時点で 7,600pt を頂く",
+    soloBefore - (await balanceOf(soloGuest)), FEE * BILLABLE_MIN);
+
+  const soloState = await one(`select status from public.parties where id = $1`, [soloParty.id]);
+  check("お一人参加でもマッチ成立になる", soloState.status, "matched");
 } finally {
   await client.query("rollback");
   await client.end();

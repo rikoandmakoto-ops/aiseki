@@ -1,6 +1,20 @@
 import { supabase } from "./supabase";
 import {
   MIN_GROUP_SIZE,
+  MIN_HOST_GROUP_SIZE,
+  MIN_GUEST_GROUP_SIZE,
+  GUEST_SLOT_SIZE,
+  BILLABLE_MIN_GUESTS,
+  SOLO_FEE,
+  PAY_MODE_BUNDLE,
+  PAY_MODE_SPLIT,
+  PAY_MODES,
+  ACCOUNT_FULL,
+  ACCOUNT_SIMPLE,
+  MAX_GROUP_MEMBERS,
+  billableGuests,
+  joinFeeTotal,
+  myJoinCharge,
   JOIN_FEE_PER_PERSON,
   SIGNUP_BONUS,
   REFERRAL_BONUS,
@@ -43,6 +57,20 @@ import {
    ===================================================================== */
 export {
   MIN_GROUP_SIZE,
+  MIN_HOST_GROUP_SIZE,
+  MIN_GUEST_GROUP_SIZE,
+  GUEST_SLOT_SIZE,
+  BILLABLE_MIN_GUESTS,
+  SOLO_FEE,
+  PAY_MODE_BUNDLE,
+  PAY_MODE_SPLIT,
+  PAY_MODES,
+  ACCOUNT_FULL,
+  ACCOUNT_SIMPLE,
+  MAX_GROUP_MEMBERS,
+  billableGuests,
+  joinFeeTotal,
+  myJoinCharge,
   JOIN_FEE_PER_PERSON,
   SIGNUP_BONUS,
   REFERRAL_BONUS,
@@ -73,9 +101,10 @@ export const DRINKING_STYLE_KEYS = DRINKING_STYLES.map((s) => s.key);
 /* お会計の区分。ホストは必ずおごられるため、これ以外は保存できない。 */
 export const TREAT_TYPE_GUEST_TREATS = "ゲストのおごり";
 
-/* 参加グループが支払う合計ポイント */
-export const joinFeeFor = (groupSize) =>
-  JOIN_FEE_PER_PERSON * Math.max(0, Number(groupSize) || 0);
+/* 参加グループが支払う合計ポイント。
+   ⚠ 1名で申し込んでも2名分（SOLO_FEE = 7,600pt）を頂く。
+     金額の出典は pricing.js の joinFeeTotal（DB の join_fee_total() と同じ規則）。 */
+export const joinFeeFor = (groupSize) => joinFeeTotal(groupSize);
 
 /* 席の種別。個室は業態上そもそも選択できない（オープンスペースのみ）。 */
 export const ROOM_TYPE_OPEN = "open";
@@ -258,15 +287,28 @@ export function maxBirthDate() {
 /* 新規登録。生年月日による年齢確認（20歳以上）と、
    規約・年齢の同意チェックを通過しないと登録できない。
    年齢は生年月日から算出した値のみを保存する（自己申告の数値は受け取らない）。 */
-export async function signUp({ email, password, username, birthDate, gender, ageConfirmed }) {
+/* accountType:
+     'full'   … 通常の登録（プロフィール＋年齢確認。性別が要る）
+     'simple' … 招待リンクからの簡易登録（名前＋年齢確認＋写真だけ）。
+                性別は聞かない（アプローチ機能を使えないため必要が無い）。
+   signupIntent: 'host' | 'guest' | null
+     どちらの入口から来たかを記録する。カード登録を促すかどうかの
+     出し分けにだけ使い、権限には一切影響しない
+     （ホストはカード登録不要・ボーナスなしで完全無料）。 */
+export async function signUp({
+  email, password, username, birthDate, gender, ageConfirmed,
+  accountType = ACCOUNT_FULL, signupIntent = null,
+}) {
   if (!ageConfirmed) {
     throw new Error(`${MIN_AGE}歳以上であることの確認と、利用規約への同意が必要です。`);
   }
+  const kind = accountType === ACCOUNT_SIMPLE ? ACCOUNT_SIMPLE : ACCOUNT_FULL;
   /* 性別は、募集中の会へのアプローチを送れるかどうかの判定にのみ使う。
      他のユーザーに表示することはなく、会の参加条件にもならない。
      登録後は変更できない（DB 側の on_profile_gender_lock でも止めている）ため、
-     ここで選択肢に無い値を弾いておく。 */
-  if (!GENDER_OPTIONS.includes(gender)) {
+     ここで選択肢に無い値を弾いておく。
+     簡易登録では最初から集めない。 */
+  if (kind === ACCOUNT_FULL && !GENDER_OPTIONS.includes(gender)) {
     throw new Error("性別を選択してください。");
   }
   const age = ageFromBirthDate(birthDate);
@@ -291,8 +333,10 @@ export async function signUp({ email, password, username, birthDate, gender, age
         username,
         birth_date: birthDate,
         age: String(age),
-        gender,
+        gender: kind === ACCOUNT_FULL ? gender : null,
         age_confirmed: true,
+        account_type: kind,
+        signup_intent: signupIntent === "host" || signupIntent === "guest" ? signupIntent : null,
       },
     },
   });
@@ -351,7 +395,7 @@ export async function deleteAccount() {
 const PROFILE_COLUMNS =
   "id, username, avatar_url, age, bio, created_at, " +
   "photos, hobbies, favorite_food, favorite_drink, occupation, home_area, " +
-  "drinking_style";
+  "drinking_style, avatar_blur_url, photos_blur";
 
 export async function getProfile(userId) {
   const { data, error } = await supabase
@@ -386,7 +430,7 @@ export async function updateProfile(userId, fields) {
   const {
     birth_date, age, username, bio, avatar_url,
     photos, hobbies, favorite_food, favorite_drink, occupation, home_area,
-    gender, drinking_style,
+    gender, drinking_style, avatar_blur_url, photos_blur,
     ...rest
   } = fields;
 
@@ -446,6 +490,18 @@ export async function updateProfile(userId, fields) {
      混ざっていたら黙って落とす（不正なURLを保存させない）。 */
   if (photos !== undefined) {
     patch.photos = (Array.isArray(photos) ? photos : [])
+      .map((u) => safeImageUrl(u))
+      .filter(Boolean)
+      .slice(0, MAX_SUB_PHOTOS);
+  }
+
+  /* ぼかし写真。マッチ前に配信されるのはこちらだけ。
+     素の写真と同じく、自前のストレージに上げた画像だけを通す。 */
+  if (avatar_blur_url !== undefined) {
+    patch.avatar_blur_url = avatar_blur_url ? safeImageUrl(avatar_blur_url) : null;
+  }
+  if (photos_blur !== undefined) {
+    patch.photos_blur = (Array.isArray(photos_blur) ? photos_blur : [])
       .map((u) => safeImageUrl(u))
       .filter(Boolean)
       .slice(0, MAX_SUB_PHOTOS);
@@ -523,6 +579,67 @@ export async function uploadAvatar(userId, file) {
   const url = safeImageUrl(data?.publicUrl);
   if (!url) throw new Error("写真のURLを取得できませんでした。");
   return url;
+}
+
+/* ==================== 薄モザイク（ぼかし画像） ====================
+   マッチが成立するまで、相手に配信するのは「ぼかした別画像」だけ。
+   元の写真の URL はサーバから返らない（party_host_preview / RLS）。
+
+   ⚠ CSS の filter でぼかすのでは意味がない。素の画像を配ってしまえば
+     開発者ツールで外せるため、アップロードの時点で
+     「小さく潰してから伸ばした別ファイル」を作って保存する。
+     縮小を挟むので、ぼかしを解いて元に戻すことはできない。
+   ================================================================ */
+const BLUR_WIDTH = 64;     // いったんここまで小さくする（情報を捨てる）
+const BLUR_RADIUS = 6;     // そのうえで軽くぼかす
+
+function loadImage(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("画像を読み込めませんでした。")); };
+    img.src = url;
+  });
+}
+
+/* 1人写りの写真をそのままの構図で薄くぼかす（顔の位置は変えない） */
+export async function makeBlurredImage(file) {
+  const img = await loadImage(file);
+  const ratio = img.height / img.width || 1;
+  const sw = BLUR_WIDTH;
+  const sh = Math.max(1, Math.round(BLUR_WIDTH * ratio));
+
+  // 1) 小さく描いて情報そのものを捨てる
+  const small = document.createElement("canvas");
+  small.width = sw; small.height = sh;
+  small.getContext("2d").drawImage(img, 0, 0, sw, sh);
+
+  // 2) 元の大きさに戻しつつ、さらにぼかす
+  const out = document.createElement("canvas");
+  const ow = Math.min(img.width, 720);
+  out.width = ow;
+  out.height = Math.max(1, Math.round(ow * ratio));
+  const ctx = out.getContext("2d");
+  ctx.filter = `blur(${BLUR_RADIUS}px)`;
+  ctx.drawImage(small, 0, 0, out.width, out.height);
+
+  const blob = await new Promise((res) => out.toBlob(res, "image/jpeg", 0.7));
+  if (!blob) throw new Error("ぼかし画像を作れませんでした。");
+  return new File([blob], "blur.jpg", { type: "image/jpeg" });
+}
+
+/* 写真を1枚アップロードして、素の画像とぼかし画像の両方のURLを返す。
+   ぼかしの生成に失敗しても登録自体は通す（blurUrl が null になる）。 */
+export async function uploadAvatarPair(userId, file) {
+  const url = await uploadAvatar(userId, file);
+  let blurUrl = null;
+  try {
+    blurUrl = await uploadAvatar(userId, await makeBlurredImage(file));
+  } catch (e) {
+    console.error("[aiseki] ぼかし画像の生成に失敗:", e);
+  }
+  return { url, blurUrl };
 }
 
 /* 古い写真を消す（新しい写真に差し替えたとき）。失敗しても致命的ではない。 */
@@ -823,11 +940,17 @@ export async function claimSeat(code) {
 //  ・お会計は「ゲストのおごり」固定（ホストは必ずおごられる）
 // 同伴者の席はサーバ側（handle_new_party → create_group_seats）で人数分作られる。
 // 実際の人数・定員・席の種別・金額はサーバ側トリガー／制約が確定させる。
+/* 2026-08-28 の新フロー:
+     ・ホストは先にグループ（友達2名以上）を作り、その group_id で卓を立てる。
+       人数・同伴者名はサーバがグループから確定させる（クライアントは送らない）。
+     ・ゲスト側の枠はホストが選ばない（常に GUEST_SLOT_SIZE ＝2名分）。 */
 export async function createParty(hostId, fields) {
+  const groupId = fields.group_id ?? null;
   const hostGroup = Number(fields.host_group_size);
-  const guestGroup = Number(fields.guest_group_size);
-  if (!(hostGroup >= MIN_GROUP_SIZE) || !(guestGroup >= MIN_GROUP_SIZE)) {
-    throw new Error(`会は${MIN_GROUP_SIZE}名以上のグループ同士でのみ作成できます。`);
+  if (!groupId && !(hostGroup >= MIN_HOST_GROUP_SIZE)) {
+    throw new Error(
+      `会を立てるには、あなたを含めて${MIN_HOST_GROUP_SIZE}名以上のグループが必要です。先に友達を招待してください。`
+    );
   }
   if (fields.room_type != null && fields.room_type !== ROOM_TYPE_OPEN) {
     throw new Error("相席はオープンスペースのみです。個室での会は作成できません。");
@@ -853,9 +976,14 @@ export async function createParty(hostId, fields) {
      予算はランクで選べる帯（budget_tier）だけを送る。 */
   const {
     host_member_names, room_type, point_request, treat_type, avg_budget,
-    status, max_members, current_members, shop_id,
+    status, max_members, current_members, shop_id, group_id,
+    host_group_size, guest_group_size,
     ...rest
   } = fields;
+
+  /* グループから立てるときは、人数も同伴者名もサーバがグループの実体から
+     確定させる（enforce_group_party）。クライアントの申告は使わない。 */
+  const fromGroup = !!groupId;
   const { data, error } = await supabase
     .from("parties")
     .insert({
@@ -868,14 +996,130 @@ export async function createParty(hostId, fields) {
       min_guest_tier: fields.min_guest_tier || DEFAULT_GUEST_TIER,
       location,
       area: trimTo(fields.area, LIMITS.area) || null,
-      host_group_size: hostGroup,
-      guest_group_size: guestGroup,
-      host_member_names: normalizeMemberNames(host_member_names, hostGroup),
+      ...(fromGroup
+        ? { group_id: groupId }
+        : {
+            host_group_size: hostGroup,
+            host_member_names: normalizeMemberNames(host_member_names, hostGroup),
+          }),
     })
     .select()
     .single();
-  if (error) throw wrapSchemaError(wrapMutualRankError(error));
+  if (error) throw wrapNewFlowError(wrapSchemaError(wrapMutualRankError(error)));
   return data;
+}
+
+/* ======================= ホスト側グループ =======================
+   卓を立てる前に作る「友達の箱」。招待リンクで呼んだ友達は
+   簡易登録（名前＋年齢確認＋写真）を済ませるとここに結びつく。
+   あなたを含めて MIN_HOST_GROUP_SIZE 名以上そろうと卓を立てられる。
+
+   ⚠ 招待コードはテーブルから直接読めない（列単位で遮断してある）。
+     取得経路は list_my_groups() だけ。
+   ============================================================== */
+export async function listMyGroups() {
+  const { data, error } = await supabase.rpc("list_my_groups");
+  if (error) throw wrapNewFlowError(error);
+  return data ?? [];
+}
+
+export async function createGroup(name) {
+  const { data, error } = await supabase.rpc("create_group", {
+    p_name: trimTo(name, 30) ?? "マイグループ",
+  });
+  if (error) throw wrapNewFlowError(error);
+  return data;   // group id
+}
+
+export async function addGroupMember(groupId, displayName) {
+  const { data, error } = await supabase.rpc("add_group_member", {
+    p_group: groupId,
+    p_name: trimTo(displayName, LIMITS.username) ?? "",
+  });
+  if (error) throw wrapNewFlowError(error);
+  return data;   // { id, invite_code }
+}
+
+export async function removeGroupMember(memberId) {
+  const { error } = await supabase.rpc("remove_group_member", { p_member: memberId });
+  if (error) throw wrapNewFlowError(error);
+}
+
+/* 招待リンクを開いた人に見せる情報。まだ登録していない人も呼べる。
+   返るのは「誰のグループか」だけで、プロフィールは含まれない。 */
+export async function groupInvitePreview(code) {
+  const { data, error } = await supabase.rpc("group_invite_preview", {
+    p_code: String(code || "").trim().toUpperCase(),
+  });
+  if (error) throw wrapNewFlowError(error);
+  return data ?? null;   // { group_name, owner_name, display_name, claimed }
+}
+
+/* 簡易登録の直後に呼ぶ。招待された枠を自分のアカウントで引き受ける。 */
+export async function claimGroupInvite(code) {
+  const { data, error } = await supabase.rpc("claim_group_invite", {
+    p_code: String(code || "").trim().toUpperCase(),
+  });
+  if (error) throw wrapNewFlowError(error);
+  return data;   // { group_id }
+}
+
+/* 卓を立てられるグループ（人数がそろっているもの）だけを返す */
+export const groupIsReady = (group) =>
+  (group?.members?.length ?? 0) >= MIN_HOST_GROUP_SIZE;
+
+/* 招待リンクの URL。登録画面まで一気に運ぶ。 */
+export function groupInviteUrl(code) {
+  const origin = typeof window === "undefined" ? "https://aisekimatch.com" : window.location.origin;
+  return `${origin}/?invite=${encodeURIComponent(code)}`;
+}
+
+export function groupInviteShareText(code, ownerName) {
+  return (
+    `${ownerName || "友だち"}さんから AISEKI（大人のグループ相席）のグループに招待されました。\n` +
+    "お名前・年齢確認・写真だけの簡単な登録で参加できます（費用はかかりません）。\n" +
+    groupInviteUrl(code)
+  );
+}
+
+/* ==================== 自分のアカウント種別 ====================
+   'simple'（招待からの簡易登録）は、卓を立てることも参加を申し込むことも
+   できない。招待されたグループのメンバーとして会に入るだけ。
+   ============================================================== */
+export async function getMyAccount() {
+  const { data, error } = await supabase.rpc("my_account");
+  if (error) throw wrapNewFlowError(error);
+  return data ?? null;   // { account_type, signup_intent, card_registered, has_photo }
+}
+
+export const isSimpleAccount = (account) => account?.account_type === ACCOUNT_SIMPLE;
+
+/* ====================== モザイク（マッチ前） ======================
+   マッチが成立するまで、ホストの写真は「ぼかし」だけを配信する。
+   素のURLはサーバから返らない（画面側でぼかしているのではない）。
+
+   ⚠ この経路に性別・評価（平均点・件数・ランク）を足してはいけない。
+     足した瞬間に「マッチ前の他人」に開示されることになる。
+   ================================================================ */
+export async function getPartyHostPreview(partyId) {
+  const { data, error } = await supabase.rpc("party_host_preview", { p_party: partyId });
+  if (error) throw wrapNewFlowError(error);
+  return data ?? null;
+}
+
+/* 会の一覧に出すホストのぼかし写真（parties に非正規化してある） */
+export const partyHostBlurUrl = (party) => safeImageUrl(party?.host_avatar_blur_url);
+
+/* migration_new_flow.sql が未適用のときに分かりやすいエラーへ変換する */
+function wrapNewFlowError(error) {
+  const msg = error?.message || "";
+  if (/list_my_groups|create_group|add_group_member|claim_group_invite|group_invite_preview|my_account|party_host_preview|join_charge_preview|avatar_blur_url|photos_blur|account_type|pay_mode|billable_size|partner_id|group_id|schema cache/i.test(msg)) {
+    return new Error(
+      "この機能に必要なデータベースの更新がまだ適用されていません。" +
+      "supabase/migration_new_flow.sql を実行してください。"
+    );
+  }
+  return error;
 }
 
 // 自分が参加している会（チャット一覧用）
@@ -891,26 +1135,68 @@ export async function listMyParties(userId) {
 /* ====================== Join requests ======================== */
 // グループ単位の参加リクエスト（募集側＝ホストは無料。ポイントは承認時に消費される）
 // 同伴者の表示名も一緒に送るが、承認されるまでホストには渡らない（列単位で遮断）。
-export async function sendJoinRequest(userId, partyId, groupSize, memberNames) {
+/* 参加リクエスト。
+     ・既定は2名。1名でも申し込める（その場合も2名分＝SOLO_FEE をお支払いいただく）
+     ・相方が既存会員なら partnerId を指定し、各自払い／まとめ払いを選べる
+     ・相方が招待（簡易登録）なら memberNames に名前を入れる → まとめ払いのみ
+
+   ⚠ この時点では1ptも動かない。決済はホストが承認した時点（マッチ成立）。 */
+export async function sendJoinRequest(
+  userId, partyId, groupSize, memberNames,
+  { partnerId = null, payMode = PAY_MODE_BUNDLE } = {}
+) {
   const size = Number(groupSize);
-  if (!(size >= MIN_GROUP_SIZE)) {
-    throw new Error(`参加は${MIN_GROUP_SIZE}名以上のグループ単位でのみ申し込めます。`);
+  if (!(size >= MIN_GUEST_GROUP_SIZE)) {
+    throw new Error("参加人数を選んでください。");
   }
+  const mode = payMode === PAY_MODE_SPLIT ? PAY_MODE_SPLIT : PAY_MODE_BUNDLE;
+  if (mode === PAY_MODE_SPLIT && !partnerId) {
+    throw new Error("各自払いは、相方が既存の会員のときにのみ選べます。");
+  }
+  if (partnerId && size !== 2) {
+    throw new Error("相方を指定するときは2名でお申し込みください。");
+  }
+  /* 同伴者名は「自分と相方を除いた人数分」。相方が既存会員なら0人分。 */
+  const extra = size - 1 - (partnerId ? 1 : 0);
   const { data, error } = await supabase
     .from("join_requests")
     .insert({
       user_id: userId,
       party_id: partyId,
       group_size: size,
-      member_names: normalizeMemberNames(memberNames, size),
+      member_names: normalizeMemberNames(memberNames, Math.max(extra, 0) + 1),
+      pay_mode: mode,
+      partner_id: partnerId,
       status: "pending",
     })
-    .select("id, status, group_size")
+    .select("id, status, group_size, pay_mode, billable_size")
     .single();
   /* ランクが足りないときの文言は DB のトリガーが日本語で返すので、
      そのまま画面に出す（wrapSchemaError の分岐には掛からない）。 */
-  if (error) throw wrapSchemaError(wrapMutualRankError(error));
+  if (error) throw wrapNewFlowError(wrapSchemaError(wrapMutualRankError(error)));
   return data;
+}
+
+/* 相方（既存会員）を会員コードで指定する。
+   コードは本人が自分で相手に伝えるもの（マイページの「会員コード」＝紹介コード）。
+   返るのは表示名だけで、プロフィールは承認後まで見えない。 */
+export async function findPartnerByCode(code) {
+  const value = String(code || "").trim().toUpperCase();
+  if (!value) throw new Error("会員コードを入力してください。");
+  const { data, error } = await supabase.rpc("find_partner_by_code", { p_code: value });
+  if (error) throw wrapNewFlowError(error);
+  return data;   // { user_id, username }
+}
+
+/* 申し込む前の金額の確認（サーバが計算する。表示と実際をずらさないため）。
+   自分の残高も一緒に返る（他人の残高は返らない）。 */
+export async function getJoinChargePreview(groupSize, payMode) {
+  const { data, error } = await supabase.rpc("join_charge_preview", {
+    p_size: Number(groupSize) || 1,
+    p_mode: payMode === PAY_MODE_SPLIT ? PAY_MODE_SPLIT : PAY_MODE_BUNDLE,
+  });
+  if (error) throw wrapNewFlowError(error);
+  return data;   // { group_size, billable_size, total, per_person, my_charge, my_balance }
 }
 
 /* この会に自分が申し込めるか（会が参加者に求めるランクを満たしているか）。
@@ -931,7 +1217,7 @@ export function guestTierLabel(party) {
 export async function getMyJoinRequest(userId, partyId) {
   const { data, error } = await supabase
     .from("join_requests")
-    .select("id, status, group_size")
+    .select("id, status, group_size, billable_size, pay_mode")
     .eq("user_id", userId)
     .eq("party_id", partyId)
     .order("created_at", { ascending: false })
@@ -959,7 +1245,10 @@ export async function listIncomingRequests(userId) {
 
   const { data, error } = await supabase
     .from("join_requests")
-    .select("id, party_id, group_size, applicant_name, status, created_at, party:party_id(id, title)")
+    .select(
+      "id, party_id, group_size, billable_size, pay_mode, applicant_name, status, created_at, " +
+      "party:party_id(id, title)"
+    )
     .in("party_id", ids)
     .eq("status", "pending")
     .order("created_at", { ascending: false });
@@ -1368,7 +1657,10 @@ export async function listNotifications(userId) {
         at: r.created_at,
         partyId: r.party_id,
         title: "グループ参加リクエストが届いています",
-        body: `${r.applicant_name || "ゲスト"}さんのグループ（${r.group_size}名）から「${titleOf.get(r.party_id) ?? "会"}」への参加希望`,
+        body:
+          `${r.applicant_name || "ゲスト"}さん` +
+          (r.group_size === 1 ? "（お一人）" : `のグループ（${r.group_size}名）`) +
+          `から「${titleOf.get(r.party_id) ?? "会"}」への参加希望`,
       });
     }
   }

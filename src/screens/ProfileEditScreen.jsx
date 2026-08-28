@@ -295,6 +295,11 @@ export default function ProfileEditScreen({ user, profile, onBack, onSaved }) {
     bio: profile?.bio || "",
     avatar_url: profile?.avatar_url || "",
     photos: profile?.photos ?? [],
+    /* マッチ前に配信される「ぼかした別画像」。写真と同じ並びで持つ。
+       ⚠ 画面でぼかしているのではなく、別ファイルとして保存している。
+         詳しくは src/lib/api.js の makeBlurredImage を読むこと。 */
+    avatar_blur_url: profile?.avatar_blur_url || "",
+    photos_blur: profile?.photos_blur ?? [],
     hobbies: profile?.hobbies ?? [],
     favorite_food: profile?.favorite_food || "",
     favorite_drink: profile?.favorite_drink || "",
@@ -312,8 +317,11 @@ export default function ProfileEditScreen({ user, profile, onBack, onSaved }) {
 
   const set = (patch) => setForm((f) => ({ ...f, ...patch }));
 
-  /* 枠 0 がメイン（avatar_url）、1〜5 がサブ（photos）。 */
+  /* 枠 0 がメイン（avatar_url）、1〜5 がサブ（photos）。
+     ぼかし画像（*_blur）は必ず同じ並びで持つ。ずれると、別人の写真を
+     ぼかしたものが配信されることになるので、必ず対で出し入れする。 */
   const photoAt = (i) => (i === 0 ? form.avatar_url : form.photos[i - 1] || "");
+  const blurAt = (i) => (i === 0 ? form.avatar_blur_url : form.photos_blur[i - 1] || "");
   const slots = Array.from({ length: api.MAX_PHOTOS }, (_, i) => photoAt(i));
   // 空の枠は「最初の1つ」だけ出す（並びが歯抜けにならないようにする）
   const firstEmpty = slots.findIndex((u) => !u);
@@ -331,17 +339,27 @@ export default function ProfileEditScreen({ user, profile, onBack, onSaved }) {
     if (!file) return;
     setUploadingAt(index);
     try {
-      const url = await api.uploadAvatar(user.id, file);
+      /* 素の写真と、ぼかした別画像の2枚を上げる */
+      const { url, blurUrl } = await api.uploadAvatarPair(user.id, file);
       const previous = photoAt(index);
-      if (index === 0) set({ avatar_url: url });
-      else {
+      const previousBlur = blurAt(index);
+      if (index === 0) {
+        set({ avatar_url: url, avatar_blur_url: blurUrl || "" });
+      } else {
         const next = [...form.photos];
+        const nextBlur = [...form.photos_blur];
         next[index - 1] = url;
-        set({ photos: next.filter(Boolean) });
+        nextBlur[index - 1] = blurUrl || "";
+        /* 穴が空いたときも並びをずらさないよう、対のまま詰める */
+        const pairs = next.map((u, i) => [u, nextBlur[i] || ""]).filter(([u]) => !!u);
+        set({ photos: pairs.map((p) => p[0]), photos_blur: pairs.map((p) => p[1]) });
       }
       // 保存前に差し替えた分は、その場でストレージから消しておく
-      if (previous && previous !== profile?.avatar_url && !(profile?.photos ?? []).includes(previous)) {
-        api.removeAvatar(user.id, previous);
+      const wasSaved = (u) => u === profile?.avatar_url || (profile?.photos ?? []).includes(u);
+      if (previous && !wasSaved(previous)) api.removeAvatar(user.id, previous);
+      if (previousBlur && previousBlur !== profile?.avatar_blur_url
+          && !(profile?.photos_blur ?? []).includes(previousBlur)) {
+        api.removeAvatar(user.id, previousBlur);
       }
     } catch (err) {
       toast.error(err.message);
@@ -352,15 +370,26 @@ export default function ProfileEditScreen({ user, profile, onBack, onSaved }) {
 
   const removeAt = (index) => {
     const url = photoAt(index);
+    const blur = blurAt(index);
     if (index === 0) {
       // メインを消したら、次のサブ写真を繰り上げる（メインが空のまま残らないように）
       const [next, ...restPhotos] = form.photos;
-      set({ avatar_url: next || "", photos: restPhotos });
+      const [nextBlur, ...restBlur] = form.photos_blur;
+      set({
+        avatar_url: next || "", photos: restPhotos,
+        avatar_blur_url: nextBlur || "", photos_blur: restBlur,
+      });
     } else {
-      set({ photos: form.photos.filter((_, i) => i !== index - 1) });
+      set({
+        photos: form.photos.filter((_, i) => i !== index - 1),
+        photos_blur: form.photos_blur.filter((_, i) => i !== index - 1),
+      });
     }
     if (url && url !== profile?.avatar_url && !(profile?.photos ?? []).includes(url)) {
       api.removeAvatar(user.id, url);
+    }
+    if (blur && blur !== profile?.avatar_blur_url && !(profile?.photos_blur ?? []).includes(blur)) {
+      api.removeAvatar(user.id, blur);
     }
   };
 
@@ -373,6 +402,8 @@ export default function ProfileEditScreen({ user, profile, onBack, onSaved }) {
         bio: form.bio,
         avatar_url: form.avatar_url,
         photos: form.photos,
+        avatar_blur_url: form.avatar_blur_url || null,
+        photos_blur: form.photos_blur,
         hobbies: form.hobbies,
         favorite_food: form.favorite_food,
         favorite_drink: form.favorite_drink,
@@ -384,8 +415,14 @@ export default function ProfileEditScreen({ user, profile, onBack, onSaved }) {
       });
       /* 保存後に使われなくなった写真をストレージから片づける
          （残しても見えないが、容量を無駄にしない） */
-      const kept = new Set([updated.avatar_url, ...(updated.photos ?? [])].filter(Boolean));
-      for (const old of [profile?.avatar_url, ...(profile?.photos ?? [])].filter(Boolean)) {
+      const kept = new Set([
+        updated.avatar_url, ...(updated.photos ?? []),
+        updated.avatar_blur_url, ...(updated.photos_blur ?? []),
+      ].filter(Boolean));
+      for (const old of [
+        profile?.avatar_url, ...(profile?.photos ?? []),
+        profile?.avatar_blur_url, ...(profile?.photos_blur ?? []),
+      ].filter(Boolean)) {
         if (!kept.has(old)) api.removeAvatar(user.id, old);
       }
       toast.success("プロフィールを保存しました。");

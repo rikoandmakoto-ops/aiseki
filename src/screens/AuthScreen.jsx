@@ -14,7 +14,10 @@ import { TermsBody } from "./TermsScreen.jsx";
    Supabase 側の既定は6文字だが、ローンチにあたり8文字に引き上げる。 */
 const MIN_PASSWORD = 8;
 
-export default function AuthScreen({ initialMode = "login", onBack }) {
+/* signupIntent … LP のどちらから来たか（'host' | 'guest' | null）。
+   ホストはカード登録が要らず、ボーナスも付かない（完全無料）。
+   登録後の案内を出し分けるためだけに記録する。権限には影響しない。 */
+export default function AuthScreen({ initialMode = "login", signupIntent = null, onBack }) {
   // 'login' | 'signup' | 'forgot'
   const [mode, setMode] = useState(initialMode === "terms" ? "login" : initialMode);
   const [email, setEmail] = useState("");
@@ -88,7 +91,9 @@ export default function AuthScreen({ initialMode = "login", onBack }) {
         await signIn({ email, password });
         // 成功後は App の onAuthStateChange が画面を切り替える
       } else {
-        const data = await signUp({ email, password, username, birthDate, gender, ageConfirmed: agreed });
+        const data = await signUp({
+          email, password, username, birthDate, gender, ageConfirmed: agreed, signupIntent,
+        });
         if (!data.session) {
           // メール確認が有効な場合
           setNotice("確認メールを送信しました。メール内のリンクを開いてから、ログインしてください。");

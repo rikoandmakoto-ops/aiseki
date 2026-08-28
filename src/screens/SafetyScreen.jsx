@@ -21,8 +21,8 @@ import { useToast } from "../lib/toast.jsx";
 const PROTECTIONS = [
   {
     icon: UsersRound,
-    title: `${api.MIN_GROUP_SIZE}名以上のグループ同士のみ`,
-    body: "1対1のマッチングは行いません。ホスト側・参加側ともに2名以上のグループでのみ会が成立します（データベース側の制約でも担保しています）。",
+    title: "1対1にはならない仕組み",
+    body: `1対1のマッチングは行いません。会を立てる側は必ず${api.MIN_HOST_GROUP_SIZE}名以上のグループです（データベース側の制約でも担保しています）。参加する側はお一人でもお申し込みいただけますが、その場合もお相手は必ず${api.MIN_HOST_GROUP_SIZE}名以上のグループのため、1対1の席にはなりません。`,
   },
   {
     icon: Lock,
