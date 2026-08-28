@@ -501,17 +501,30 @@ const NextTierSection = ({ user, myTier, onDetail }) => {
 
   useEffect(() => {
     let alive = true;
+    /* ランクが上がって帯が切り替わったら、前の帯の会をいったん捨てる。
+       残したままだと、取り直しが返るまでのあいだ
+       「前の帯の実在の会 × 新しい帯の見本」が混ざって出てしまう。 */
+    setReal([]);
+    setReady(false);
+    setNotice(null);
     if (!tier) { setReady(true); return; }
     api.listPartiesRequiringTier(tier.key, NEXT_TIER_SLOTS * 2)
       .then((rows) => {
         if (!alive) return;
-        /* 自分がホストの会は出さない（申し込めない枠として見せる意味がない） */
-        setReal(rows.filter((p) => p.host_id !== user.id));
+        setReal(rows.filter((p) =>
+          /* 自分がホストの会は出さない（申し込めない枠として見せる意味がない） */
+          p.host_id !== user.id &&
+          /* 🚨 既に申し込める会をこの枠に出さない。
+             ランクの取得が一瞬古いままでも、「もう届いている帯」を
+             ロック済みとして見せてしまわないための保険。
+             この枠に出てよいのは、常に「いま申し込めない会」だけ。 */
+          !api.canJoinWithTier(myTier, p.min_guest_tier)
+        ));
       })
       .catch((e) => { console.error(e); if (alive) setReal([]); })
       .finally(() => { if (alive) setReady(true); });
     return () => { alive = false; };
-  }, [tier?.key, user.id]);
+  }, [tier?.key, myTier, user.id]);
 
   /* 最上位（プラチナ）には「ひとつ上」が無い */
   if (!tier || !ready) return null;
@@ -754,16 +767,33 @@ const HomeScreen = ({ user, onDetail, onCreate }) => {
   const [myTier, setMyTier] = useState(null);
   const [busyReq, setBusyReq] = useState(null);
 
+  /* 自分のランクを引き直す。
+     🚨 一覧と一緒に必ず引き直すこと。ランクは「相席した会の終了後に
+       相手が評価を書いた時点」で上がるので、ホームを開いたまま上がりうる。
+       取得が1回きりだと、既に到達した帯が「ひとつ上」として出続けてしまう
+       （見本が消えない）。 */
+  const refreshTier = useCallback(async () => {
+    try {
+      const r = await api.getMyRank();
+      return r?.tier_key ?? api.DEFAULT_RANK_KEY;
+    } catch (e) {
+      console.error(e);
+      return null;
+    }
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
     setLoadError("");
     try {
-      const [ps, reqs] = await Promise.all([
+      const [ps, reqs, tier] = await Promise.all([
         api.listParties(filters),
         api.listIncomingRequests(user.id),
+        refreshTier(),
       ]);
       setParties(ps.filter((p) => p.host_id !== user.id));
       setIncoming(reqs);
+      setMyTier(tier);
     } catch (e) {
       console.error(e);
       setLoadError(
@@ -774,17 +804,23 @@ const HomeScreen = ({ user, onDetail, onCreate }) => {
     } finally {
       setLoading(false);
     }
-  }, [filters, user.id]);
+  }, [filters, user.id, refreshTier]);
 
   useEffect(() => { load(); }, [load]);
 
+  /* アプリに戻ってきたときにもランクだけ引き直す。
+     会が終わって評価が入るのはアプリを閉じている間なので、
+     「戻ってきたら、もう届いている帯が消えている」が期待どおりの動き。
+     一覧まで引き直すと重いので、ランクだけにしてある。 */
   useEffect(() => {
-    let alive = true;
-    api.getMyRank()
-      .then((r) => { if (alive) setMyTier(r?.tier_key ?? api.DEFAULT_RANK_KEY); })
-      .catch((e) => { console.error(e); if (alive) setMyTier(null); });
-    return () => { alive = false; };
-  }, [user.id]);
+    const onVisible = async () => {
+      if (document.visibilityState !== "visible") return;
+      const tier = await refreshTier();
+      if (tier) setMyTier(tier);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [refreshTier]);
 
   const respond = async (id, status) => {
     if (status === "rejected") {
