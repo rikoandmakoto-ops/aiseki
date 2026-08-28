@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { supabase, configError } from "./lib/supabase";
 import * as api from "./lib/api";
-import { POINT_PACKS, TEST_PACK, packDiscount, packSeats, packUnitPrice } from "./lib/packs.js";
+import { POINT_PACKS, packDiscount, packSeats, packUnitPrice } from "./lib/packs.js";
 import { FOOTER_NOTICE } from "./lib/legal.js";
 import {
   C, FONT_LOGO, FONT_DISPLAY, FONT_HEAD, FONT_BODY,
@@ -44,22 +44,6 @@ const CardRegisterSheet = lazy(() => import("./screens/CardRegisterSheet.jsx"));
 const RankCard = lazy(() => import("./screens/RankCard.jsx"));
 /* 運営用の管理画面（/admin）。利用者は開かないので、必ず遅延読み込みにする。 */
 const AdminScreen = lazy(() => import("./screens/AdminScreen.jsx"));
-
-/* 動作確認用の少額決済ボタンを出すか（?test=pay）。
-   live モードなので、押すと本物の請求が発生する。だから
-   ふだんの購入画面には出さず、この印を付けて開いたときだけ出す。
-
-   ポイント画面を直接開くなら /?tab=points&test=pay
-   （?tab= は readTabParam() が読む）。
-
-   ⚠ ここは「ボタンを出すか」を決めているだけで、権限の判定ではない。
-     packId="test50" は誰でも /api/stripe/checkout に送れる。
-     それで困らないのは、50円払って50pt増えるだけ（1pt = 1円）で、
-     得をする経路にならないため。 */
-const IS_TEST_PAY = (() => {
-  if (typeof window === "undefined") return false;
-  return new URLSearchParams(window.location.search).get("test") === "pay";
-})();
 
 /* 分割した画面を読み込んでいる間のつなぎ */
 const Loading = ({ label }) => (
@@ -2231,41 +2215,6 @@ const PointsScreen = ({ user, checkoutResult, onCheckoutHandled, onInvite }) => 
             </div>
           </div>
 
-          {/* 決済の動作確認用（?test=pay を付けて開いたときだけ出る）。
-              「支払い → Webhook → ポイント付与」が live で本当に通るかを
-              最小の金額で1回試すためのもの。押すと本物の請求が発生する。 */}
-          {IS_TEST_PAY && (
-            <div style={{
-              ...card, padding: 18, marginTop: 12,
-              background: "rgba(255,255,255,0.03)", border: `1px dashed ${C.lineSoft}`,
-            }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 700, color: C.text, letterSpacing: 0.3 }}>
-                    決済テスト（{TEST_PACK.points}pt）
-                  </div>
-                  <div style={{ fontSize: 10.5, color: C.textMuted, lineHeight: 1.8, marginTop: 4 }}>
-                    本物の請求が {TEST_PACK.price} 円発生します。支払い後に残高が
-                    {TEST_PACK.points}pt 増えれば、Webhook まで通っています。
-                    <br />
-                    ※ Stripe の下限が 50円のため、1円にはできません。
-                  </div>
-                </div>
-                <button
-                  className="press"
-                  onClick={() => buy(TEST_PACK)}
-                  disabled={busy || payEnabled === false}
-                  style={{
-                    ...ghostBtn, padding: "10px 16px", borderRadius: 999, fontSize: 13, flexShrink: 0,
-                    opacity: busy || payEnabled === false ? 0.45 : 1,
-                    cursor: busy || payEnabled === false ? "not-allowed" : "pointer",
-                  }}
-                >
-                  {payEnabled === false ? "準備中" : `¥${TEST_PACK.price}`}
-                </button>
-              </div>
-            </div>
-          )}
         </div>
       )}
 
