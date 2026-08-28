@@ -1,6 +1,6 @@
 # AISEKI 引き継ぎ書
 
-最終更新: 2026-08-26（同じカードでの 5,000pt の取り直しを封じた §17。CAPTCHA の**キーはテスト用のまま** §16）
+最終更新: 2026-08-28（CAPTCHA を**本番キーに差し替えて有効化**した §16。差し替え前は「テスト用キー」ではなく**無効なキー**で、カード登録自体が 503 で止まっていた）
 
 > ## ⚠️ まずこれを読む — Supabase プロジェクトが変わった（2026-08-20）
 >
@@ -308,7 +308,7 @@ postgresql://postgres:<DBパスワード>@db.melfyxfvhyknqhruytms.supabase.co:54
 9-b. ~~**カード登録に CAPTCHA を入れる**~~ ✅ **2026-08-26 完了（§16）。**
    登録ボーナス 5,000pt はカード登録後に付くので、その入口
    （`/api/stripe/setup-intent`）に Cloudflare Turnstile を入れた。
-   ⚠ **いまはテスト用キー（常に成功する）。本番キーへの差し替えが残っている**（§16）。
+   ✅ **2026-08-28 に本番キーへ差し替え済み。ここから先は実際にボットを弾く**（§16）。
    ⚠ **サインアップそのものの CAPTCHA（`security_captcha_enabled`）は入れていない。**
    Supabase の Auth 設定を触る必要があり、設定が丸ごと消えた実績があるため
    （§12 の囲み）。紹介ボーナス 3,800pt はサインアップだけで付くので、
@@ -1147,37 +1147,62 @@ vercel deploy --prebuilt --prod --yes
 サイトキーは `/api/stripe/status` からも配っている。
 `VITE_` の値は `--prebuilt` デプロイで空になることがあるため（§15 と同じ理由）。
 
-### ⛔ いまはテスト用キー。本番キーに差し替えること
+### ✅ 本番キーに差し替え済み（2026-08-28）
 
-Cloudflare のアカウントが無いため、**Cloudflare が公開しているテスト用キー**を入れてある。
-**これは「常に成功する」キーなので、現状ボットは止まらない**（配線だけが完成している）。
+Cloudflare Turnstile の**本番キー**を Production / Preview / Development の3環境と
+ローカル `.env` に入れ、再デプロイ（`dpl_HmjBD4fSo23aHLXwCtcphRoq438p`）まで済ませた。
+サイトキーは公開前提の値なのでここに残す。**シークレットは書かない**（Vercel と `.env` にだけ置く）。
 
 | | 値 |
 |---|---|
-| サイトキー | `1x00000000000000000000AA` |
-| シークレット | `1x0000000000000000000000000000000AA` |
+| サイトキー | `0x4AAAAAAEcwin4lgkcIlCIy` |
+| シークレット | Vercel の環境変数（3環境）と `.env` のみ。35文字 |
 
-差し替え手順:
+> 🚨 **差し替え前のキーはテスト用キーではなく、「無効な本番キー」だった。**
+> この節はずっと「テスト用キー `1x00000000000000000000AA`（常に成功する）が入っている」と
+> 書いていたが、2026-08-28 に実物を見たら入っていたのは
+> **`0x4AAAAABEcwin4lgkcIlCIy`**（正しい値と1文字違い。`…AAA…` が `…AAB…`）で、
+> シークレットも Cloudflare が `invalid-input-secret` で拒否する値だった。
+>
+> つまり**「常に成功する」のではなく「常に失敗する」状態**だった。
+> `_captcha.js` は `invalid-input-secret` を `ConfigError`（503）に落とす fail-closed なので、
+> **ボーナスは量産できない代わりに、正規の利用者もカード登録できなかった**。
+>
+> **`/api/stripe/status` の `cardEnabled` は `true` を返し続けていた。**
+> あれはシークレットが**存在するか**しか見ておらず、**有効かどうかは見ていない**。
+> ここだけを見て「動いている」と判断しないこと。鍵の健全性は
+> `node scripts/verify_captcha.mjs` で見る。
+
+差し替え手順（次に鍵を替えるときもこれ）:
 
 1. https://dash.cloudflare.com → Turnstile → Add Site
    （ドメイン `aisekimatch.com`。**Cloudflare で DNS を管理していなくても使える**。
    本サービスの DNS は xdomain のまま）。Widget Mode は **Managed** でよい。
-2. 発行された Site Key / Secret Key を Vercel の3環境へ入れ直す:
+2. Vercel の3環境へ入れ直す。**`--force` で上書きできるので `rm` は要らない**:
 
 ```bash
-vercel env rm TURNSTILE_SECRET_KEY production --yes
-printf '<新しいシークレット>' | vercel env add TURNSTILE_SECRET_KEY production
-vercel env rm VITE_TURNSTILE_SITE_KEY production --yes
-printf '<新しいサイトキー>' | vercel env add VITE_TURNSTILE_SITE_KEY production
+for e in production preview development; do
+  vercel env add VITE_TURNSTILE_SITE_KEY "$e" "" --value '<サイトキー>'   --force --yes
+  vercel env add TURNSTILE_SECRET_KEY    "$e" "" --value '<シークレット>' --force --yes
+done
 ```
 
-3. ローカルの `.env` も直す。
-4. **再デプロイするまで反映されない**（§5 の 10 と同じ）。
-5. `node scripts/verify_captcha.mjs` で確認（本番キーなら「でたらめなトークンを
-   拒否した」と出るのが正解）。
+> ⚠ **`preview` だけは第3引数（Git ブランチ）を省略すると通らない。**
+> CLI 53.1.1 は `git_branch_required` を返し、`--value` を付けても
+> 「省略すれば全ブランチ」と案内してくるのに省略だと止まる。
+> **空文字 `""` を第3引数に渡すと全 Preview ブランチへ入る**（2026-08-28 に確認）。
+> 過去にここで詰まって `POST /v10/projects/{id}/env` を直接叩いた記録があるが、API は要らない。
 
-> ⚠ CLI 53.1.1 は `vercel env add <name> preview` が非対話で通らない
-> （`--value` も効かない）。Preview は `POST /v10/projects/{id}/env` を直接叩いた。
+> ⚠ `vercel env ls` の日付は**作成日**で、上書きしても古いまま。
+> 「2d ago のままだから失敗した」と読み違えないこと。成否は
+> `Overrode Environment Variable ... to Project aiseki` の行で判断する。
+
+3. ローカルの `.env` も直す。
+4. **再デプロイするまで反映されない**（§5 の 10 と同じ）。関数が読むのは
+   デプロイ時点の環境変数。
+5. 確認（下記）。**本番の実値は `/api/stripe/status` の `captchaSiteKey` で見える。**
+   `VITE_` は Sensitive で `vercel pull` が空を返すため、バンドルを見ても
+   埋め戻した `.env` の値しか分からない。Vercel 側に入った値の確認はこの API で行う。
 
 ### 確認のしかた
 
@@ -1185,7 +1210,14 @@ printf '<新しいサイトキー>' | vercel env add VITE_TURNSTILE_SITE_KEY pro
 node scripts/verify_captcha.mjs                     # Cloudflare への疎通と鍵の種別
 node scripts/verify_captcha.mjs --base https://aisekimatch.com \
   --email <テストユーザー> --password <パスワード>   # 実際のエンドポイント
+
+curl -s https://aisekimatch.com/api/stripe/status    # 本番に入っているサイトキーの実値
 ```
+
+2026-08-28 の差し替え直後は、1つ目が
+`error-codes=invalid-input-response` →「本番用シークレットが、でたらめなトークンを
+正しく拒否した」で通り、3つ目が `"captchaSiteKey": "0x4AAAAAAEcwin4lgkcIlCIy"` を返した。
+**`invalid-input-secret` が出たらシークレットが違う**（差し替え前はこれだった）。
 
 2つ目は **CAPTCHA トークン無しの `POST /api/stripe/setup-intent` が 400 で断られること**
 を確かめる（＝ボーナスの入口が塞がっていること）。
@@ -1193,7 +1225,7 @@ node scripts/verify_captcha.mjs --base https://aisekimatch.com \
 
 ### 残っているもの
 
-- ⛔ **本番キーへの差し替え**（上記）。これをやるまでボットは止まらない。
+- ~~**本番キーへの差し替え**~~ ✅ 2026-08-28 完了（上記）。
 - ⛔ **サインアップ自体の CAPTCHA は未対応。**
   紹介ボーナス 3,800pt（双方）はカード登録なしで付くので、
   **アカウントの量産で取れる**。Supabase の `security_captcha_enabled` を
