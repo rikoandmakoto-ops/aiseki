@@ -443,6 +443,12 @@ const FilterPanel = ({ filters, onChange, count, loading }) => {
   const [open, setOpen] = useState(false);
   const [keyword, setKeyword] = useState(filters.keyword ?? "");
 
+  /* 絞り込みは外からも解除される（結果が0件のときの「絞り込みを解除」）。
+     入力欄は自前の state なので、追いかけないと
+     「一覧は絞り込まれていないのに検索欄には文字が残っている」状態になる。
+     打っている最中は filters.keyword が動かないので、ここは発火しない。 */
+  useEffect(() => { setKeyword(filters.keyword ?? ""); }, [filters.keyword]);
+
   const set = (patch) => onChange({ ...filters, ...patch });
 
   /* 既定値から動いている条件の数。開かなくても絞り込み中だと分かるようにする。 */
@@ -547,7 +553,6 @@ const HomeScreen = ({ user, onDetail, onCreate }) => {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [busyReq, setBusyReq] = useState(null);
-  const area = filters.area ?? null;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -2260,19 +2265,28 @@ const PointsScreen = ({ user, checkoutResult, onCheckoutHandled, onInvite }) => 
 const ChatScreen = ({ user, openRoom, openParty }) => {
   const [rooms, setRooms] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
 
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      setLoading(true);
-      try {
-        const ps = await api.listMyParties(user.id);
-        if (alive) setRooms(ps);
-      } catch (e) { console.error(e); }
-      finally { if (alive) setLoading(false); }
-    })();
-    return () => { alive = false; };
+  const load = useCallback(async () => {
+    setLoading(true);
+    setLoadError("");
+    try {
+      setRooms(await api.listMyParties(user.id));
+    } catch (e) {
+      console.error(e);
+      /* 読み込めなかっただけなのに「参加中の会がありません」を出すと、
+         参加していた会が消えたように見えてしまう。必ず分けて伝える。 */
+      setLoadError(
+        /failed to fetch|load failed|networkerror/i.test(e.message || "")
+          ? "通信できませんでした。電波の良い場所でもう一度お試しください。"
+          : "グループチャットを読み込めませんでした。"
+      );
+    } finally {
+      setLoading(false);
+    }
   }, [user.id]);
+
+  useEffect(() => { load(); }, [load]);
 
   return (
     <div style={{ padding: "16px 20px 24px" }}>
@@ -2288,7 +2302,18 @@ const ChatScreen = ({ user, openRoom, openParty }) => {
           募集中の会には、まだ参加していない方からメッセージ（アプローチ）が届くことがあります。
         </span>
       </div>
-      {loading ? <SkeletonList count={3} /> : rooms.length === 0 ? (
+      {loading ? <SkeletonList count={3} /> : loadError ? (
+        <EmptyState
+          icon={<XCircle size={24} strokeWidth={1.6} />}
+          action={
+            <button className="press" onClick={load} style={{ ...ghostBtn, padding: "11px 26px", fontSize: 13 }}>
+              もう一度読み込む
+            </button>
+          }
+        >
+          {loadError}
+        </EmptyState>
+      ) : rooms.length === 0 ? (
         <EmptyState icon={<MessageCircle size={24} strokeWidth={1.6} />}>
           参加中の会がありません。<br />会を主催するか、参加リクエストが承認されると<br />グループチャットが始まります。
         </EmptyState>

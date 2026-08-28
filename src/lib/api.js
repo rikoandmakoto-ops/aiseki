@@ -245,12 +245,6 @@ export function ageFromBirthDate(birthDate) {
   return age;
 }
 
-/* 20歳以上かどうか（年齢確認の判定はここに集約する） */
-export function isLegalAge(birthDate) {
-  const age = ageFromBirthDate(birthDate);
-  return age !== null && age >= MIN_AGE;
-}
-
 /* 生年月日の入力欄で選択できる上限日（今日からちょうど MIN_AGE 年前）。
    toISOString() は UTC に変換されて1日ずれることがあるため、
    ローカル日付から組み立てる（今日が誕生日の方をちょうど選べるようにする）。 */
@@ -631,16 +625,6 @@ export async function createCheckoutSession(packId) {
   const body = await res.json().catch(() => ({}));
   if (!res.ok || !body?.url) throw new Error(body?.error || "決済ページを開けませんでした。");
   return body.url;
-}
-
-// ポイント変換（自分の残高から減算）。
-export async function convertPoints(amount, description) {
-  const { data, error } = await supabase.rpc("convert_points", {
-    p_amount: amount,
-    p_description: description,
-  });
-  if (error) throw error;
-  return data; // 新しい残高
 }
 
 /* ========================== Parties ========================== */
@@ -1183,12 +1167,6 @@ export async function submitReview({ partyId, reviewedId, rating, comment }) {
   return data;
 }
 
-/* 評価できる会（自分が参加していて、開催日を過ぎたもの） */
-export async function listReviewableParties(userId) {
-  const parties = await listMyParties(userId);
-  return parties.filter(partyIsOver);
-}
-
 /* ==================== ランクと予算帯（お店） ====================
    受け取った評価の平均星数でランクが決まる（RANK_TIERS）。
    ランクは主催する側にも参加する側にも効く。
@@ -1556,10 +1534,6 @@ export function stripeStatus() {
     }
   })();
   return stripeStatusPromise;
-}
-
-export async function paymentsEnabled() {
-  return (await stripeStatus()).enabled;
 }
 
 /* ==================== カード登録（5,000pt） ====================
