@@ -2,13 +2,13 @@ import { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react"
 import {
   Home, MessageCircle, Plus, Gem, User, MapPin, Clock, Users, Bell,
   Crown, ChevronLeft, Send, ArrowRight, Check, Sparkles, Settings,
-  Mail, LogOut, Wine, Repeat, History, Wallet, ShieldCheck, Lock, FileText, UsersRound,
+  Mail, LogOut, Wine, History, Wallet, ShieldCheck, Lock, FileText, UsersRound,
   Ticket, Copy, DoorClosed, Ban, CreditCard, LifeBuoy, ShieldAlert, XCircle,
   Search, SlidersHorizontal, CalendarDays, Gift, Star, Beer, Heart, Store,
 } from "lucide-react";
 import { supabase, configError } from "./lib/supabase";
 import * as api from "./lib/api";
-import { POINT_PACKS, packDiscount, packSeats, packUnitPrice } from "./lib/packs.js";
+import { POINT_PACKS, TEST_PACK, packDiscount, packSeats, packUnitPrice } from "./lib/packs.js";
 import { FOOTER_NOTICE } from "./lib/legal.js";
 import {
   C, FONT_LOGO, FONT_DISPLAY, FONT_HEAD, FONT_BODY,
@@ -44,6 +44,22 @@ const CardRegisterSheet = lazy(() => import("./screens/CardRegisterSheet.jsx"));
 const RankCard = lazy(() => import("./screens/RankCard.jsx"));
 /* 運営用の管理画面（/admin）。利用者は開かないので、必ず遅延読み込みにする。 */
 const AdminScreen = lazy(() => import("./screens/AdminScreen.jsx"));
+
+/* 動作確認用の少額決済ボタンを出すか（?test=pay）。
+   live モードなので、押すと本物の請求が発生する。だから
+   ふだんの購入画面には出さず、この印を付けて開いたときだけ出す。
+
+   ポイント画面を直接開くなら /?tab=points&test=pay
+   （?tab= は readTabParam() が読む）。
+
+   ⚠ ここは「ボタンを出すか」を決めているだけで、権限の判定ではない。
+     packId="test50" は誰でも /api/stripe/checkout に送れる。
+     それで困らないのは、50円払って50pt増えるだけ（1pt = 1円）で、
+     得をする経路にならないため。 */
+const IS_TEST_PAY = (() => {
+  if (typeof window === "undefined") return false;
+  return new URLSearchParams(window.location.search).get("test") === "pay";
+})();
 
 /* 分割した画面を読み込んでいる間のつなぎ */
 const Loading = ({ label }) => (
@@ -1903,17 +1919,12 @@ const CreateScreen = ({ user, onCreated }) => {
 
    登録ボーナス 5,000pt も同じで、カードを登録したあとにサーバが付ける
    （アカウントを作っただけでは 0pt）。まだの人にはこの画面で案内を出す。 */
-/* 変換できる最小単位。スライダーの下限でもある。 */
-const CONVERT_MIN = 100;
-
 const PointsScreen = ({ user, checkoutResult, onCheckoutHandled, onInvite }) => {
-  const { toast, confirm } = useToast();
+  const { toast } = useToast();
   const [tab, setTab] = useState("buy");
   const [balance, setBalance] = useState(null);
   const [history, setHistory] = useState([]);
   const [busy, setBusy] = useState(false);
-  const [convertAmt, setConvertAmt] = useState(1000);
-  const canConvert = (balance ?? 0) >= CONVERT_MIN;
   const [notice, setNotice] = useState("");
   /* 決済が使えるか。null = 確認中。false のあいだは「準備中」を出す。 */
   const [payEnabled, setPayEnabled] = useState(null);
@@ -1942,9 +1953,6 @@ const PointsScreen = ({ user, checkoutResult, onCheckoutHandled, onInvite }) => 
       const [b, h] = await Promise.all([api.getBalance(user.id), api.getPointHistory(user.id)]);
       setBalance(b);
       setHistory(h);
-      /* 変換する量が残高を超えたままだと、スライダーは上限で止まっているのに
-         「1,000pt を変換」と出て、押すと残高不足で弾かれる。残高に合わせておく。 */
-      setConvertAmt((amt) => Math.min(amt, Math.max(CONVERT_MIN, b ?? CONVERT_MIN)));
       return b;
     } catch (e) { console.error(e); return null; }
   }, [user.id]);
@@ -1991,28 +1999,8 @@ const PointsScreen = ({ user, checkoutResult, onCheckoutHandled, onInvite }) => 
     }
   };
 
-  const convert = async () => {
-    const amt = Number(convertAmt);
-    if (!balance || amt > balance) { toast.error("残高が不足しています。"); return; }
-    const converted = Math.floor(amt * 0.85);
-    const ok = await confirm({
-      title: `${amt.toLocaleString()}pt を変換しますか？`,
-      message: `${converted.toLocaleString()}オリパpt になります（手数料15%）。変換したポイントは元に戻せません。`,
-      confirmLabel: "変換する",
-    });
-    if (!ok) return;
-    setBusy(true);
-    try {
-      await api.convertPoints(amt, `オリパpt変換（${converted}オリパpt）`);
-      await load();
-      toast.success(`${converted.toLocaleString()}オリパptに変換しました。`);
-    } catch (e) { toast.error("変換に失敗しました: " + e.message); }
-    finally { setBusy(false); }
-  };
-
   const TABS = [
     { key: "buy", label: "購入", icon: Wallet },
-    { key: "convert", label: "変換", icon: Repeat },
     { key: "history", label: "履歴", icon: History },
   ];
 
@@ -2221,40 +2209,42 @@ const PointsScreen = ({ user, checkoutResult, onCheckoutHandled, onInvite }) => 
               </span>
             </div>
           </div>
-        </div>
-      )}
 
-      {tab === "convert" && !canConvert && (
-        <div className="fade" style={{ ...card, padding: 22 }}>
-          <Eyebrow style={{ marginBottom: 16 }}>オリパpt 変換</Eyebrow>
-          <EmptyState icon={<Repeat size={22} strokeWidth={1.6} />}>
-            変換は{CONVERT_MIN}pt から行えます。<br />
-            現在の残高は{(balance ?? 0).toLocaleString()}ptです。
-          </EmptyState>
-        </div>
-      )}
-
-      {tab === "convert" && canConvert && (
-        <div className="fade" style={{ ...card, padding: 22 }}>
-          <Eyebrow style={{ marginBottom: 16 }}>オリパpt 変換</Eyebrow>
-          <div style={{ background: "rgba(255,255,255,0.045)", border: `1px solid ${C.lineSoft}`, borderRadius: 15, padding: 18, marginBottom: 18 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-              <div>
-                <div style={{ fontSize: 10.5, color: C.textMuted, letterSpacing: 0.5 }}>変換元</div>
-                <div style={{ fontSize: 22, fontWeight: 700, fontFamily: FONT_DISPLAY, color: C.text }}>{Number(convertAmt).toLocaleString()}<span style={{ fontSize: 12, fontFamily: FONT_BODY, fontWeight: 600 }}> pt</span></div>
-              </div>
-              <ArrowRight size={22} strokeWidth={1.8} color={C.primary} />
-              <div style={{ textAlign: "right" }}>
-                <div style={{ fontSize: 10.5, color: C.textMuted, letterSpacing: 0.5 }}>オリパpt</div>
-                <div style={{ fontSize: 22, fontWeight: 700, fontFamily: FONT_DISPLAY, ...brandText }}>{Math.floor(convertAmt * 0.85).toLocaleString()}<span style={{ fontSize: 12, fontFamily: FONT_BODY, fontWeight: 600 }}> pt</span></div>
+          {/* 決済の動作確認用（?test=pay を付けて開いたときだけ出る）。
+              「支払い → Webhook → ポイント付与」が live で本当に通るかを
+              最小の金額で1回試すためのもの。押すと本物の請求が発生する。 */}
+          {IS_TEST_PAY && (
+            <div style={{
+              ...card, padding: 18, marginTop: 12,
+              background: "rgba(255,255,255,0.03)", border: `1px dashed ${C.lineSoft}`,
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: C.text, letterSpacing: 0.3 }}>
+                    決済テスト（{TEST_PACK.points}pt）
+                  </div>
+                  <div style={{ fontSize: 10.5, color: C.textMuted, lineHeight: 1.8, marginTop: 4 }}>
+                    本物の請求が {TEST_PACK.price} 円発生します。支払い後に残高が
+                    {TEST_PACK.points}pt 増えれば、Webhook まで通っています。
+                    <br />
+                    ※ Stripe の下限が 50円のため、1円にはできません。
+                  </div>
+                </div>
+                <button
+                  className="press"
+                  onClick={() => buy(TEST_PACK)}
+                  disabled={busy || payEnabled === false}
+                  style={{
+                    ...ghostBtn, padding: "10px 16px", borderRadius: 999, fontSize: 13, flexShrink: 0,
+                    opacity: busy || payEnabled === false ? 0.45 : 1,
+                    cursor: busy || payEnabled === false ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {payEnabled === false ? "準備中" : `¥${TEST_PACK.price}`}
+                </button>
               </div>
             </div>
-            <div style={{ fontSize: 10.5, color: C.textMuted, textAlign: "center" }}>変換レート 1pt → 0.85オリパpt（手数料15%）</div>
-          </div>
-          <input type="range" min={CONVERT_MIN} max={Math.max(CONVERT_MIN, balance || CONVERT_MIN)} step={50} value={convertAmt} onChange={(e) => setConvertAmt(Number(e.target.value))} aria-label="変換するポイント" style={{ width: "100%", marginBottom: 18 }} />
-          <button className="lux-cta" onClick={convert} disabled={busy} style={{ ...popBtn, width: "100%", padding: "15px 0", borderRadius: 999, fontSize: 15, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, opacity: busy ? 0.6 : 1 }}>
-            <Repeat size={16} strokeWidth={2} /> 変換する
-          </button>
+          )}
         </div>
       )}
 

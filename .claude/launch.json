@@ -13,6 +13,13 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--", "--port", "5200", "--strictPort"],
       "port": 5200
+    },
+    {
+      "//": "5199 / 5200 がどちらも塞がっているときの確認用。ポートだけが違う。",
+      "name": "aiseki-verify2",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--port", "5201", "--strictPort"],
+      "port": 5201
     }
   ]
 }

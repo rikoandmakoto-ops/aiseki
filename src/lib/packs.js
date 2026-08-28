@@ -28,6 +28,30 @@ export const POINT_PACKS = [
   { id: "premium",  points: 38000, price: 32300 },
 ];
 
+/* ── 動作確認用の少額プラン（テスト用） ────────────────────────────
+   live モードの決済が「支払い → Webhook → ポイント付与」まで
+   本当に通るかを、最小の金額で1回試すためのもの。
+
+   🚨 1円にはできない。Stripe の JPY の最低請求額は 50円。
+      unit_amount: 1 で Checkout セッションを作ると、その場で
+      amount_too_small（"must add up to at least ¥50 JPY"）で落ちる。
+      2026-08-27 に本番キーで実際に確認した。50 が下限。
+
+   POINT_PACKS には**入れていない**。入れると購入画面の一覧にも
+   ランディングの料金表にも並んでしまうため。
+   findPack() だけがこれを引けるので、/api/stripe/checkout は
+   packId="test50" を受け付ける（金額とポイント数はサーバ側で
+   この定義から引き直すので、クライアントからは変えられない）。
+
+   画面に出るのは ?test=pay 付きで開いたときだけ（src/App.jsx）。 */
+export const TEST_PACK = {
+  id: "test50",
+  points: 50,
+  price: 50,
+  test: true,
+  name: "AISEKI 決済テスト 50pt",
+};
+
 /* おまけ分（支払額を超えて付与されるポイント） */
 export const packBonus = (pack) => Math.max(pack.points - pack.price, 0);
 
@@ -44,6 +68,8 @@ export const packUnitPrice = (pack) =>
 
 /* 商品名（Stripe の明細・領収書にそのまま出る） */
 export const packName = (pack) =>
-  `AISEKI ポイント ${pack.points.toLocaleString("ja-JP")}pt`;
+  pack.name ?? `AISEKI ポイント ${pack.points.toLocaleString("ja-JP")}pt`;
 
-export const findPack = (id) => POINT_PACKS.find((p) => p.id === id) ?? null;
+/* テスト用プランもここから引ける（一覧には出さないが購入はできる）。 */
+export const findPack = (id) =>
+  POINT_PACKS.find((p) => p.id === id) ?? (id === TEST_PACK.id ? TEST_PACK : null);

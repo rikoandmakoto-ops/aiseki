@@ -515,8 +515,6 @@ export default function ProfileEditScreen({ user, profile, onBack, onSaved }) {
           )}
           <div style={{ display: "flex", alignItems: "flex-start", gap: 6, marginTop: 8, fontSize: 10.5, color: C.textMuted, lineHeight: 1.7 }}>
             <ShieldCheck size={12} strokeWidth={1.9} color={C.primary} style={{ flexShrink: 0, marginTop: 1 }} />
-            性別が他のユーザーに表示されることはありません。会の参加条件にもなりません。
-            募集中の会へメッセージを送れるかどうかの判定にのみ使い、
             <b style={{ color: C.textSec, fontWeight: 700 }}>登録後は変更できません</b>。
           </div>
         </div>
