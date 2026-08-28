@@ -865,6 +865,28 @@ export async function listParties(filters) {
   });
 }
 
+/* ============ ひとつ上のランク帯の会（ホームの「もう少しで届く会」）============
+   自分のランクでは申し込めない帯を、あえて見せる。
+   ランクを上げる意味を伝えるための導線で、参加はできない
+   （実際の可否は DB の enforce_group_join が決める）。
+
+   ⚠ 実在の募集だけを返す。件数が足りないときに並べる「見本」は
+     src/lib/nextTier.js が作り、画面が【例】と明示して出す。
+     ここで見本を混ぜてはいけない（実在の募集と区別できなくなる）。
+   ========================================================================= */
+export async function listPartiesRequiringTier(tierKey, limit = 6) {
+  if (!tierKey) return [];
+  const { data, error } = await supabase
+    .from("parties")
+    .select("*")
+    .eq("status", "recruiting")
+    .eq("min_guest_tier", tierKey)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) throw wrapMutualRankError(error);
+  return data ?? [];
+}
+
 /* 会の開催日を人が読む形にする（今日・明日は言葉で返す） */
 export function formatPartyDate(value) {
   if (!value) return null;

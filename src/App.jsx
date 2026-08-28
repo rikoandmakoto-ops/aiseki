@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react";
+import { createPortal } from "react-dom";
 import {
   Home, MessageCircle, Plus, Gem, User, MapPin, Clock, Users, Bell,
   Crown, ChevronLeft, Send, ArrowRight, Check, Sparkles, Settings,
@@ -10,6 +11,7 @@ import {
 import { supabase, configError } from "./lib/supabase";
 import * as api from "./lib/api";
 import { POINT_PACKS, packDiscount, packSeats, packUnitPrice } from "./lib/packs.js";
+import { nextTierOf, mixWithSamples, NEXT_TIER_SLOTS } from "./lib/nextTier.js";
 import { FOOTER_NOTICE } from "./lib/legal.js";
 import {
   C, FONT_LOGO, FONT_DISPLAY, FONT_HEAD, FONT_BODY,
@@ -411,6 +413,204 @@ const PartyCard = ({ p, onTap }) => {
   );
 };
 
+/* ═══════════════════════════ ひとつ上のランク帯の会（ロック表示）
+   自分のランクでは申し込めない帯を、あえて見せる。
+   ランクを上げる意味を伝えるための導線。
+
+   🚨 見本（isSample）には必ず「例」のバッジを出すこと。
+     実在しない募集を本物として並べると、同じ画面のフッターに出ている
+     「サクラは一切ありません」（src/lib/legal.js の FOOTER_NOTICE）が
+     その場で嘘になる。理由の詳細は src/lib/nextTier.js の冒頭。 */
+const LockedTierCard = ({ p, tier, onTap }) => {
+  const c = tierColor(tier.key);
+  return (
+    <div className="lux-card" onClick={onTap} style={{
+      ...card, padding: 15, marginBottom: 12, cursor: "pointer",
+      position: "relative", overflow: "hidden",
+      background: "rgba(255,255,255,0.028)", border: `1px solid ${c.line}`,
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, marginBottom: 11 }}>
+        <div style={{ display: "flex", gap: 12, alignItems: "center", minWidth: 0 }}>
+          {/* 中身は見せない。人の写真も出さない。 */}
+          <div style={{
+            width: 48, height: 48, borderRadius: 24, flexShrink: 0,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            background: c.bg, border: `1px solid ${c.line}`, color: c.fg,
+          }}><Lock size={17} strokeWidth={1.9} /></div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{
+              fontFamily: FONT_HEAD, fontWeight: 600, fontSize: 15, color: C.textSec,
+              letterSpacing: 0.2, lineHeight: 1.35,
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            }}>{p.title}</div>
+            <div style={{ marginTop: 4 }}>
+              <MetaLine icon={MapPin}>{p.area || "エリア未定"}</MetaLine>
+            </div>
+          </div>
+        </div>
+        {p.isSample && (
+          <span style={{
+            flexShrink: 0, padding: "3px 9px", borderRadius: 999,
+            fontSize: 10, fontWeight: 700, letterSpacing: 0.4,
+            color: C.textMuted, background: "rgba(255,255,255,0.06)",
+            border: `1px solid ${C.lineSoft}`,
+          }}>例</span>
+        )}
+      </div>
+
+      <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 12, alignItems: "center" }}>
+        <span style={{
+          display: "inline-flex", alignItems: "center", gap: 5,
+          padding: "3px 10px", borderRadius: 999, whiteSpace: "nowrap",
+          fontSize: 10.5, fontWeight: 700, letterSpacing: 0.3,
+          color: c.fg, background: c.bg, border: `1px solid ${c.line}`,
+        }}><Star size={11} strokeWidth={2} />{tier.label}以上</span>
+        <Tag>ホスト側 {p.host_group_size}名</Tag>
+        <Tag>お一人 {tier.budgetLabel}</Tag>
+      </div>
+
+      {(p.host_drinking_style?.length ?? 0) > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <StyleTagRow tags={p.host_drinking_style} />
+        </div>
+      )}
+
+      <div style={{
+        display: "flex", alignItems: "center", gap: 7,
+        paddingTop: 11, borderTop: `1px solid ${C.lineSoft}`,
+        fontSize: 11, color: C.textMuted, lineHeight: 1.6,
+      }}>
+        <Lock size={12} strokeWidth={1.9} style={{ flexShrink: 0 }} />
+        <span>
+          {p.isSample
+            ? `${tier.label}になると、こうした会に申し込めます`
+            : `${tier.label}以上の方が対象です`}
+        </span>
+      </div>
+    </div>
+  );
+};
+
+/* ひとつ上のランク帯の枠。実在の募集を先に出し、足りない分は「例」で埋める。 */
+const NextTierSection = ({ user, myTier, onDetail }) => {
+  const [real, setReal] = useState([]);
+  const [ready, setReady] = useState(false);
+  const [notice, setNotice] = useState(null);   // 「例」を押したときの説明
+
+  const tier = nextTierOf(myTier);
+
+  useEffect(() => {
+    let alive = true;
+    if (!tier) { setReady(true); return; }
+    api.listPartiesRequiringTier(tier.key, NEXT_TIER_SLOTS * 2)
+      .then((rows) => {
+        if (!alive) return;
+        /* 自分がホストの会は出さない（申し込めない枠として見せる意味がない） */
+        setReal(rows.filter((p) => p.host_id !== user.id));
+      })
+      .catch((e) => { console.error(e); if (alive) setReal([]); })
+      .finally(() => { if (alive) setReady(true); });
+    return () => { alive = false; };
+  }, [tier?.key, user.id]);
+
+  /* 最上位（プラチナ）には「ひとつ上」が無い */
+  if (!tier || !ready) return null;
+
+  /* 種は「人 × ランク帯 × 日付」。同じ日は同じ見本が出る
+     （描画のたびに並びが変わると壊れて見えるため）。 */
+  const seed = `${user.id}|${api.toDateString(new Date())}`;
+  const { items, sampleCount } = mixWithSamples(real, tier.key, { seed });
+  if (items.length === 0) return null;
+
+  return (
+    <div style={{ padding: "20px 20px 0" }}>
+      <Eyebrow style={{ marginBottom: 8 }}>◆ もう少しで届く会</Eyebrow>
+      <div style={{
+        borderRadius: 16, padding: "13px 15px", marginBottom: 13,
+        background: tierColor(tier.key).bg, border: `1px solid ${tierColor(tier.key).line}`,
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 4 }}>
+          <Star size={13} strokeWidth={2} color={tierColor(tier.key).fg} />
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: C.text, letterSpacing: 0.3 }}>
+            {tier.label}の会（いまは申し込めません）
+          </span>
+        </div>
+        <div style={{ fontSize: 11, color: C.textSec, lineHeight: 1.75 }}>
+          相席した会の終わったあとに受け取る評価の平均が上がると、{tier.label}になり
+          <b style={{ color: C.primaryDeep, fontWeight: 700 }}>{tier.budgetLabel}</b>のお店の会に申し込めるようになります。
+          {sampleCount > 0 && (
+            <>
+              <br />
+              {/* 🚨 この一文を消さないこと。実在しない募集を並べている以上、
+                    「例」であることを本文でも明示する必要がある。 */}
+              <b style={{ color: C.textSec, fontWeight: 700 }}>
+                「例」と付いているものは、雰囲気をお伝えするための見本で、実在の募集ではありません。
+              </b>
+            </>
+          )}
+        </div>
+      </div>
+
+      {items.map((p, i) => (
+        <div key={p.id} className="rise" style={{ animationDelay: `${i * 55}ms` }}>
+          <LockedTierCard
+            p={p}
+            tier={tier}
+            onTap={() => (p.isSample ? setNotice(tier) : onDetail(p.id))}
+          />
+        </div>
+      ))}
+
+      {/* 見本を押したとき。実在の募集ではないことをはっきり伝える。
+
+          ⚠ 必ず document.body へ portal で出すこと。
+            画面の外枠 .screen-enter は `animation: ... both` が効いていて、
+            アニメーションが終わったあとも computed transform が
+            matrix(1,0,0,1,0,0)（単位行列）のまま残る。
+            単位行列でも position:fixed の【包含ブロック】になるため、
+            この中に直接置くと inset:0 が「画面」ではなく
+            「スクロール領域全体」に広がり、中央寄せの中身が
+            ずっと下（画面外）に描かれる。実際にそれで一度出なかった。 */}
+      {notice && createPortal(
+        <div
+          onClick={() => setNotice(null)}
+          style={{
+            position: "fixed", inset: 0, zIndex: 60, display: "flex",
+            alignItems: "center", justifyContent: "center", padding: 24,
+            background: "rgba(6,9,18,0.72)", backdropFilter: "blur(3px)",
+          }}
+        >
+          <div onClick={(e) => e.stopPropagation()} style={{
+            ...card, padding: 22, maxWidth: 340, width: "100%", textAlign: "center",
+          }}>
+            <div style={{
+              width: 44, height: 44, borderRadius: 22, margin: "0 auto 13px",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              background: tierColor(notice.key).bg, border: `1px solid ${tierColor(notice.key).line}`,
+              color: tierColor(notice.key).fg,
+            }}><Lock size={19} strokeWidth={1.9} /></div>
+
+            <div style={{ fontSize: 15, fontWeight: 700, color: C.text, letterSpacing: 0.3, marginBottom: 9 }}>
+              これは会の「例」です
+            </div>
+            <div style={{ fontSize: 12, color: C.textSec, lineHeight: 1.85, marginBottom: 16 }}>
+              実在の募集ではなく、{notice.label}になるとどんな会に申し込めるのかを
+              お伝えするための見本です。<br />
+              いまのランクでは{notice.label}の会に申し込めません。
+              相席した会の終了後に受け取る評価の平均が上がると、
+              {notice.label}（お一人 {notice.budgetLabel}）の会が選べるようになります。
+            </div>
+            <button className="press" onClick={() => setNotice(null)} style={{
+              ...ghostBtn, width: "100%", padding: "12px 0", borderRadius: 999, fontSize: 13,
+            }}>閉じる</button>
+          </div>
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+};
+
 /* ══════════════════════════════════════════════ 絞り込みの部品
    横に並ぶ選択肢。押した状態が一目で分かるよう、
    選択中だけゴールドの箔押しにする。 */
@@ -549,6 +749,9 @@ const HomeScreen = ({ user, onDetail, onCreate }) => {
   const [incoming, setIncoming] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
+  /* 自分のランク。「ひとつ上の帯」を出すためだけに使う。
+     引けなくてもホームは出す（その場合はその枠を出さない）。 */
+  const [myTier, setMyTier] = useState(null);
   const [busyReq, setBusyReq] = useState(null);
 
   const load = useCallback(async () => {
@@ -574,6 +777,14 @@ const HomeScreen = ({ user, onDetail, onCreate }) => {
   }, [filters, user.id]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    let alive = true;
+    api.getMyRank()
+      .then((r) => { if (alive) setMyTier(r?.tier_key ?? api.DEFAULT_RANK_KEY); })
+      .catch((e) => { console.error(e); if (alive) setMyTier(null); });
+    return () => { alive = false; };
+  }, [user.id]);
 
   const respond = async (id, status) => {
     if (status === "rejected") {
@@ -735,6 +946,13 @@ const HomeScreen = ({ user, onDetail, onCreate }) => {
           </>
         )}
       </div>
+
+      {/* ひとつ上のランク帯。申し込める会の下に置く（本物を押しのけない）。
+          絞り込み中は出さない … 利用者は「条件に合う会」を見ているので、
+          条件を無視した枠が割り込むと結果が信用できなくなる。 */}
+      {myTier && !Object.values(filters).some(Boolean) && (
+        <NextTierSection user={user} myTier={myTier} onDetail={onDetail} />
+      )}
     </div>
   );
 };
