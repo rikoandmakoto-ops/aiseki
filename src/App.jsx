@@ -1515,6 +1515,7 @@ const CreateScreen = ({ user, onCreated }) => {
   const [rankError, setRankError] = useState(null);
   const [budgetTier, setBudgetTier] = useState(api.DEFAULT_RANK_KEY);
   /* 参加者に求めるランク。既定は最下位＝誰でも申し込める。
+     自分のランクより上は求められない（下記 requirableGuestTiers）。
      ⚠ 参加条件にできるのはランクだけ。性別・年齢その他の属性を
        条件にする項目は作らないこと（src/lib/legal.js 第3条・第9条の4）。 */
   const [minGuestTier, setMinGuestTier] = useState(api.DEFAULT_GUEST_TIER);
@@ -1528,6 +1529,16 @@ const CreateScreen = ({ user, onCreated }) => {
   }, []);
 
   const myRankKey = rank?.tier_key ?? api.DEFAULT_RANK_KEY;
+  /* 参加条件にできるランク（自分のランク以下だけ）。
+     ランクは読み込みが終わるまで最下位あつかいなので、
+     読み込み前は「条件なし」だけが並ぶ。 */
+  const guestTierChoices = api.requirableGuestTiers(myRankKey);
+
+  /* ランクが下がって、選んでいた条件が自分の上になったときは条件なしへ戻す
+     （選べない値を選んだまま保存に進めない）。 */
+  useEffect(() => {
+    setMinGuestTier((k) => (api.canRequireGuestTier(myRankKey, k) ? k : api.DEFAULT_GUEST_TIER));
+  }, [myRankKey]);
 
   const submit = async () => {
     if (!title.trim()) { toast.error("会の名前を入力してください。"); return; }
@@ -1541,6 +1552,11 @@ const CreateScreen = ({ user, onCreated }) => {
     // 個室での相席は提供しない（オープンスペース以外は作成できない）
     if (roomType !== api.ROOM_TYPE_OPEN) {
       toast.error("相席はオープンスペースのみです。個室での会は作成できません。");
+      return;
+    }
+    // 自分のランクより上を参加条件にはできない（DB 側でも弾かれる）
+    if (!api.canRequireGuestTier(myRankKey, minGuestTier)) {
+      toast.error(`参加する方に求められるのは、いまのランク（${api.rankTier(myRankKey).label}）までです。`);
       return;
     }
     setSaving(true);
@@ -1680,14 +1696,17 @@ const CreateScreen = ({ user, onCreated }) => {
             ⚠ 条件にできるのはランクだけ。性別・年齢その他の属性で
               絞る項目をここに足さないこと（インターネット異性紹介事業に
               該当しないための前提が崩れる。src/lib/legal.js 第3条）。
+            ⚠ 自分のランクより上は求められないので、選べるものだけを並べる
+              （予算帯と違って「上のランクの会に申し込まれない」という
+              実害が無く、押せない選択肢を残す意味が薄いため）。
             ⚠ 出し分けは案内にすぎない。実際の判定は DB 側
-              （enforce_group_join）が改めて行う。 */}
+              （enforce_group_party / enforce_group_join）が改めて行う。 */}
         <div style={{ marginBottom: 17 }}>
           <label style={labelStyle}>参加する方に求めるランク</label>
           <div style={{ display: "grid", gap: 7 }}>
-            {api.RANK_TIERS.map((t, i) => {
+            {guestTierChoices.map((t) => {
               const on = minGuestTier === t.key;
-              const open = i === 0;
+              const open = t.key === api.DEFAULT_GUEST_TIER;
               return (
                 <button
                   key={t.key}
@@ -1721,6 +1740,8 @@ const CreateScreen = ({ user, onCreated }) => {
             <span style={{ minWidth: 0 }}>
               ランクは、相席した方から受け取った評価の平均で決まります。
               条件を上げるほど申し込みは少なくなります。
+              求められるのは<b style={{ color: C.primaryDeep, fontWeight: 700 }}>いまのランク（{rank?.tier_label ?? api.rankTier(myRankKey).label}）まで</b>で、
+              それより上のランクは、ご自身のランクが上がると選べるようになります。
               <b style={{ color: C.textSec, fontWeight: 700 }}>性別で参加者を絞ることはできません。</b>
             </span>
           </div>

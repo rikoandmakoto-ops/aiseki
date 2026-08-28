@@ -19,6 +19,8 @@ import {
   budgetTierFor,
   canUseBudgetTier,
   DEFAULT_GUEST_TIER,
+  canRequireGuestTier,
+  requirableGuestTiers,
   canJoinWithTier,
   hasGuestTierGate,
 } from "./pricing.js";
@@ -59,6 +61,8 @@ export {
   budgetTierFor,
   canUseBudgetTier,
   DEFAULT_GUEST_TIER,
+  canRequireGuestTier,
+  requirableGuestTiers,
   canJoinWithTier,
   hasGuestTierGate,
 };

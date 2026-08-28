@@ -177,6 +177,19 @@ export const canUseBudgetTier = (myKey, tierKey) =>
    ================================================================= */
 export const DEFAULT_GUEST_TIER = RANK_TIERS[0].key;
 
+/* 自分のランクで、その条件を参加者に求められるか。
+   自分より上のランクは条件にできない（ゴールドの人が求められるのは
+   ゴールド以下だけで、プラチナは選べない）。予算帯を自分のランクより
+   上に設定できないのと同じ考え方（canUseBudgetTier）。
+   ⚠ DB 側（enforce_group_party）にも同じ規則がある。
+     画面での出し分けは案内にすぎず、実際の可否は DB が判定する。 */
+export const canRequireGuestTier = (myKey, tierKey) =>
+  rankTier(myKey).order >= rankTier(tierKey).order;
+
+/* 自分のランクで参加条件にできるランクだけを並べる（低い順） */
+export const requirableGuestTiers = (myKey) =>
+  RANK_TIERS.filter((t) => canRequireGuestTier(myKey, t.key));
+
 /* 自分のランクで、その会に申し込めるか（DB の can_join_party と同じ規則） */
 export const canJoinWithTier = (myKey, minGuestTier) =>
   rankTier(myKey).order >= rankTier(minGuestTier ?? DEFAULT_GUEST_TIER).order;
