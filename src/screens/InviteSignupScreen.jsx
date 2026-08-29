@@ -18,10 +18,15 @@ import { TermsBody } from "./TermsScreen.jsx";
    集めるのは
      ・メールアドレス／パスワード（アカウントを作るため）
      ・お名前（ニックネーム）
+     ・ご本名（当日の本人確認用）
      ・生年月日（年齢確認。20歳以上）
      ・お写真（任意）
    だけ。性別は聞かない（アプローチ機能を使えないため必要が無い）。
    カードの登録も要らず、費用は一切かからない。
+
+   ⚠ ご本名は他のユーザーには一切見せない。画面に出るのはニックネームだけで、
+     同じ会のメンバーからも読めない（DB 側で列の SELECT 権限を付けていない。
+     supabase/migration_real_name.sql）。ここを緩めないこと。
 
    ⚠ 年齢確認だけは通常登録とまったく同じ。飲酒を伴うため、
      ここを緩めることはできない（DB 側の handle_new_user でも弾く）。
@@ -86,6 +91,7 @@ export default function InviteSignupScreen({ code, onBack, onLogin }) {
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [username, setUsername] = useState("");
+  const [realName, setRealName] = useState("");
   const [birthDate, setBirthDate] = useState("");
   const [agreed, setAgreed] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -134,7 +140,11 @@ export default function InviteSignupScreen({ code, onBack, onLogin }) {
     e.preventDefault();
     setError(""); setNotice("");
 
+    /* メールアドレスは先に見る。ここを通していると Supabase の英語のエラーが
+       そのまま出て、何を直せばいいのか分からない。 */
+    if (!api.isValidEmail(email.trim())) { setError("メールアドレスを正しく入力してください。"); return; }
     if (!username.trim()) { setError("お名前（ニックネーム）を入力してください。"); return; }
+    if (!realName.trim()) { setError("ご本名を入力してください。"); return; }
     if (password.length < MIN_PASSWORD) { setError(`パスワードは${MIN_PASSWORD}文字以上で入力してください。`); return; }
     if (!birthDate) { setError("年齢確認のため、生年月日を入力してください。"); return; }
     if (age === null) { setError("生年月日を正しく入力してください。"); return; }
@@ -147,9 +157,13 @@ export default function InviteSignupScreen({ code, onBack, onLogin }) {
       savePendingInvite(code);
       if (photo) savePendingPhoto(photo); else clearPendingPhoto();
       const data = await api.signUp({
-        email, password, username: username.trim(), birthDate,
+        email: email.trim(), password, username: username.trim(), birthDate,
         gender: null, ageConfirmed: agreed,
         accountType: api.ACCOUNT_SIMPLE,
+        realName: realName.trim(),
+        /* 確認メールの戻り先にもコードを載せる（別のブラウザで開かれても
+           引き受けられるように）。控えの localStorage は残したまま。 */
+        inviteCode: code,
       });
       if (!data.session) {
         setNotice(
@@ -270,14 +284,28 @@ export default function InviteSignupScreen({ code, onBack, onLogin }) {
 
               <div style={{ height: 1, background: C.lineSoft, margin: "19px 0 17px" }} />
 
-              {/* お名前は1つだけ。AISEKI は本名を集めない（表示されるのは
-                  ニックネームだけで、同じ会のメンバーにしか見えない）。 */}
+              {/* 画面に出るのはニックネームだけ。ご本名は当日の本人確認用として
+                  預かるだけで、他のユーザーには一切表示しない。 */}
               <div style={{ marginBottom: 15 }}>
                 <label style={labelStyle}>お名前（ニックネーム）</label>
                 <input value={username} onChange={(e) => setUsername(e.target.value)}
                   maxLength={api.LIMITS.username} placeholder="例: ゆうと" style={fieldStyle} />
                 <div style={{ fontSize: 10.5, color: C.textMuted, marginTop: 7, lineHeight: 1.7 }}>
                   当日お呼びする名前です。本名でなくてかまいません。
+                </div>
+              </div>
+
+              <div style={{ marginBottom: 15 }}>
+                <label style={labelStyle}>ご本名</label>
+                <input value={realName} onChange={(e) => setRealName(e.target.value)}
+                  maxLength={60} autoComplete="name" placeholder="例: 山田 悠人" style={fieldStyle} />
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 6, marginTop: 7, fontSize: 10.5, color: C.textMuted, lineHeight: 1.7 }}>
+                  <ShieldCheck size={12} strokeWidth={1.9} color={C.primary} style={{ flexShrink: 0, marginTop: 2 }} />
+                  <span>
+                    当日の本人確認のためにお預かりします。
+                    <b style={{ color: C.textSec, fontWeight: 700 }}>他の参加者には表示されません</b>
+                    （お相手に見えるのは上のニックネームだけです）。
+                  </span>
                 </div>
               </div>
 

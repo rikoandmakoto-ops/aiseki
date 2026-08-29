@@ -1,6 +1,6 @@
 # AISEKI 引き継ぎ書
 
-最終更新: 2026-08-29（**新しい決済・マッチングフロー**を実装し、**本番へデプロイ済み** §18。ホストはグループを作ってから卓を立てる・完全無料。ゲストは1名から参加可で料金は常に7,600pt。写真はマッチまで薄モザイク。招待リンクからの簡易登録も本番で通し確認済み）
+最終更新: 2026-08-29（招待リンクの登録が完了しない件・招待割が画面に反映されない件を修正し、簡易登録に「ご本名」を追加。**本番へデプロイ済み** §22）
 
 > ## ⚠️ まずこれを読む — Supabase プロジェクトが変わった（2026-08-20）
 >
@@ -1899,3 +1899,134 @@ Vercel の日次 Cron（`vercel.json` の `crons` / **UTC 2:00 ＝ 日本時間 
 2つのアカウントで交互にログインすると確かめられる。
 会員コードは各アカウントのマイページ「友達を招待」に出る。
 **不要になったら消すこと**（`scripts/create_test_user.mjs` で作り直せる）。
+
+---
+
+## 22. 招待まわりのバグ修正と「ご本名」（2026-08-29）
+
+依頼は3つ。
+「招待して呼ぶを押してメアド登録したのに登録できない」「招待した側が 3,800pt にならない」
+「招待された側のフォームに本名も登録できるようにして」。
+
+`supabase/migration_real_name.sql`（冪等・**適用済み**）＋ フロント3ファイル。
+検証は `.e2e-realname.mjs`（未コミット / **25項目すべて成功**）。
+`.e2e-invite.mjs` 76項目 ・`.e2e-newflow.mjs` 54項目 ・`npm test` 19項目 も通したまま。
+
+### 22-a. 「登録できない」の正体 — 既に登録済みのメールでも 200 が返る
+
+🚨 **Supabase は、既に登録済みのメールアドレスへの signup にも【HTTP 200 と偽のユーザー】を返す。**
+メールアドレスの総当たり（user enumeration）を防ぐための仕様で、**エラーにならない。**
+そのため画面は「確認メールを送信しました」と出したまま、
+
+- アカウントは作られない
+- 確認メールも届かない
+- 待っても何も起きない ＝ **「メアド登録したのに登録できない」**
+
+本番の anon キーで実測した応答（`identities` が空・`role` も空）:
+
+```json
+{"id":"5f11d243-…","email":"theoffzaki+aisekitest1@gmail.com","role":"",
+ "confirmation_sent_at":"…","identities":[]}
+```
+
+**見分けるのは `identities` が空であること**（本物の新規登録には必ず1件入る）。
+`src/lib/api.js` の `signUp()` で判定し、
+「このメールアドレスは既にご登録済みです。…」を投げるようにした。
+
+> ⚠ `AuthScreen.jsx` の「already registered」のエラー翻訳（421行目あたり）は、
+> **この経路では一生効かない**（そもそもエラーが返らないため）。
+> 通常の新規登録も同じ経路を通るので、この修正で両方が直っている。
+
+### 22-b. 確認メールを別のブラウザで開くと、枠を引き受けられなかった
+
+招待コードは `localStorage`（`aiseki:pendingInvite`）にしか控えていなかった。
+**確認メールをメールアプリの内蔵ブラウザで開くと別のストレージ**になるので、
+コードが読めず `claim_invite()` が走らない。
+＝ 登録は済んでいるのにグループに入っていない・**招待割も一生効かない**。
+
+確認メールの戻り先にもコードを載せるようにした（`api.signUp` の `emailRedirectTo`）:
+
+```
+https://aisekimatch.com/?invite=XXXXXXXX
+```
+
+`App.jsx` の引き受け処理は `readPendingInvite() || INITIAL_INVITE_CODE` の両方を見る。
+戻り先は Supabase の Redirect URLs（`https://aisekimatch.com/**`）に含まれているので追加設定は不要。
+
+- ローカル（本番スキーマ接続）で、`localStorage` を空にした状態から
+  `?invite=CODE` 付きで開くと引き受けが起きることを実測した。
+
+### 22-c. 相方が登録を済ませても画面が 7,600pt のままだった（本命）
+
+`src/App.jsx` の金額の内訳が
+
+```js
+api.joinChargeBreakdown(groupSize, effectivePayMode, false)   // ← 第3引数が false 固定
+```
+
+になっていた。**`inviteClaimed` を渡していないので、相方が簡易登録を終えても
+画面はずっと 7,600pt。** DB 側（`join_charge_claimed` / `accept_join_request`）は
+正しく 3,800pt を引くので、**画面と実際の請求が食い違っていた**。
+
+```js
+const inviteClaimed = joinMode === "invite" && joinInvite?.claimed === true;
+```
+を渡すように直した。判定できるのはサーバだけ（相方が誰かは `invited_user_id` で、
+こちらからは読めない）なので、`my_join_invite` / `issue_join_invite` が返す
+`claimed` をそのまま使う。
+
+さらに **20秒ごと＋アプリ復帰時に `my_join_invite` を引き直す**ようにした。
+引き受けは相手の端末で起きるのでこちらには何も届かず、取り直さないと
+「相方は登録したのに、いつまでも 7,600pt」に見える。引き受け済みになったら止める。
+
+> 🚨 ここも「進行中フラグの state を effect の依存に入れない」（§21-b と同じ罠）。
+
+### 22-d. ご本名（`profiles.real_name`）
+
+招待リンクからの簡易登録でだけ取る。**通常登録では今までどおり集めない。**
+
+🚨 **他のユーザーには一切見せない。**
+
+| 担保 | 場所 |
+|---|---|
+| 誰も読めない | `profiles` の列単位 SELECT 権限に `real_name` を**入れていない**（`gender` と同じ形） |
+| 本人だけ読める・直せる | `my_real_name()` / `set_my_real_name(text)`（どちらも `auth.uid()` 固定・anon から revoke） |
+| マッチ前に漏れない | `party_host_preview()` に入っていないことを migration の検算で確認 |
+| 運営は読める | `service_role` |
+
+- 保存は `handle_new_user()`（security definer）。`raw_user_meta_data.real_name` を写す。
+  空白だけなら null、60文字を超えたら切る（**登録そのものは落とさない**）。
+- 画面は `src/screens/InviteSignupScreen.jsx`。**必須**にしてある。
+- 規約・プライバシーポリシーを 2.5 に改訂（取得情報・公開範囲の3か所）。
+
+> ⚠ `information_schema.column_privileges` は表全体の `REFERENCES` / `TRIGGER` も
+> 全列に出す。検算で「権限0件」を見るときは
+> **`privilege_type in ('SELECT','INSERT','UPDATE')` で絞ること**（一度これで落ちた）。
+
+### 触るときの注意
+
+- 🚨 **`joinChargeBreakdown()` / `myJoinCharge()` の第3引数を false 固定に戻さないこと。**
+  戻した瞬間に 22-c が再発する（画面 7,600pt / 実際 3,800pt）。
+- 🚨 **`real_name` を `profiles` の列単位 SELECT 権限や `party_host_preview()` に足さないこと。**
+  足した瞬間にマッチ前の他人へ本名が開示され、§1 の担保が壊れる。
+- `signUp()` の `identities` 判定を外さないこと。外すと 22-a に戻る。
+
+### 本番反映（2026-08-29）
+
+- ✅ migration 適用済み（`melfyxfvhyknqhruytms`。検算4件すべて通過）。
+- ✅ デプロイ済み（`dpl_h1BYjMwcCLrmtR5jEhCLKRcesdP6` / 配信バンドルは
+  `assets/main-eLT9BOaI.js` ＋ `assets/InviteSignupScreen-BnHxwXKW.js`）。
+  出す前の grep は §15 のとおり全て確認（現行 ref あり /
+  旧 ref・`sk_live`・`whsec_`・`CRON_SECRET` 0件）。
+  ⚠ `vercel pull` の埋め戻しは今回も必要だった（`VITE_STRIPE_PUBLISHABLE_KEY` /
+  `VITE_TURNSTILE_SITE_KEY` が `len=2`）。
+- ✅ 画面の通し確認をローカル（本番スキーマ接続）で実施:
+  - 既に登録済みのメール → **「既にご登録済みです」**（偽の成功が出ない）
+  - 新しいメール → 登録 → `profiles.real_name` に保存されることを DB で確認
+  - `localStorage` を空にして `?invite=` で戻る → **引き受けが起きる**
+  - 申込者の画面が **参加費 7,600 / 招待割 -3,800 / お支払い 3,800pt** に変わる
+  - 確認に使ったアカウント・招待は削除済み（`auth.users` 11件・`join_requests` 0件に戻したことを確認）
+- ✅ 本番 `aisekimatch.com` の招待フォームに「ご本名」が出ていることを確認。
+- ✅ `/api/stripe/status` は `{"enabled":true,"cardEnabled":true}` のまま。
+- ⛔ **実機（スマートフォン）での確認は未実施。**
+- ⛔ **受信箱の目視は未実施**（こちらから開けないため）。§18-d と同じ。

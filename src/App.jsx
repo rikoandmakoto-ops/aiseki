@@ -1187,6 +1187,32 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
     })();
   }, [joinMode, party, members, joinInvite?.invite_code, user.id]);
 
+  /* 相方が簡易登録を終えたら、この画面の金額（7,600pt → 3,800pt）を切り替える。
+     ⚠ 引き受けが起きるのは相手の端末なので、こちらには何も届かない。
+       取り直さないと「相方は登録したのに、いつまでも 7,600pt のまま」に見える。
+     引き受け済みになったら止める（それ以上変わらない）。
+     🚨 進行中フラグの state を依存に入れないこと（§21-b と同じ罠）。 */
+  const inviteCodeIssued = joinInvite?.invite_code ?? null;
+  const inviteAlreadyClaimed = joinInvite?.claimed === true;
+  useEffect(() => {
+    if (!party || !inviteCodeIssued || inviteAlreadyClaimed) return;
+    let alive = true;
+    const refresh = async () => {
+      if (!alive || document.visibilityState === "hidden") return;
+      try {
+        const inv = await api.getMyJoinInvite(party.id);
+        if (alive && inv) setJoinInvite(inv);
+      } catch (e) { console.error(e); }
+    };
+    const timer = setInterval(refresh, 20000);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [party, inviteCodeIssued, inviteAlreadyClaimed]);
+
   /* 実際に使う支払い方式。画面の選択（joinMode）から決まる。
      ⚠ 表示にも送信にも同じ値を使う。片方だけ変えると、
        画面に出ている額と実際に引かれる額がずれる。 */
@@ -1360,11 +1386,15 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
   /* 相方が既存会員のときだけ「各自払い」を選べる。
      招待（簡易登録）の相方は自分の残高を持たないため、まとめてのお支払いになる。 */
   const partnerIsMember = joinMode === "member" && !!partner;
-  /* 参加費・割引・お支払いの内訳。DB の join_charge_of() と同じ式。
-     ⚠ 申し込む前の画面では招待割はまだ効かない（相方が登録を終えて
-       いないため）。効くのは相方の簡易登録が完了してから。 */
+  /* 招待割が効いているか。判定できるのはサーバだけなので
+     （相方が誰かは invited_user_id で、こちらからは読めない）、
+     my_join_invite / issue_join_invite が返す claimed をそのまま使う。
+     🚨 ここを false 固定にすると、相方が登録を済ませても画面が
+       7,600pt のままになる（実際の請求は 3,800pt なので食い違う）。 */
+  const inviteClaimed = joinMode === "invite" && joinInvite?.claimed === true;
+  /* 参加費・割引・お支払いの内訳。DB の join_charge_claimed() と同じ式。 */
   const { total: cost, discount, discountWhenClaimed, charge: myCost } =
-    api.joinChargeBreakdown(groupSize, effectivePayMode, false);
+    api.joinChargeBreakdown(groupSize, effectivePayMode, inviteClaimed);
   const isHost = party.host_id === user.id;
   const isMember = members.some((m) => m.user_id === user.id);
   const canSeeMembers = isHost || isMember;                 // 承認後のみ個人プロフィールを表示
@@ -2045,7 +2075,9 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
                   {joinMode === "solo"
                     ? `お一人でのご参加も ${api.GUEST_SLOT_SIZE}名分（${feeText()}pt × ${api.GUEST_SLOT_SIZE}）です`
                     : joinMode === "invite"
-                      ? `相方のご登録が完了すると ${api.INVITE_FEE.toLocaleString()}pt になります（相方のお支払いはありません）`
+                      ? (inviteClaimed
+                        ? `${joinInvite?.invited_name || "相方の方"}のご登録が完了したため、招待割が適用されています（相方のお支払いはありません）`
+                        : `相方のご登録が完了すると ${api.INVITE_FEE.toLocaleString()}pt になります（相方のお支払いはありません）`)
                       : effectivePayMode === api.PAY_MODE_SPLIT
                         ? `お二人で合計 ${cost.toLocaleString()}pt（${feeText()}pt ずつ）`
                         : `一律 ${feeText()}pt × ${api.GUEST_SLOT_SIZE}名`}
@@ -4085,7 +4117,13 @@ export default function App() {
     (async () => {
       const { readPendingInvite, clearPendingInvite, readPendingPhoto, clearPendingPhoto } =
         await import("./screens/InviteSignupScreen.jsx");
-      const code = readPendingInvite();
+      /* 🚨 端末の控え（localStorage）だけに頼らない。確認メールを
+         メールアプリの内蔵ブラウザで開くと、登録に使ったブラウザとは
+         別のストレージになるため控えが読めず、枠を引き受けられないまま
+         「登録したのに参加できていない」状態になる。
+         そのため確認メールの戻り先にも ?invite=CODE を載せてある
+         （api.signUp の emailRedirectTo）。両方を見る。 */
+      const code = readPendingInvite() || INITIAL_INVITE_CODE;
       if (!code || !alive) return;
       try {
         await api.claimInvite(code);

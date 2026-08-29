@@ -313,9 +313,15 @@ export function maxBirthDate() {
      どちらの入口から来たかを記録する。カード登録を促すかどうかの
      出し分けにだけ使い、権限には一切影響しない
      （ホストはカード登録不要・ボーナスなしで完全無料）。 */
+/* realName: 招待からの簡易登録でだけ受け取るご本名（当日の本人確認用）。
+     他のユーザーには一切見せない（DB 側で列の SELECT 権限を付けていない）。
+   inviteCode: 招待リンクのコード。確認メールの戻り先に付けて返す。
+     端末の localStorage だけに頼ると、確認メールをメールアプリの
+     ブラウザで開いた人（＝別のストレージ）で引き受けが起きない。 */
 export async function signUp({
   email, password, username, birthDate, gender, ageConfirmed,
   accountType = ACCOUNT_FULL, signupIntent = null,
+  realName = null, inviteCode = null,
 }) {
   if (!ageConfirmed) {
     throw new Error(`${MIN_AGE}歳以上であることの確認と、利用規約への同意が必要です。`);
@@ -340,8 +346,16 @@ export async function signUp({
      Site URL の設定漏れ（既定は localhost）で全員のリンクが死ぬのを避けるため、
      パスワード再設定と同じく、戻り先をこちらから明示する。
      ※ この戻り先は Supabase の Redirect URLs に登録されている必要がある。 */
+  /* 招待コードは戻り先の URL にも載せる。localStorage は「同じブラウザ」でしか
+     残らないので、確認メールをメールアプリの内蔵ブラウザで開いた人は
+     コードを失って枠を引き受けられない（＝登録したのに参加できない）。
+     ※ この戻り先は Supabase の Redirect URLs（`https://aisekimatch.com/**`）に
+       含まれている必要がある。 */
+  const code = String(inviteCode || "").trim().toUpperCase();
   const emailRedirectTo =
-    typeof window === "undefined" ? undefined : `${window.location.origin}/`;
+    typeof window === "undefined"
+      ? undefined
+      : `${window.location.origin}/${code ? `?invite=${encodeURIComponent(code)}` : ""}`;
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
@@ -355,10 +369,23 @@ export async function signUp({
         age_confirmed: true,
         account_type: kind,
         signup_intent: signupIntent === "host" || signupIntent === "guest" ? signupIntent : null,
+        real_name: realName ? String(realName).trim().slice(0, 60) : null,
       },
     },
   });
   if (error) throw error;
+  /* 🚨 既に登録済みのメールアドレスでも、Supabase は【200 と偽のユーザー】を返す
+     （メールアドレスの総当たりを防ぐための仕様）。エラーにならないので、
+     そのままだと画面が「確認メールを送信しました」と出したまま
+     アカウントが作られず、確認メールも届かない＝「登録できない」になる。
+     見分けるのは identities が空であること（本物の新規登録には必ず1件入る）。 */
+  if (data?.user && !data.session && (data.user.identities?.length ?? 0) === 0) {
+    throw new Error(
+      "このメールアドレスは既にご登録済みです。" +
+      "確認メールをご確認のうえログインしてください" +
+      "（パスワードをお忘れの場合は、ログイン画面から再設定できます）。"
+    );
+  }
   return data;
 }
 
