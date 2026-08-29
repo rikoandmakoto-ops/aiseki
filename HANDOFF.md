@@ -2251,3 +2251,70 @@ SMS 認証が入るまでの間、**せめて掛からない番号を弾く**た
 - `.e2e-namephone.mjs` — 通常登録・簡易登録の両方で E.164 保存、
   他人からは 42501 で読めない、不正な番号は null（**11項目**）。
 - ✅ デプロイ済み（配信バンドル `assets/main-ho_DVCWc.js`）。grep は §15 のとおり全て通過。
+
+---
+
+## 26. パスワード再設定のリンクを踏んでもフォームが出ない（2026-08-29 修正）
+
+再設定メールのリンクを開くと**ホーム画面に着くだけ**で、
+パスワードを変える画面が出なかった。
+
+### 原因 — 判定の取りこぼし（画面もリンクも壊れていなかった）
+
+3点とも、調べた結果は「壊れていない」:
+
+| 確認したこと | 結果 |
+|---|---|
+| Redirect URL | 正しい。リンクは `…/auth/v1/verify?…&redirect_to=https://aisekimatch.com` で、`https://aisekimatch.com#access_token=…&type=recovery` に着地する（実測） |
+| コールバック処理 | ある（`App.jsx` の `isRecoveryLink` / `PASSWORD_RECOVERY`） |
+| 変更フォーム | ある（`src/screens/ResetPasswordScreen.jsx`。作り直す必要は無かった） |
+
+**壊れていたのは「復旧リンクで来たと気づく」ところだけ。**
+
+🚨 **`detectSessionInUrl: true` の supabase-js は、起動時に
+`#access_token=…&type=recovery` を読んで復旧セッションを張った直後に、
+ハッシュを URL から消す**（履歴に残さないため）。そのため:
+
+- `App.jsx` が最初の描画で URL を読む頃には **`type=recovery` が消えている**
+- `PASSWORD_RECOVERY` イベントも、`onAuthStateChange` を貼る `useEffect` より
+  **先に飛ぶので取りこぼす**
+
+両方外れるので、**ただログインしただけの状態**でホームに着いていた。
+（＝ 利用者から見ると「リンクを押すとページに飛ばされるだけ」。）
+
+### 直し方
+
+**`createClient` より前に URL を読む。** `src/lib/supabase.js` の先頭で
+`INITIAL_RECOVERY` として捕まえておく。ここはモジュールグラフの最初に
+評価されるので、supabase-js に消される前の値が必ず取れる。
+
+```js
+export const INITIAL_RECOVERY = (() => { … type === "recovery" … })();
+```
+
+> 🚨 **この行を `createClient` より下に動かさないこと。** 動かした瞬間に再発する。
+> `App.jsx` の `isRecoveryLink()` は、ハッシュがまだ残っている場合の控えとして残してある。
+
+### redirectTo に `?type=recovery` を付けても残らない（実測）
+
+Supabase の Redirect URLs は `https://aisekimatch.com/**` のような**パスの**
+ワイルドカードで、**クエリ付き URL は許可判定に通らない**。弾かれた `redirect_to` は
+`site_url` に差し替えられるので、付けても戻り先は `https://aisekimatch.com` になる。
+`api.sendPasswordReset` からは外した。**判定はハッシュで行う。**
+
+### 確認したこと
+
+- 修正前の本番で**再現**（同じリンクでホーム画面に着き、フォームが出ない）。
+- 修正後、ローカル（本番スキーマ接続）で
+  **ハッシュが消えたあと（`location.hash === ""`・セッション有り）でもフォームが出る**
+  ことを確認 ＝ `INITIAL_RECOVERY` が効いている証拠。
+- 実際にパスワードを変更し、**新パスワードで 200 / 旧パスワードで 400** を実測。
+  そのあとテスト用アカウントのパスワードは元に戻してある。
+- ✅ 本番でも同じリンクでフォームが出ることを確認（配信バンドル `assets/main-D6MrNtpS.js`）。
+  grep は §15 のとおり全て通過。
+
+> ⚠ 無関係だが気づいた点: RPC が **401** を返したとき、画面のエラー変換が
+> 「この機能に必要なデータベースの更新がまだ適用されていません（migration_partner_consent.sql）」
+> と表示することがある。**マイグレーションは適用済み**（関数3つと
+> `join_requests.partner_status` の存在を確認済み）。
+> 期限切れトークンで RPC を叩くと出るだけなので、この文言を見ても migration を疑わないこと。
