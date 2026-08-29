@@ -1877,7 +1877,12 @@ Vercel の日次 Cron（`vercel.json` の `crons` / **UTC 2:00 ＝ 日本時間 
 
 ### 本番反映（2026-08-29）
 
-- ✅ デプロイ済み。出す前の grep は §15 のとおり全て確認。
+- ✅ デプロイ済み（`dpl_AkhX6r297J8Ciz3G96CAP6h74jmB` / 配信バンドルは
+  `assets/main-B2AdsCn8.js` ＋ 料金定数の `assets/index-BLzfIVUn.js`）。
+  出す前の grep は §15 のとおり全て確認（現行 ref あり /
+  旧 ref・`sk_live`・`whsec_`・`CRON_SECRET` 0件）。
+  ⚠ `仲間の分も出す` などの料金の文言は `pricing.js` 側なので
+  **`main-*.js` ではなく `index-*.js` に入る**。grep するチャンクを間違えないこと。
 - ✅ 実アカウント2つで通し確認（本番スキーマに接続）:
   各自払い 3,800pt の既定表示 → 会員コードで相方指定 → 申し込み →
   **相方の画面にポップアップが出る** → 同意 → ホストの受信箱に出る、まで。
