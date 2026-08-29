@@ -2318,3 +2318,74 @@ Supabase の Redirect URLs は `https://aisekimatch.com/**` のような**パス
 > と表示することがある。**マイグレーションは適用済み**（関数3つと
 > `join_requests.partner_status` の存在を確認済み）。
 > 期限切れトークンで RPC を叩くと出るだけなので、この文言を見ても migration を疑わないこと。
+
+---
+
+## 27. メールは「ずっと届いていた」— Resend のログで確定（2026-08-29）
+
+`RESEND_API_KEY` を受け取って Vercel Production に設定した。
+そのキーで **Resend の送信ログを直接読めるようになり、長引いていた
+「メールが一切届かない」問題の答えが出た。**
+
+### 🚨 結論: 送信は全て成功している。届いていないのではなく、見つかっていない
+
+Resend の送信ログ（直近21件）は **21件すべて `delivered`**。
+`delivered` は「受信側サーバ（Gmail）が 250 で受け取った」という意味。
+
+| 時刻(UTC) | 宛先 | 状態 |
+|---|---|---|
+| 2026-08-29 15:01 | `theoffzaki@gmail.com` | **delivered**（パスワードの再設定） |
+| 2026-08-29 14:22 | `theoffzaki@gmail.com` | **delivered**（メールアドレスの確認 ＝ 本人の登録） |
+| 2026-08-26 15:17 | `theoffzaki@gmail.com` | **delivered** |
+| その他18件（`+タグ` 付きの検証用） | | すべて **delivered** |
+
+送信元は全て `"相席マッチ" <noreply@aisekimatch.com>`、
+ドメイン `aisekimatch.com` は Resend 側で **`verified`**。
+
+**つまり Supabase → Resend → Gmail まで全部通っている。**
+これまでに調べた「SMTP 設定・DNS・テンプレート・GoTrue のログ」に
+異常が無かった（§22-e / §25）のと矛盾しない。
+
+> ⚠ **Gmail の既定の検索は、迷惑メールとゴミ箱を除外する。**
+> 「無い」に見える最大の原因はこれ。次で探すこと:
+>
+> ```
+> in:anywhere from:aisekimatch.com
+> ```
+>
+> プロモーション／ソーシャルタブ、フィルタ、`+タグ` 宛の振り分け規則も見る。
+> 実際、利用者はパスワード再設定メールのリンクを**踏めている**（§26 の報告）ので、
+> 少なくともその1通は受信箱まで届いている。
+
+### 送信ログの見方（今後の切り分けはこれが最短）
+
+```bash
+curl -s -H "Authorization: Bearer $RESEND_API_KEY" https://api.resend.com/emails
+curl -s -H "Authorization: Bearer $RESEND_API_KEY" https://api.resend.com/emails/<id>
+curl -s -H "Authorization: Bearer $RESEND_API_KEY" https://api.resend.com/domains
+```
+
+**`delivered` なら送信側の問題ではない。** 受信側（Gmail）を見に行くこと。
+`bounced` / `complained` が出ていたらそのときこそ送信側の調査。
+
+### `RESEND_API_KEY` の設定（§20 の宿題を消化）
+
+```bash
+printf '%s' 're_xxxxx' | vercel env add RESEND_API_KEY production --force
+vercel deploy --prebuilt --prod --yes   # 環境変数は再デプロイまで効かない
+```
+
+- ✅ Vercel Production に設定・再デプロイ済み。`.env` にも入れた（`.gitignore` 済み）。
+- ✅ **追いかけメールの Cron が動くようになった。**
+  - 認証なし → **401**
+  - `Authorization: Bearer $CRON_SECRET` 付き →
+    **`{"ok":true,"steps":[{"kind":"upgrade_d1","candidates":0,…},{"kind":"upgrade_d7",…}]}`**
+  - 以前の `{"error":"RESEND_API_KEY が設定されていません。"}` は解消。
+  - `candidates: 0` は正常（登録1日後／7日後でカード未登録の簡易アカウントがまだ居ないだけ）。
+  - Cron 登録は `vercel.json` の `0 2 * * *`（UTC 2:00 ＝ 日本時間 11:00）。
+- 🚨 **`RESEND_API_KEY` に `VITE_` を付けないこと。** ブラウザに配信される。
+  出す前に配信物へ混入していないことを grep で確認済み（0件）。
+
+> ⚠ **このキーは確認メール・再設定メールには使われない。** あちらは Supabase Auth の
+> custom SMTP（`smtp.resend.com` / `smtp_pass` に別途保存されたキー）が送っている。
+> つまり **`RESEND_API_KEY` が無かったことは、今回のメール未着とは無関係だった**（§25 の推測どおり）。
