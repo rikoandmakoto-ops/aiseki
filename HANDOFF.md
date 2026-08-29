@@ -2030,3 +2030,41 @@ const inviteClaimed = joinMode === "invite" && joinInvite?.claimed === true;
 - ✅ `/api/stripe/status` は `{"enabled":true,"cardEnabled":true}` のまま。
 - ⛔ **実機（スマートフォン）での確認は未実施。**
 - ⛔ **受信箱の目視は未実施**（こちらから開けないため）。§18-d と同じ。
+
+### 22-e. 再検証とコミット（2026-08-29 / 別セッション）
+
+前のセッションが**コミットせずに終わっていた**（作業ツリーに5ファイル分の変更が残ったまま
+本番にだけ出ている状態だった）。同じ内容を検証しなおしてから `4328d37` でコミットした。
+
+本番DB（`melfyxfvhyknqhruytms`）に対して実測しなおした結果:
+
+| 確かめたこと | 結果 |
+|---|---|
+| `profiles.real_name` の列 | ある。anon / authenticated の SELECT・INSERT・UPDATE は **0件** |
+| `my_real_name` / `set_my_real_name` | ある。**anon は実行できない** |
+| `party_host_preview()` | ご本名を返さない |
+| 新しいメールで signup | **200 / `identities` 1件 / `confirmation_sent_at` あり**（2.4秒＝Resend へ渡っている。SMTP が死んでいれば 500） |
+| `real_name` の保存 | `profiles.real_name` に入ることを DB で確認 |
+| 登録済み（確認済み）のメールで再度 signup | **200 だが `identities` 0件** ＝ 22-a の判定が効く |
+| 後片付け | テストユーザー削除。`auth.users` 11件・`join_requests` 0件・残骸なし |
+
+- ✅ 再デプロイ済み（`aiseki-chrz0w049` / `aisekimatch.com` 200）。
+  ローカルビルドのハッシュが**配信中のものと同一**（`assets/main-eLT9BOaI.js`）で、
+  コミット済みツリー＝本番であることが確認できた。
+  ⚠ `vercel pull` の埋め戻しは**今回も必要**だった（`VITE_STRIPE_PUBLISHABLE_KEY` /
+  `VITE_TURNSTILE_SITE_KEY` が `len=2`）。毎回起きるものと思ってよい。
+
+> 🚨 **`apply_migrations.command` は「旧 ref の接続文字列が先」に書いてある。**
+> `grep -o 'postgresql://...' | head -1` で取ると **旧 ref `tvydtsqirogdxglkoicz` に繋がる。**
+> このセッションで実際に踏んだ（読み取りのみ・書き込みなし）。旧DBは
+> 新しい関数も列も無いので、**「migration が当たっていない」ように見えて誤診する。**
+> 取り出すときは必ず `grep -o '...melfyxfvhyknqhruytms...'` でrefを名指しすること
+> （`scripts/apply_sql.mjs` は `.env` から組み立てるので安全）。
+
+> ⛔ **`RESEND_API_KEY` は今回も入れられなかった（Vercel Production に無いまま）。**
+> **これは「確認メールが届かない」とは無関係。** 確認メールは Supabase Auth の
+> custom SMTP（Resend SMTP）で送っており、そちらは生きている（上の実測のとおり）。
+> `RESEND_API_KEY` を使うのは **`/api/cron/followup`（追いかけメール）だけ**（§20）。
+> キーは `.env` にもリポジトリにも無く、Supabase の `smtp_pass` は
+> **64文字のハッシュを返すだけで実値が取れない**（実測して確認）。
+> → **Resend のダッシュボードで作り直して入れるしかない**（§20 のコマンド）。
