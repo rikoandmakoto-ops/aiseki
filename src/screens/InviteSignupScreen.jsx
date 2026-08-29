@@ -18,7 +18,7 @@ import { TermsBody } from "./TermsScreen.jsx";
    集めるのは
      ・メールアドレス／パスワード（アカウントを作るため）
      ・お名前（ニックネーム）
-     ・ご本名（当日の本人確認用）
+     ・ご本名・電話番号（後日の年齢確認・本人確認用）
      ・生年月日（年齢確認。20歳以上）
      ・お写真（任意）
    だけ。性別は聞かない（アプローチ機能を使えないため必要が無い）。
@@ -92,6 +92,7 @@ export default function InviteSignupScreen({ code, onBack, onLogin }) {
   const [showPw, setShowPw] = useState(false);
   const [username, setUsername] = useState("");
   const [realName, setRealName] = useState("");
+  const [phone, setPhone] = useState("");
   const [birthDate, setBirthDate] = useState("");
   const [agreed, setAgreed] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -145,6 +146,7 @@ export default function InviteSignupScreen({ code, onBack, onLogin }) {
     if (!api.isValidEmail(email.trim())) { setError("メールアドレスを正しく入力してください。"); return; }
     if (!username.trim()) { setError("お名前（ニックネーム）を入力してください。"); return; }
     if (!realName.trim()) { setError("ご本名を入力してください。"); return; }
+    if (!api.isValidPhone(phone)) { setError("電話番号を正しく入力してください。"); return; }
     if (password.length < MIN_PASSWORD) { setError(`パスワードは${MIN_PASSWORD}文字以上で入力してください。`); return; }
     if (!birthDate) { setError("年齢確認のため、生年月日を入力してください。"); return; }
     if (age === null) { setError("生年月日を正しく入力してください。"); return; }
@@ -161,6 +163,7 @@ export default function InviteSignupScreen({ code, onBack, onLogin }) {
         gender: null, ageConfirmed: agreed,
         accountType: api.ACCOUNT_SIMPLE,
         realName: realName.trim(),
+        phoneNumber: phone,
         /* 確認メールの戻り先にもコードを載せる（別のブラウザで開かれても
            引き受けられるように）。控えの localStorage は残したまま。 */
         inviteCode: code,
@@ -302,9 +305,23 @@ export default function InviteSignupScreen({ code, onBack, onLogin }) {
                 <div style={{ display: "flex", alignItems: "flex-start", gap: 6, marginTop: 7, fontSize: 10.5, color: C.textMuted, lineHeight: 1.7 }}>
                   <ShieldCheck size={12} strokeWidth={1.9} color={C.primary} style={{ flexShrink: 0, marginTop: 2 }} />
                   <span>
-                    当日の本人確認のためにお預かりします。
+                    後日年齢確認に使用することがあるため正確にご入力ください。
                     <b style={{ color: C.textSec, fontWeight: 700 }}>他の参加者には表示されません</b>
                     （お相手に見えるのは上のニックネームだけです）。
+                  </span>
+                </div>
+              </div>
+
+              <div style={{ marginBottom: 15 }}>
+                <label style={labelStyle}>電話番号</label>
+                <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)}
+                  maxLength={20} autoComplete="tel" inputMode="tel"
+                  placeholder="例: 090-1234-5678" style={fieldStyle} />
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 6, marginTop: 7, fontSize: 10.5, color: C.textMuted, lineHeight: 1.7 }}>
+                  <ShieldCheck size={12} strokeWidth={1.9} color={C.primary} style={{ flexShrink: 0, marginTop: 2 }} />
+                  <span>
+                    後日年齢確認に使用することがあるため正確にご入力ください。
+                    <b style={{ color: C.textSec, fontWeight: 700 }}>他の参加者には表示されません</b>。
                   </span>
                 </div>
               </div>

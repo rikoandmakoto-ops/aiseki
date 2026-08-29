@@ -188,6 +188,24 @@ export function isValidEmail(v) {
   return s.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
 }
 
+/* 電話番号。全角で打つ人がいるので半角に寄せてから見る。
+   ⚠ 判定の規則は DB の profiles_phone_number_fmt と揃えてある。
+     片方だけ変えると、画面を通ったのに保存で CHECK に落ちる。 */
+export function normalizePhone(v) {
+  return String(v || "")
+    .replace(/[０-９＋（）－ー―‐]/g, (c) =>
+      "０１２３４５６７８９".includes(c)
+        ? String("０１２３４５６７８９".indexOf(c))
+        : ({ "＋": "+", "（": "(", "）": ")" }[c] ?? "-"))
+    .trim()
+    .slice(0, 20);
+}
+
+export function isValidPhone(v) {
+  const s = normalizePhone(v);
+  return /^[0-9+()\- ]{8,20}$/.test(s) && /[0-9]/.test(s);
+}
+
 /* プロフィール写真の保存先（Supabase Storage）のオリジン。
    接続先が未設定のときは null（その場合は https のみを要求する）。 */
 const STORAGE_ORIGIN = (() => {
@@ -313,15 +331,17 @@ export function maxBirthDate() {
      どちらの入口から来たかを記録する。カード登録を促すかどうかの
      出し分けにだけ使い、権限には一切影響しない
      （ホストはカード登録不要・ボーナスなしで完全無料）。 */
-/* realName: 招待からの簡易登録でだけ受け取るご本名（当日の本人確認用）。
-     他のユーザーには一切見せない（DB 側で列の SELECT 権限を付けていない）。
+/* realName / phoneNumber: 通常登録・簡易登録の**どちらでも**受け取る
+     （後日の年齢確認・本人確認用）。
+     🚨 どちらも他のユーザーには一切見せない
+       （DB 側で列の SELECT 権限を付けていない。§22 / §24）。
    inviteCode: 招待リンクのコード。確認メールの戻り先に付けて返す。
      端末の localStorage だけに頼ると、確認メールをメールアプリの
      ブラウザで開いた人（＝別のストレージ）で引き受けが起きない。 */
 export async function signUp({
   email, password, username, birthDate, gender, ageConfirmed,
   accountType = ACCOUNT_FULL, signupIntent = null,
-  realName = null, inviteCode = null,
+  realName = null, phoneNumber = null, inviteCode = null,
 }) {
   if (!ageConfirmed) {
     throw new Error(`${MIN_AGE}歳以上であることの確認と、利用規約への同意が必要です。`);
@@ -370,6 +390,7 @@ export async function signUp({
         account_type: kind,
         signup_intent: signupIntent === "host" || signupIntent === "guest" ? signupIntent : null,
         real_name: realName ? String(realName).trim().slice(0, 60) : null,
+        phone_number: phoneNumber ? normalizePhone(phoneNumber) : null,
       },
     },
   });

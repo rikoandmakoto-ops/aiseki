@@ -5,6 +5,7 @@ import {
 } from "../lib/theme.jsx";
 import {
   signIn, signUp, sendPasswordReset, MIN_AGE, MIN_GROUP_SIZE, ageFromBirthDate, maxBirthDate, LIMITS,
+  isValidPhone,
   SIGNUP_BONUS, SIGNUP_BONUS_SEATS, GENDER_OPTIONS,
 } from "../lib/api";
 import { FOOTER_NOTICE } from "../lib/legal.js";
@@ -24,6 +25,11 @@ export default function AuthScreen({ initialMode = "login", signupIntent = null,
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [username, setUsername] = useState("");
+  /* 氏名（本名）と電話番号。後日の年齢確認・本人確認に使う。
+     🚨 どちらも他のユーザーには表示しない（画面に出るのはニックネームだけ）。
+       DB 側でも列単位の SELECT 権限を付けていない。ここを緩めないこと。 */
+  const [realName, setRealName] = useState("");
+  const [phone, setPhone] = useState("");
   const [birthDate, setBirthDate] = useState("");   // 年齢確認（20歳以上）の根拠
   const [gender, setGender] = useState("");         // アプローチの可否判定にのみ使う
   const [agreed, setAgreed] = useState(false);
@@ -63,6 +69,14 @@ export default function AuthScreen({ initialMode = "login", signupIntent = null,
         setError(`パスワードは${MIN_PASSWORD}文字以上で入力してください。`);
         return;
       }
+      if (!realName.trim()) {
+        setError("氏名（本名）を入力してください。");
+        return;
+      }
+      if (!isValidPhone(phone)) {
+        setError("電話番号を正しく入力してください。");
+        return;
+      }
       if (!birthDate) {
         setError("年齢確認のため、生年月日を入力してください。");
         return;
@@ -93,6 +107,7 @@ export default function AuthScreen({ initialMode = "login", signupIntent = null,
       } else {
         const data = await signUp({
           email, password, username, birthDate, gender, ageConfirmed: agreed, signupIntent,
+          realName: realName.trim(), phoneNumber: phone,
         });
         if (!data.session) {
           // メール確認が有効な場合
@@ -205,7 +220,56 @@ export default function AuthScreen({ initialMode = "login", signupIntent = null,
                   autoComplete="nickname"
                   style={fieldStyle}
                 />
+                <div style={{ fontSize: 10.5, color: C.textMuted, marginTop: 7, lineHeight: 1.7 }}>
+                  他のユーザーに表示されるのは、このニックネームだけです。
+                </div>
               </div>
+            )}
+
+            {/* 氏名・電話番号 … 後日の年齢確認・本人確認に使う。
+                🚨 他のユーザーには表示しない（表示されるのはニックネームだけ）。 */}
+            {mode === "signup" && (
+              <>
+                <div style={{ marginBottom: 16 }}>
+                  <label style={labelStyle}>氏名（本名）</label>
+                  <input
+                    value={realName}
+                    onChange={(e) => setRealName(e.target.value)}
+                    maxLength={60}
+                    placeholder="例: 山田 悠人"
+                    autoComplete="name"
+                    style={fieldStyle}
+                  />
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 6, marginTop: 7, fontSize: 10.5, color: C.textMuted, lineHeight: 1.7 }}>
+                    <ShieldCheck size={12} strokeWidth={1.9} color={C.primary} style={{ flexShrink: 0, marginTop: 2 }} />
+                    <span>
+                      後日年齢確認に使用することがあるため正確にご入力ください。
+                      <b style={{ color: C.textSec, fontWeight: 700 }}>他の参加者には表示されません</b>。
+                    </span>
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: 16 }}>
+                  <label style={labelStyle}>電話番号</label>
+                  <input
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    maxLength={20}
+                    placeholder="例: 090-1234-5678"
+                    autoComplete="tel"
+                    inputMode="tel"
+                    style={fieldStyle}
+                  />
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 6, marginTop: 7, fontSize: 10.5, color: C.textMuted, lineHeight: 1.7 }}>
+                    <ShieldCheck size={12} strokeWidth={1.9} color={C.primary} style={{ flexShrink: 0, marginTop: 2 }} />
+                    <span>
+                      後日年齢確認に使用することがあるため正確にご入力ください。
+                      <b style={{ color: C.textSec, fontWeight: 700 }}>他の参加者には表示されません</b>。
+                    </span>
+                  </div>
+                </div>
+              </>
             )}
 
             <div style={{ marginBottom: 16 }}>
