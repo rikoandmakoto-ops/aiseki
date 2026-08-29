@@ -70,6 +70,13 @@ export const SOLO_FEE = JOIN_FEE_PER_PERSON * BILLABLE_MIN_GUESTS;
    まだ会員でない方を招待リンクで連れてくるときの【割引額】。
    参加費 7,600pt − 招待割 3,800pt ＝ お支払い 3,800pt。
 
+   🚨 効くのは「招待された方が簡易登録を完了した時点」から。
+     リンクを発行しただけでは割り引かない（7,600pt のまま）。
+     出しただけで半額になると、誰も呼ばずに「招待して呼ぶ」を
+     選ぶだけで済んでしまう。判定は DB 側の
+     join_requests.invited_user_id ひとつで、決済（＝承認）の
+     瞬間に見た状態がそのまま料金になる。
+
    🚨 これは割引であって、ポイントの付与ではない。
      「招待した人に○○pt進呈」を足すと、アカウントを量産して
      ポイントだけ抜くことができてしまう（§16 / §17 と同じ形）。
@@ -77,7 +84,8 @@ export const SOLO_FEE = JOIN_FEE_PER_PERSON * BILLABLE_MIN_GUESTS;
    ──────────────────────────────────────────────────── */
 export const INVITE_DISCOUNT = 3800;
 
-/* 招待して呼ぶときのお支払い額（表示用。DB でも同じ式で計算する） */
+/* 招待して呼ぶときの、相方の登録が済んだあとのお支払い額
+   （表示用。DB でも同じ式で計算する）。登録が済むまでは SOLO_FEE のまま。 */
 export const INVITE_FEE = SOLO_FEE - INVITE_DISCOUNT;
 
 /* 支払い方法。DB の pay_modes() と一致させる。
@@ -116,21 +124,33 @@ export const joinFeeTotal = (size) => JOIN_FEE_PER_PERSON * billableGuests(size)
 
 /* 自分がいくら払うか
      ・各自払い（split）… 半分（3,800pt）。残りは相方の残高から。
-     ・招待（invite）  … 招待割を引いた額（3,800pt）。相方は1ptも払わない。
+     ・招待（invite）  … 相方が登録を完了していれば招待割を引いた額（3,800pt）。
+                          まだなら割引なし（7,600pt）。相方は1ptも払わない。
      ・まとめ払い       … 全額（7,600pt）
-   DB の join_charge_preview() / accept_join_request() と同じ式にすること。 */
-export const myJoinCharge = (size, payMode) => {
+   DB の join_charge_of() と同じ式にすること（第3引数まで含めて）。 */
+export const myJoinCharge = (size, payMode, inviteClaimed = false) => {
   const total = joinFeeTotal(size);
   if (payMode === PAY_MODE_SPLIT) return total / 2;
-  if (payMode === PAY_MODE_INVITE) return Math.max(total - INVITE_DISCOUNT, 0);
+  if (payMode === PAY_MODE_INVITE && inviteClaimed) {
+    return Math.max(total - INVITE_DISCOUNT, 0);
+  }
   return total;
 };
 
-/* 表示用の内訳（参加費 / 割引 / お支払い）。金額を出す画面はこれを使う。 */
-export const joinChargeBreakdown = (size, payMode) => {
+/* 表示用の内訳。金額を出す画面はこれを使う。
+     total               … 参加費
+     discount            … いま効いている割引（招待割は登録完了後のみ）
+     discountWhenClaimed … 相方が登録を終えたら引かれる額（案内用。0なら案内しない）
+     charge              … お支払い */
+export const joinChargeBreakdown = (size, payMode, inviteClaimed = false) => {
   const total = joinFeeTotal(size);
-  const discount = payMode === PAY_MODE_INVITE ? Math.min(INVITE_DISCOUNT, total) : 0;
-  return { total, discount, charge: myJoinCharge(size, payMode) };
+  const invite = payMode === PAY_MODE_INVITE;
+  return {
+    total,
+    discount: invite && inviteClaimed ? Math.min(INVITE_DISCOUNT, total) : 0,
+    discountWhenClaimed: invite ? Math.min(INVITE_DISCOUNT, total) : 0,
+    charge: myJoinCharge(size, payMode, inviteClaimed),
+  };
 };
 
 /* 登録ボーナス。参加は1人あたり 3,800pt。

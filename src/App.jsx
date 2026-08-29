@@ -877,11 +877,15 @@ const HomeScreen = ({ user, onDetail, onCreate }) => {
             const billable = r.billable_size ?? api.billableGuests(size);
             const split = r.pay_mode === api.PAY_MODE_SPLIT;
             const invited = r.pay_mode === api.PAY_MODE_INVITE;
+            /* 招待割が効いているか。効くのは相方が登録を完了したときだけなので、
+               サーバに聞いた値を使う（ホストは invited_user_id を読めない）。 */
+            const inviteDone = r.invite_claimed === true;
             /* 実際に運営が受け取る額。招待割の分だけ少なくなる
-               （各自払いは2人から半分ずつなので合計は変わらない）。 */
-            const taken = invited
-              ? api.myJoinCharge(size, api.PAY_MODE_INVITE)
-              : api.joinFeeFor(size);
+               （各自払いは2人から半分ずつなので合計は変わらない）。
+               サーバが返した額を優先し、取れなければ同じ式で出す。 */
+            const taken = r.charge ?? (invited
+              ? api.myJoinCharge(size, api.PAY_MODE_INVITE, inviteDone)
+              : api.joinFeeFor(size));
             return (
               <div key={r.id} className="rise" style={{ ...card, padding: 16, marginBottom: 10, animationDelay: `${i * 60}ms`,
                 background: "linear-gradient(135deg, rgba(168,32,58,0.30), rgba(232,201,135,0.07))", border: `1px solid ${C.linePrimary}` }}>
@@ -911,7 +915,8 @@ const HomeScreen = ({ user, onDetail, onCreate }) => {
                   <Gem size={12} strokeWidth={1.8} color={C.primary} /> 承認すると <b style={{ color: C.primaryDeep }}>{taken.toLocaleString()}pt</b> をお預かりします
                   <span style={{ color: C.textMuted }}>
                     （{feeText()}pt × {billable}名分{split ? " · 各自払い" : ""}
-                    {invited ? ` · 招待割 -${api.INVITE_DISCOUNT.toLocaleString()}pt` : ""}）
+                    {invited && inviteDone ? ` · 招待割 -${api.INVITE_DISCOUNT.toLocaleString()}pt` : ""}
+                    {invited && !inviteDone ? " · 招待（お相手は登録待ち）" : ""}）
                   </span>
                 </div>
                 <div style={{ fontSize: 10.5, color: C.textMuted, marginBottom: 9, lineHeight: 1.6 }}>
@@ -1307,11 +1312,13 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
   /* 申し込む人数。1人参加のときだけ1名（それでも課金は2名分）。 */
   const groupSize = joinMode === "solo" ? 1 : 2;
   /* 相方が既存会員のときだけ「各自払い」を選べる。
-     招待（簡易登録）の相方は自分の残高を持たないため、割引での申し込みになる。 */
+     招待（簡易登録）の相方は自分の残高を持たないため、まとめてのお支払いになる。 */
   const partnerIsMember = joinMode === "member" && !!partner;
-  /* 参加費・割引・お支払いの内訳。DB の join_charge_of() と同じ式。 */
-  const { total: cost, discount, charge: myCost } =
-    api.joinChargeBreakdown(groupSize, effectivePayMode);
+  /* 参加費・割引・お支払いの内訳。DB の join_charge_of() と同じ式。
+     ⚠ 申し込む前の画面では招待割はまだ効かない（相方が登録を終えて
+       いないため）。効くのは相方の簡易登録が完了してから。 */
+  const { total: cost, discount, discountWhenClaimed, charge: myCost } =
+    api.joinChargeBreakdown(groupSize, effectivePayMode, false);
   const isHost = party.host_id === user.id;
   const isMember = members.some((m) => m.user_id === user.id);
   const canSeeMembers = isHost || isMember;                 // 承認後のみ個人プロフィールを表示
@@ -1792,9 +1799,9 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
                         申し込むとリンクが発行されます。相方はメールアドレスとパスワード、
                         お名前・年齢・お写真（任意）だけの<b style={{ color: C.textSec, fontWeight: 700 }}>かんたんな登録</b>で参加できます。
                         <br />
-                        <b style={{ color: C.primaryDeep, fontWeight: 700 }}>招待割</b>として
-                        {api.INVITE_DISCOUNT.toLocaleString()}pt を差し引き、お支払いは
-                        <b style={{ color: C.primaryDeep, fontWeight: 700 }}>{api.INVITE_FEE.toLocaleString()}pt</b>です
+                        相方の<b style={{ color: C.textSec, fontWeight: 700 }}>ご登録が完了した時点</b>で
+                        <b style={{ color: C.primaryDeep, fontWeight: 700 }}>招待割 -{api.INVITE_DISCOUNT.toLocaleString()}pt</b>が適用され、
+                        お支払いは<b style={{ color: C.primaryDeep, fontWeight: 700 }}>{api.INVITE_FEE.toLocaleString()}pt</b>になります
                         （相方のお支払いはありません）。
                       </div>
                     </div>
@@ -1902,6 +1909,18 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
                     </span>
                   </div>
                 )}
+                {/* まだ効いていない招待割。「いくらになるか」ではなく
+                    「いつ効くか」を先に書く（出しただけで安くなると読めないように）。 */}
+                {discount === 0 && discountWhenClaimed > 0 && (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 11.5, color: C.textMuted, marginTop: 6 }}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                      <Ticket size={12} strokeWidth={2} /> 招待割（相方のご登録後）
+                    </span>
+                    <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13 }}>
+                      -{discountWhenClaimed.toLocaleString()} pt
+                    </span>
+                  </div>
+                )}
                 {effectivePayMode === api.PAY_MODE_SPLIT && (
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 11.5, color: C.textSec, marginTop: 6 }}>
                     <span>各自払い（相方のお支払い）</span>
@@ -1923,7 +1942,7 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
                   {joinMode === "solo"
                     ? `お一人でのご参加も ${api.GUEST_SLOT_SIZE}名分（${feeText()}pt × ${api.GUEST_SLOT_SIZE}）です`
                     : joinMode === "invite"
-                      ? "相方（ご招待の方）のお支払いはありません"
+                      ? `相方のご登録が完了すると ${api.INVITE_FEE.toLocaleString()}pt になります（相方のお支払いはありません）`
                       : effectivePayMode === api.PAY_MODE_SPLIT
                         ? `お二人で合計 ${cost.toLocaleString()}pt（${feeText()}pt ずつ）`
                         : `一律 ${feeText()}pt × ${api.GUEST_SLOT_SIZE}名`}
@@ -2020,6 +2039,27 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
                 このリンクを相方にお送りください。かんたんな登録でご参加いただけます
                 （相方のお支払いはありません）。
               </div>
+              {/* 招待割は「相方のご登録が完了した時点」で効く。
+                  いまいくらなのかを、待っている理由と一緒に出す。 */}
+              <div style={{
+                marginTop: 10, padding: "10px 12px", borderRadius: 12,
+                background: "rgba(0,0,0,0.18)", border: `1px solid ${C.lineSoft}`,
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 11.5, color: C.textSec }}>
+                  <span>いまのお支払い</span>
+                  <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.primaryDeep }}>
+                    {(joinInvite.charge ?? api.SOLO_FEE).toLocaleString()} pt
+                  </span>
+                </div>
+                <div style={{ fontSize: 10.5, color: C.textMuted, marginTop: 5, lineHeight: 1.7 }}>
+                  相方のご登録が完了した時点で<b style={{ color: C.primaryDeep, fontWeight: 700 }}>招待割
+                  -{(joinInvite.discount_when_claimed ?? api.INVITE_DISCOUNT).toLocaleString()}pt</b>が適用され、
+                  {api.INVITE_FEE.toLocaleString()}pt になります。
+                  <br />
+                  お預かりするのはホストが承認した時点なので、
+                  それまでにご登録いただければ割引が適用されます。
+                </div>
+              </div>
               <div style={{
                 marginTop: 10, padding: "10px 12px", borderRadius: 12, wordBreak: "break-all",
                 background: "rgba(0,0,0,0.22)", border: `1px solid ${C.line}`,
@@ -2053,6 +2093,9 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
               <Check size={15} strokeWidth={2.6} color={C.primary} style={{ flexShrink: 0 }} />
               <div style={{ fontSize: 11.5, color: C.textSec, lineHeight: 1.7 }}>
                 {joinInvite.invited_name || "相方の方"}が登録を済ませました。
+                <b style={{ color: C.primaryDeep, fontWeight: 700 }}>招待割
+                -{(joinInvite.discount_when_claimed ?? api.INVITE_DISCOUNT).toLocaleString()}pt</b>が適用され、
+                お支払いは<b style={{ color: C.primaryDeep, fontWeight: 700 }}>{(joinInvite.charge ?? api.INVITE_FEE).toLocaleString()}pt</b>です。
                 ホストの承認をお待ちください。
               </div>
             </div>

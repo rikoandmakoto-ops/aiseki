@@ -1755,3 +1755,46 @@ Vercel の日次 Cron（`vercel.json` の `crons` / **UTC 2:00 ＝ 日本時間 
   4つの導線すべてと、申し込み → 招待リンク発行 → `?invite=` の簡易登録画面まで確認した。
   確認に使ったアカウントと参加申請は削除済み（`auth.users` 9件・`join_requests` 0件に戻したことを確認）。
 - ⛔ **実機（スマートフォン）での確認は未実施。**
+
+### 20-b. 招待割が効くのは「相方が登録を完了した時点」（2026-08-29 修正）
+
+`supabase/migration_invite_discount_on_signup.sql`（冪等・**適用済み**）。
+`.e2e-invite.mjs` は **58項目すべて成功**。
+
+| 状態 | 参加費 | 招待割 | お支払い |
+|---|---|---|---|
+| 招待リンクを発行しただけ | 7,600pt | —（案内のみ） | **7,600pt** |
+| 相方が簡易登録を完了 | 7,600pt | -3,800pt | **3,800pt** |
+
+リンクを出しただけで割り引くと、**誰も呼ばずに「招待して呼ぶ」を選ぶだけで半額**に
+できてしまう（承認時、相方の席は名前だけの未登録席になる）。実際に人が増えたときだけ割り引く。
+
+- 判定は `join_requests.invited_user_id is not null` ひとつ。
+  決済は承認の瞬間なので、**そこで見た状態がそのまま料金**になる。
+  → 承認前に登録が間に合えば 3,800pt、間に合わなければ 7,600pt。
+  あとから登録されても**遡っての返金はしない**（返金は `refund_join_payment` だけ）。
+- 画面は、申し込む前は「招待割（相方のご登録後） -3,800pt」を**灰色で予告**し、
+  お支払いは 7,600pt のまま出す。発行後の招待リンクのカードに「いまのお支払い」を出し、
+  相方が登録すると 3,800pt に変わる。
+
+> 🚨 **料金の関数は引数を増やさないこと。**
+> いちど `join_charge_of(int, text)` を `(int, text, boolean)` に増やしたら、
+> 前の migration（`migration_invite_discount.sql`）を流し直した瞬間に
+> **同名2つ**になり `function ... is not unique` で全部落ちた。
+> いまは名前で分けてある:
+>
+> | 関数 | 何を返すか |
+> |---|---|
+> | `join_charge_of(size, mode)` | **申し込む時点**の請求額。招待は割引なし（7,600pt） |
+> | `join_charge_claimed(size, mode, claimed)` | **決済時点**の請求額。招待は claimed のときだけ 3,800pt |
+> | `join_charge_preview(size, mode)` | 表示用。`discount`＝0 と `discount_when_claimed`＝3,800 を返す |
+> | `my_join_invite(party)` | 自分の招待リンク。`charge` は**いまの**請求額 |
+> | `list_incoming_request_charges()` | ホストの受信箱用。金額と「相方が登録済みか」だけ（素性は返さない） |
+>
+> `accept_join_request()` は **`join_charge_claimed()` を通すこと**。
+> `join_charge_of()` を使うと割引が一生効かない。
+>
+> ⚠ **migration は必ずこの順で流すこと**（`migration_invite_discount.sql` →
+> `migration_invite_discount_on_signup.sql`）。前者だけを流し直すと
+> 「発行しただけで割引」の古い規則に戻る。`.e2e-newflow.mjs` / `.e2e-invite.mjs` は
+> どちらも3本を通しで当てている。

@@ -1304,8 +1304,11 @@ export async function getJoinChargePreview(groupSize, payMode) {
     p_size: Number(groupSize) || 1,
     p_mode: [PAY_MODE_SPLIT, PAY_MODE_INVITE].includes(payMode) ? payMode : PAY_MODE_BUNDLE,
   });
-  if (error) throw wrapNewFlowError(error);
-  // { group_size, billable_size, total, per_person, discount, my_charge, my_balance }
+  if (error) throw wrapInviteError(error);
+  /* { group_size, billable_size, total, per_person,
+       discount, discount_when_claimed, my_charge, my_balance }
+     ⚠ discount は申し込む時点の割引なので、招待でも 0。
+       相方の登録が済んだあとの金額は getMyJoinInvite() の charge が返す。 */
   return data;
 }
 
@@ -1314,7 +1317,11 @@ export async function getJoinChargePreview(groupSize, payMode) {
 export async function getMyJoinInvite(partyId) {
   const { data, error } = await supabase.rpc("my_join_invite", { p_party: partyId });
   if (error) throw wrapInviteError(error);
-  return data ?? null;   // { request_id, status, invite_code, claimed, invited_name }
+  /* { request_id, status, invite_code, claimed, invited_name,
+       total, charge, discount_when_claimed }
+     ⚠ charge は「いまホストが承認したら引かれる額」。相方の登録が
+       済むまでは割引が効かないので total と同じ。 */
+  return data ?? null;
 }
 
 /* この会に自分が申し込めるか（会が参加者に求めるランクを満たしているか）。
@@ -1382,14 +1389,26 @@ export async function listIncomingRequests(userId) {
     if (!rErr) ranks = new Map((rankRows ?? []).map((r) => [r.request_id, r]));
   } catch { /* ランクなしで続行する */ }
 
+  /* 承認するといくら預かるか。招待割が効いているかで変わるが、
+     ホストは invited_user_id を読めない（列単位で遮断）ので RPC で聞く。
+     ⚠ 返るのは金額と真偽値だけ。招待された方の素性は渡らない。 */
+  let charges = new Map();
+  try {
+    const { data: chargeRows, error: cErr } = await supabase.rpc("list_incoming_request_charges");
+    if (!cErr) charges = new Map((chargeRows ?? []).map((r) => [r.request_id, r]));
+  } catch { /* 金額は画面側の計算にフォールバックする */ }
+
   return rows
     .map((r) => {
       const hit = ranks.get(r.id);
+      const fee = charges.get(r.id);
       return {
         ...r,
         rank: hit
           ? { tier_key: hit.tier_key, tier_label: hit.tier_label, tier_order: hit.tier_order }
           : null,
+        charge: fee?.charge ?? null,
+        invite_claimed: fee?.invite_claimed ?? null,
       };
     })
     /* ランクの高い順 → 同じなら申し込みが新しい順 */
