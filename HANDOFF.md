@@ -1,6 +1,8 @@
 # AISEKI 引き継ぎ書
 
-最終更新: 2026-08-29（招待リンクの登録が完了しない件・招待割が画面に反映されない件を修正し、簡易登録に「ご本名」を追加。**本番へデプロイ済み** §22）
+最終更新: 2026-08-30（**SMS（電話番号）認証を実装し本番へデプロイ済み** §28。
+Twilio Verify を使い、認証が済むまで会の作成・参加申込・相方の同意を DB 側で止める。
+⛔ Twilio アカウントがトライアルのままなので、**公開前にアップグレードが要る**）
 
 > ## ⚠️ まずこれを読む — Supabase プロジェクトが変わった（2026-08-20）
 >
@@ -560,9 +562,11 @@ aiseki/
 │   │                    Support / Referral / Notifications / MemberSheet /
 │   │                    ResetPassword / InstallCard
 │
-├── api/                 Vercel Functions（決済のみ）
+├── api/                 Vercel Functions（決済・SMS認証）
 │   ├── _lib.js
 │   ├── _captcha.js      ★ CAPTCHA（Turnstile）の検証（§16）
+│   ├── _twilio.js       ★ Twilio Verify の呼び出し（§28）
+│   ├── sms/             start.js / check.js / status.js（SMS認証・§28）
 │   └── stripe/          checkout.js / status.js / webhook.js
 │
 ├── supabase/
@@ -576,6 +580,7 @@ aiseki/
 │   ├── seed_shops_sample.sql                ✅適用済 サンプル店舗11軒（実店舗ではない）
 │   ├── migration_mutual_rank.sql            ✅適用済 ランク相互公開/min_guest_tier（§13-b）
 │   ├── migration_new_flow.sql               ✅適用済 新しい決済・マッチングフロー（§18）
+│   ├── migration_sms_verify.sql             ✅適用済 SMS電話番号認証／参加の関門（§28）
 │   └── migration_*.sql               （それ以前の履歴）
 │
 └── scripts/
@@ -583,6 +588,7 @@ aiseki/
     ├── apply_auth_config.mjs    ★ Auth設定適用（PAT必須）
     ├── create_test_user.mjs     テストユーザー作成
     ├── verify_captcha.mjs       ★ CAPTCHA が効いているかの確認（§16）
+    ├── setup_twilio_verify.mjs  ★ Twilio Verify サービスの作成／取得（§28・冪等）
     ├── generate_icons.mjs       アイコン・OGP画像の生成
     ├── generate_lp_og.mjs       LPのOGP画像（og-women.png / og-men.png）の生成
     ├── test_join_fee.mjs        `npm test` の本体
@@ -2185,6 +2191,10 @@ silently 詰む経路が3つあった:
 
 ## 25. SMS認証は未実装（資格情報が無い）／電話番号の検証だけ先に入れた（2026-08-29）
 
+> ✅ **2026-08-30 に実装・本番反映まで完了した。§28 を読むこと。**
+> ここに書いてある「着手できない」はもう過去の話。採ったのは下の**案A**。
+> 25-b（E.164 正規化）は今も生きていて、SMS認証の土台になっている。
+
 ### 25-a. SMS認証は着手できない — 必要なもの
 
 **現時点で使える SMS サービスの設定は、どこにも無い**（実測で確認）:
@@ -2389,3 +2399,151 @@ vercel deploy --prebuilt --prod --yes   # 環境変数は再デプロイまで�
 > ⚠ **このキーは確認メール・再設定メールには使われない。** あちらは Supabase Auth の
 > custom SMTP（`smtp.resend.com` / `smtp_pass` に別途保存されたキー）が送っている。
 > つまり **`RESEND_API_KEY` が無かったことは、今回のメール未着とは無関係だった**（§25 の推測どおり）。
+
+---
+
+## 28. SMS（電話番号）認証を入れた（2026-08-30）
+
+§25-a で「資格情報が無いので着手できない」と書いていたものが、Twilio の
+アカウント情報を受け取って**実装・本番反映まで完了**した。
+採ったのは §25-a の**案A**（メール確認 → 初回ログイン → **SMS認証** → 参加許可）。
+
+`supabase/migration_sms_verify.sql`（冪等・**適用済み**）＋ `api/sms/` 3本 ＋
+`src/screens/PhoneVerifyScreen.jsx` ＋ フロント3ファイル。
+検証は `.e2e-sms.mjs`（**38項目**）と `.e2e-sms-api.mjs`（**20項目**）— どちらも全て成功。
+
+### 28-a. 何を使っているか
+
+| | |
+|---|---|
+| サービス | **Twilio Verify**（OTP の生成・保存・照合・失効は Twilio 側） |
+| Verify Service SID | `VA84c1d895274f067320abdcc771c71c6d`（FriendlyName `相席マッチ` / 6桁 / 「他人に教えないで」の警告つき） |
+| 送信本文の言語 | `Locale=ja`（日本語） |
+| 環境変数 | `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_VERIFY_SERVICE_SID`（Vercel Production ＋ `.env`） |
+
+> 🚨 **コードは AISEKI 側に一切保存しない。** 自前で OTP を持つと、
+> 保存・失効・総当たり対策を全部自分で正しくやることになる。
+> こちらに残るのは「認証が済んだか」（`profiles.phone_verified`）だけ。
+
+**Verify サービスは API で作る**（コンソール作業は不要）:
+
+```bash
+node scripts/setup_twilio_verify.mjs   # 無ければ作る・あれば拾う。.env も書き換える
+```
+
+> ⚠ **SDK（`twilio` パッケージ）は入れていない。** REST を `fetch` で叩くだけ
+> （`api/_twilio.js`）。依存を増やさず、Functions のコールドスタートも軽い。
+
+### 28-b. フロー
+
+```
+登録 → 確認メール → 初回ログイン → ★SMS認証画面が自動で開く★ → 参加許可
+                                         ↓「あとで認証する」で閉じられる
+                            会の作成・お申し込みを押すと DB が止め、ここへ戻される
+```
+
+- ログイン直後に `my_phone_status()` を引き、未認証なら認証画面を開く（1セッションに1回）。
+- 「あとで」で閉じられるが、**閉じても参加はできない**（下の関門）。
+- マイページに「電話番号の認証／未認証」の行があり、いつでも開ける。
+- **電話番号が未登録の人（§24 より前に登録した人）は、この画面で入力してから送れる。**
+
+### 28-c. 🚨 認証済みの印は service_role だけが立てられる
+
+| 担保 | 場所 |
+|---|---|
+| 利用者は `phone_verified` を読めない・書けない | `profiles` の列単位権限に**入れていない**（`gender` / `real_name` / `phone_number` と同じ形） |
+| 印を立てられるのは1か所だけ | `sms_verify_mark()`（`security definer` / **anon・authenticated を名指しで revoke**） |
+| 呼ぶのはサーバだけ | `api/sms/check.js`。Twilio が `approved` を返したときのみ |
+| 本人が状態を見る経路 | `my_phone_status()`（`auth.uid()` 固定） |
+
+> 🚨 **`phone_verified` を `profiles` の列単位 UPDATE 権限に足さないこと。**
+> 足した瞬間に、SMS を1通も受け取らずに REST から自分を認証済みにできる。
+> `sms_verify_*` の `revoke ... from public, anon, authenticated` も外さないこと
+> （`from public` だけでは既定の grant が残る。§17 と同じ罠）。
+
+### 28-d. 参加の関門（UIで隠しているのではない）
+
+`assert_phone_verified()` は `assert_legal_age()` と同じ形。**3か所**に入れてある。
+
+| 止まるもの | 場所 |
+|---|---|
+| 会を立てる | `on_party_phone_verified`（`parties` の BEFORE INSERT） |
+| 参加を申し込む | `on_join_request_phone_verified`（`join_requests` の BEFORE INSERT） |
+| 相方として同意する（＝ポイントが引かれる側になる） | `confirm_join_partner()` の中 |
+
+画面は DB のエラー文言（「ご利用にはSMS認証が必要です」）を
+`api.isPhoneVerificationError()` で見分け、認証画面へ運ぶ。
+
+> ⚠ **招待リンクの引き受け（`claim_invite` / `claim_group_invite`）は止めていない。**
+> あれは初回ログインの直後に自動で走るので、認証する機会がまだ無い。
+> ただし引き受けた人が実際に参加するには、上の3つのいずれかを必ず通る。
+>
+> 🚨 **`confirm_join_partner()` は §21（`migration_partner_consent.sql`）の定義に
+> `assert_phone_verified` を1行足しただけのもの。** どちらかを直すときは
+> **両方の定義を合わせること**（片方だけ流すと元に戻る）。
+
+### 28-e. そのほかの担保
+
+- **電話番号を変えると認証は外れる。** `on_profile_phone_verify_reset`（`profiles` の
+  BEFORE UPDATE）。`set_my_phone_number()` は本人が何度でも呼べるので、
+  関数側ではなくテーブル側で外している（§12「関数側だけの規則はテーブル側にも要る」）。
+- **認証済みの番号は1アカウントにつき1つ。** 部分一意索引 `profiles_phone_verified_uniq`。
+  §17（カード1枚＝1アカウント）と同じ考え方。ここを開けると、番号を1つ持っているだけで
+  アカウントを量産できる。**SMS を送る前に**重複を見る（送ってから弾くとSMS代だけ掛かる）。
+- **送信・照合の回数制限。** `phone_verify_attempts`（service_role 専用・RLS 有効でポリシー0本）。
+  再送は60秒間隔・**1日5通**まで、コードの入力は**1時間15回**まで。
+  Twilio 側にも上限はあるが、SMS は1通ごとに課金されるのでこちらでも数える。
+  **Twilio を呼ぶ前に枠を消費する**（失敗しても消費する＝連打の抑止）。
+- **送り先は「保存済みの本人の番号」だけ。** body の `phone` は
+  「自分の番号を登録・変更する」ためだけに使い、`normalize_phone_jp()` を通して
+  保存してから、その保存済みの値へ送る。
+  🚨 **任意の番号をそのまま `To` にしてはいけない。**
+  ログインするだけで他人の携帯へSMSを送りつける口になる。
+
+### 28-f. ⛔ Twilio アカウントがトライアルのまま
+
+```
+アカウント: My First Twilio Account（Trial / active）
+```
+
+**トライアルでは、Twilio 側で検証していない番号に SMS が届かない。**
+実装・配線はすべて正しく動いているので、**公開前にアカウントをアップグレードすれば
+それだけで実運用に入れる**（コード・設定の変更は不要）。
+
+- Verify の作成・送信リクエストはトライアルでも通る（`status: pending` が返る）。
+- ただし `Balance` / `OutgoingCallerIds` / 配信結果（`/v2/Attempts`）は
+  **トライアルでは 401（`code 20003`）** になり、**API から配信可否を確かめられない。**
+- 本番の `/api/sms/start` から `+817041804390` へ実際に送信し、
+  そのあと**違うコードが `wrong` で弾かれる**ことまで確認した
+  （＝ Twilio 側に検証が生きている）。**受信そのものは未確認。**
+
+### 28-g. 確認したこと（2026-08-30）
+
+- ✅ migration 適用済み（`melfyxfvhyknqhruytms` / 検算8件すべて通過）。
+- ✅ `.e2e-sms.mjs` **38項目**（本番スキーマ・全て `ROLLBACK`）—
+  権限・関門3か所・番号変更で認証が外れる・番号1つ＝1アカウント・回数制限。
+- ✅ `.e2e-sms-api.mjs` **20項目** — ハンドラを直接 import して実行
+  （`vercel dev` は使わない。§6）。401 / 番号未登録 / 不正な番号 /
+  実送信 / 連打の 429 / 違うコードの拒否。
+- ✅ デプロイ済み（配信バンドル `assets/main-BRvpK7UV.js` ＋
+  `assets/PhoneVerifyScreen-Bs9-6MO1.js`）。出す前の grep は §15 のとおり全て通過
+  （現行 ref あり／旧 ref・`sk_live`・`whsec_`・service_role・`CRON_SECRET`・
+  **Twilio の3つの値**すべて0件）。
+  ⚠ `vercel pull` の埋め戻しは今回も必要だった（`VITE_STRIPE_PUBLISHABLE_KEY` /
+  `VITE_TURNSTILE_SITE_KEY` が `len=2`）。毎回起きるものと思ってよい。
+- ✅ 本番 `aisekimatch.com` で画面まで通し確認（検証用アカウント・確認後に削除済み）:
+  - ログイン直後に**認証画面が自動で開く**
+  - 「あとで認証する」で閉じられる／マイページに「電話番号の認証 **未認証**」が出る
+  - **「1人で参加を申し込む」を押すと DB が止め、
+    「お申し込みの前に、電話番号の認証をお願いします。」で認証画面へ戻る**
+  - `join_requests` は**1行も作られていない**ことを DB で確認
+  - `/api/sms/status` = `{"enabled":true}` / `/api/stripe/status` は据え置き
+- ⛔ **実機（スマートフォン）でSMSを受け取るところは未確認**（トライアルのため / 28-f）。
+
+> ### 触るときの注意（まとめ）
+> - 🚨 `phone_verified` を `profiles` の列単位 SELECT / UPDATE 権限に足さない。
+> - 🚨 `sms_verify_*` の revoke から `anon, authenticated` を外さない。
+> - 🚨 `/api/sms/start` の送り先を「body の番号」に変えない（保存済みの本人の番号だけ）。
+> - 🚨 `confirm_join_partner()` は `migration_partner_consent.sql` と**二重定義**。片方だけ直さない。
+> - ⚠ 環境変数を消すと画面の案内は消えるが **DB の関門は残る**。
+>   誰も参加できなくなるので、止めるときは migration 側の関門も外すこと。

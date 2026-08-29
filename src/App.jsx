@@ -6,7 +6,7 @@ import {
   Mail, LogOut, Wine, History, Wallet, ShieldCheck, Lock, FileText, UsersRound,
   Ticket, Copy, DoorClosed, Ban, CreditCard, LifeBuoy, ShieldAlert, XCircle,
   Search, SlidersHorizontal, CalendarDays, Gift, Star, Beer, Heart, Store,
-  UserPlus, EyeOff,
+  UserPlus, EyeOff, Smartphone,
 } from "lucide-react";
 import { supabase, configError, INITIAL_RECOVERY } from "./lib/supabase";
 import * as api from "./lib/api";
@@ -43,6 +43,8 @@ const GroupScreen = lazy(() => import("./screens/GroupScreen.jsx"));
 /* 招待リンクからの簡易登録（ホストの友達が来る入口） */
 const InviteSignupScreen = lazy(() => import("./screens/InviteSignupScreen.jsx"));
 const SafetyScreen = lazy(() => import("./screens/SafetyScreen.jsx"));
+/* SMS（電話番号）認証。メール確認 → 初回ログイン → ここ → 参加許可（§28） */
+const PhoneVerifyScreen = lazy(() => import("./screens/PhoneVerifyScreen.jsx"));
 const MemberSheet = lazy(() => import("./screens/MemberSheet.jsx"));
 const ReviewSheet = lazy(() => import("./screens/ReviewSheet.jsx"));
 /* カード登録（登録ボーナス）。Stripe Elements を使うので、開くまで読み込まない。 */
@@ -1006,7 +1008,7 @@ const HomeScreen = ({ user, onDetail, onCreate }) => {
 };
 
 /* ═══════════════════════════════════════════════════════ Detail */
-const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport }) => {
+const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport, onVerifyPhone }) => {
   const { toast, confirm } = useToast();
   const [party, setParty] = useState(null);
   const [members, setMembers] = useState([]);
@@ -1275,7 +1277,14 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
         toast.success("参加リクエストを送りました。ホストの承認をお待ちください。ポイントは承認された時点でお預かりします。");
       }
     } catch (e) {
-      toast.error("リクエスト送信に失敗しました: " + e.message);
+      /* SMS認証が済んでいないと DB 側の関門で止まる。
+         文言を出すだけでは何をすればいいか分からないので、認証画面へ運ぶ。 */
+      if (api.isPhoneVerificationError(e)) {
+        toast.info("お申し込みの前に、電話番号の認証をお願いします。");
+        onVerifyPhone?.();
+      } else {
+        toast.error("リクエスト送信に失敗しました: " + e.message);
+      }
     } finally {
       setSending(false);
     }
@@ -2407,7 +2416,7 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
 };
 
 /* ═══════════════════════════════════════════════════════ Create */
-const CreateScreen = ({ user, onCreated, onManageGroups }) => {
+const CreateScreen = ({ user, onCreated, onManageGroups, onVerifyPhone }) => {
   const { toast } = useToast();
   const [title, setTitle] = useState("");
   const [location, setLocation] = useState("");
@@ -2514,7 +2523,12 @@ const CreateScreen = ({ user, onCreated, onManageGroups }) => {
       toast.success("会を公開しました。参加リクエストが届くとお知らせします。");
       onCreated(p.id);
     } catch (e) {
-      toast.error("会の作成に失敗しました: " + e.message);
+      if (api.isPhoneVerificationError(e)) {
+        toast.info("会を作成する前に、電話番号の認証をお願いします。");
+        onVerifyPhone?.();
+      } else {
+        toast.error("会の作成に失敗しました: " + e.message);
+      }
     } finally {
       setSaving(false);
     }
@@ -3542,7 +3556,7 @@ const ChatRoom = ({ user, party, onBack }) => {
 };
 
 /* ═══════════════════════════════════════════════════════ MyPage */
-const MyPageScreen = ({ user, onTerms, onSupport, onReport, onInvite, onSafety, onGroups }) => {
+const MyPageScreen = ({ user, onTerms, onSupport, onReport, onInvite, onSafety, onGroups, onVerifyPhone, phoneStatus }) => {
   const { toast, confirm } = useToast();
   const [profile, setProfile] = useState(null);
   const [balance, setBalance] = useState(null);
@@ -3637,6 +3651,14 @@ const MyPageScreen = ({ user, onTerms, onSupport, onReport, onInvite, onSafety, 
     { icon: Gem, label: "ポイント残高", value: `${(balance ?? 0).toLocaleString()} pt`, highlight: true },
     { icon: Mail, label: "メール", value: user.email },
     { icon: Settings, label: "プロフィール編集", action: () => setEditing(true) },
+    /* SMS認証。済んでいない間は「未認証」を出して、ここから認証できるようにする
+       （会の作成・お申し込みは認証が済むまで DB 側の関門で止まる。§28） */
+    {
+      icon: Smartphone, label: "電話番号の認証",
+      value: phoneStatus?.verified ? "認証済み" : "未認証",
+      action: onVerifyPhone,
+      accent: !phoneStatus?.verified,
+    },
     /* 会を立てる前に友達を集めておく箱。ホスト側は完全無料なので、
        ポイントの案内（友達を招待する）とは別の導線にしてある。 */
     { icon: UsersRound, label: "一緒に行く友達（グループ）", action: onGroups },
@@ -3965,7 +3987,7 @@ const NotificationBell = ({ user, onOpen, refreshKey }) => {
 
    ⚠ 出すのは「誰から・どの会へ・いくら」まで。申込者のプロフィール
      （年齢・写真・性別・評価）は承認後まで見えない（§1）。 */
-const PartnerConfirmSheet = ({ user, onDone }) => {
+const PartnerConfirmSheet = ({ user, onDone, onVerifyPhone }) => {
   const { toast } = useToast();
   const [items, setItems] = useState([]);
   const [busy, setBusy] = useState("");
@@ -4007,7 +4029,12 @@ const PartnerConfirmSheet = ({ user, onDone }) => {
       setItems((prev) => prev.filter((r) => r.request_id !== req.request_id));
       onDone?.();
     } catch (e) {
-      toast.error(e.message);
+      if (api.isPhoneVerificationError(e)) {
+        toast.info("お相手と参加する前に、電話番号の認証をお願いします。");
+        onVerifyPhone?.();
+      } else {
+        toast.error(e.message);
+      }
       setDismissed((prev) => [...prev, req.request_id]);
     } finally {
       setBusy("");
@@ -4107,6 +4134,12 @@ export default function App() {
   const [reportTarget, setReportTarget] = useState(null);  // 通報の対象ユーザー（あれば）
   const [notifyKey, setNotifyKey] = useState(0);      // ベルの再計算トリガ
   const [inviteCode, setInviteCode] = useState(INITIAL_INVITE_CODE); // 招待リンクから来たか
+  /* SMS認証の状態（null = まだ読んでいない）。
+     §28: メール確認 → 初回ログイン → SMS認証 → 参加許可。 */
+  const [phoneStatus, setPhoneStatus] = useState(null);
+  /* 🚨 「もう出した」の印は ref に持つ。state にして effect の依存に入れると
+     出し直しが起きる（§21-b / §22-c と同じ罠）。 */
+  const phonePromptedFor = useRef("");
 
   useEffect(() => {
     if (configError) { setAuthReady(true); return; }
@@ -4188,6 +4221,42 @@ export default function App() {
         clearPendingPhoto();
       }
       clearPendingInvite();
+    })();
+    return () => { alive = false; };
+  }, [session?.user?.id]);
+
+  /* SMS認証の状態を取り直す（認証が済んだ直後・マイページの表示用）。 */
+  const refreshPhoneStatus = useCallback(async () => {
+    try {
+      setPhoneStatus(await api.getMyPhoneStatus());
+    } catch (e) {
+      console.error("[aiseki] SMS認証の状態を読めませんでした:", e);
+    }
+  }, []);
+
+  /* ログインしたら認証の状態を見る。済んでいなければ、その場で認証画面を出す
+     （メール確認 → 初回ログイン → SMS認証 → 参加許可）。
+     「あとで」で閉じられるが、会の作成・お申し込み・相方の同意は
+     DB 側の関門（assert_phone_verified）が止めるので素通しにはならない。
+
+     ⚠ 設定が入っていないとき（/api/sms/status が enabled:false）は出さない。
+       認証しようがない案内を出しても、利用者にはどうにもできない。 */
+  useEffect(() => {
+    const uid = session?.user?.id;
+    if (!uid) { setPhoneStatus(null); phonePromptedFor.current = ""; return; }
+    let alive = true;
+    (async () => {
+      try {
+        const [status, config] = await Promise.all([api.getMyPhoneStatus(), api.smsStatus()]);
+        if (!alive) return;
+        setPhoneStatus(status);
+        if (config.enabled && status && !status.verified && phonePromptedFor.current !== uid) {
+          phonePromptedFor.current = uid;
+          setOverlay("phone");
+        }
+      } catch (e) {
+        console.error("[aiseki] SMS認証の状態を読めませんでした:", e);
+      }
     })();
     return () => { alive = false; };
   }, [session?.user?.id]);
@@ -4347,6 +4416,14 @@ export default function App() {
         />
       );
     }
+    if (overlay === "phone") {
+      return (
+        <PhoneVerifyScreen
+          onBack={backToApp}
+          onVerified={() => { refreshPhoneStatus(); setNotifyKey((k) => k + 1); }}
+        />
+      );
+    }
     if (overlay === "invite") return <ReferralScreen onBack={backToApp} />;
     if (overlay === "groups") return <GroupScreen onBack={backToApp} />;
     if (overlay === "safety") {
@@ -4367,6 +4444,7 @@ export default function App() {
           onGoPoints={() => { setDetailId(null); setTab("points"); }}
           onCancelled={() => { setDetailId(null); setTab("home"); }}
           onReport={(targetId) => { setReportTarget(targetId ?? null); setOverlay("report"); }}
+          onVerifyPhone={() => { setDetailId(null); setOverlay("phone"); }}
         />
       );
     }
@@ -4377,6 +4455,7 @@ export default function App() {
           user={user}
           onCreated={(id) => { setTab("home"); setDetailId(id); }}
           onManageGroups={() => setOverlay("groups")}
+          onVerifyPhone={() => setOverlay("phone")}
         />
       );
       case "chat": return <ChatScreen user={user} openRoom={setChatRoom} openParty={setDetailId} />;
@@ -4397,6 +4476,8 @@ export default function App() {
           onInvite={() => setOverlay("invite")}
           onSafety={() => setOverlay("safety")}
           onGroups={() => setOverlay("groups")}
+          onVerifyPhone={() => setOverlay("phone")}
+          phoneStatus={phoneStatus}
         />
       );
       default: return <HomeScreen user={user} onDetail={setDetailId} onCreate={() => setTab("create")} />;
@@ -4439,7 +4520,11 @@ export default function App() {
 
       {/* 相方に指定されたときの確認。どの画面にいても最優先で出す
           （本人の同意なしにポイントが引かれることが無いようにするため） */}
-      <PartnerConfirmSheet user={user} onDone={() => setNotifyKey((k) => k + 1)} />
+      <PartnerConfirmSheet
+        user={user}
+        onDone={() => setNotifyKey((k) => k + 1)}
+        onVerifyPhone={() => setOverlay("phone")}
+      />
     </>
   );
 }

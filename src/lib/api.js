@@ -2138,9 +2138,21 @@ function waitForStripeJs(timeoutMs = 10000) {
   });
 }
 
-/* /api を呼ぶ共通処理。vite dev（npm run dev）には /api が無く HTML が返るので、
-   JSON でない時点で「決済APIに届いていない」と分かる。 */
-async function callPaymentApi(path, body) {
+/* ログインが要る /api を呼ぶ共通処理。vite dev（npm run dev）には /api が無く
+   HTML が返るので、JSON でない時点で「APIに届いていない」と分かる。
+
+   サーバが付けてくる印（captcha / duplicateCard / needPhone …）は、
+   画面が「失敗」ではなく専用の案内を出せるように Error へ写す。 */
+const API_FLAGS = [
+  "captcha",        // CAPTCHA で弾かれた（ウィジェットを描き直す）
+  "duplicateCard",  // 既に別のアカウントで登録済みのカード（カード1枚につき1回）
+  "duplicatePhone", // 既に別のアカウントで認証済みの電話番号（番号1つにつき1回）
+  "needPhone",      // 電話番号が未登録（入力欄を出す）
+  "expired",        // 確認コードの有効期限切れ（送り直し）
+  "wrong",          // 確認コードが違う（入力し直し）
+];
+
+async function callAuthedApi(path, body, apiLabel = "API") {
   const { data } = await supabase.auth.getSession();
   const token = data?.session?.access_token;
   if (!token) throw new Error("ログインが必要です。");
@@ -2151,21 +2163,19 @@ async function callPaymentApi(path, body) {
     body: JSON.stringify(body ?? {}),
   });
   if (!res.headers.get("content-type")?.includes("application/json")) {
-    throw new Error("決済APIに接続できませんでした。ローカルでは `vercel dev` で起動してください。");
+    throw new Error(`${apiLabel}に接続できませんでした。ローカルでは \`vercel dev\` で起動してください。`);
   }
   const payload = await res.json().catch(() => ({}));
   if (!res.ok) {
     const err = new Error(payload?.error || "通信に失敗しました。");
-    // CAPTCHA で弾かれたときは、画面がウィジェットを描き直せるように印を残す。
-    if (payload?.captcha) err.captcha = true;
-    /* 既に別のアカウントで登録済みのカードだった（カード1枚につき1回）。
-       カードの登録自体は済んでいるので、画面は「失敗」ではなく
-       専用の案内を出す。 */
-    if (payload?.duplicateCard) err.duplicateCard = true;
+    for (const flag of API_FLAGS) if (payload?.[flag]) err[flag] = true;
+    if (payload?.retryAfter) err.retryAfter = Number(payload.retryAfter);
     throw err;
   }
   return payload;
 }
+
+const callPaymentApi = (path, body) => callAuthedApi(path, body, "決済API");
 
 /* CAPTCHA（Turnstile）のサイトキー。サーバから受け取る値を優先する。
    ビルド時に焼き込む VITE_ の値は --prebuilt デプロイで空になることがあるため
@@ -2187,6 +2197,72 @@ export async function createSetupIntent(captchaToken) {
    Webhook から先に付与されていれば granted=false が返る（二重には付かない）。 */
 export async function confirmCardRegistration(setupIntentId) {
   return callPaymentApi("/api/stripe/confirm-card", { setupIntentId });
+}
+
+/* ==================== SMS（電話番号）認証 ====================
+   メール確認 → 初回ログイン → ここ → 参加許可（HANDOFF §28）。
+
+   ・確認コードを送るのも照合するのも Twilio Verify（サーバ側）。
+     コードはこちらでは保持しない。
+   ・認証済みの印（profiles.phone_verified）を立てられるのは
+     service_role だけ。画面から「認証済みにする」ことはできない。
+   ・認証が済むまで、会の作成・参加申込・相方の同意は DB 側の
+     関門（assert_phone_verified）が止める。UIで隠すだけではない。
+   ============================================================== */
+
+/* SMS認証を使える設定になっているか。1回だけ問い合わせて使い回す。 */
+let smsStatusPromise = null;
+
+export function smsStatus() {
+  smsStatusPromise ??= (async () => {
+    try {
+      const res = await fetch("/api/sms/status", { headers: { accept: "application/json" } });
+      if (!res.headers.get("content-type")?.includes("application/json")) return { enabled: false };
+      const body = await res.json();
+      return { enabled: body?.enabled === true };
+    } catch {
+      return { enabled: false };
+    }
+  })();
+  return smsStatusPromise;
+}
+
+/* 自分の電話番号と認証状態。他人の分は取得できない（RPC が auth.uid() 固定）。
+   戻り: { phone_number, verified, verified_at }。プロフィール未作成なら null。 */
+export async function getMyPhoneStatus() {
+  const { data, error } = await supabase.rpc("my_phone_status");
+  if (error) throw wrapSmsVerifyError(error);
+  return data ?? null;
+}
+
+/* 確認コードを送る。phone を渡すと、その番号を自分のプロフィールへ
+   保存し直してから送る（未登録・番号変更のとき）。
+   ⚠ 送り先は必ず「保存済みの自分の番号」。任意の番号には送れない。 */
+export async function sendPhoneCode(phone) {
+  return callAuthedApi("/api/sms/start", phone ? { phone } : {}, "SMS認証API");
+}
+
+/* 届いたコードを照合する。通れば認証済みになる。 */
+export async function verifyPhoneCode(code) {
+  return callAuthedApi("/api/sms/check", { code }, "SMS認証API");
+}
+
+/* migration_sms_verify.sql が未適用のときに分かりやすいエラーへ変換する */
+function wrapSmsVerifyError(error) {
+  const msg = error?.message || "";
+  if (/my_phone_status|phone_verified|sms_verify|does not exist|schema cache/i.test(msg)) {
+    return new Error(
+      "この機能に必要なデータベースの更新がまだ適用されていません。" +
+      "supabase/migration_sms_verify.sql を実行してください。"
+    );
+  }
+  return error;
+}
+
+/* DB の関門（assert_phone_verified）に止められたかどうか。
+   会の作成・参加申込・相方の同意で、画面が認証への導線を出すために見る。 */
+export function isPhoneVerificationError(error) {
+  return /SMS認証/.test(String(error?.message || ""));
 }
 
 // Realtime 購読。unsubscribe 関数を返す。
