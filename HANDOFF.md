@@ -1629,3 +1629,113 @@ DB の変更は無い（`migration_new_flow.sql` までで足りている）。
   シルバーに上げると実在の「確認用・ゴールド以上」が先頭（バッジなし）＋見本2件。
   **リロードせずに**昇格させてもシルバーの見本が消えてゴールドへ切り替わり、
   プラチナでは枠ごと消えることを確認した。確認用のアカウントは削除済み。
+
+---
+
+## 20. 参加申請の3つの導線と「招待割」（2026-08-29）
+
+`supabase/migration_invite_discount.sql` の1本にまとまっている（冪等・**適用済み**）。
+検証は `.e2e-invite.mjs`（未コミット）。migration の適用ごと `BEGIN … ROLLBACK` の中で
+**51項目すべて成功**。`npm test`（19項目）と `.e2e-newflow.mjs`（54項目）も通したまま。
+
+### 画面（会の詳細 → 参加申請）
+
+```
+[ 既存の会員と参加 ]  [ 招待して呼ぶ ]     ← 左が既定
+──────────────────────────────────────
+既存の会員と参加 … 相方の会員コードを入れて「確認」
+                   → 各自払い（3,800ptずつ）／まとめ払い（7,600pt）
+招待して呼ぶ     … 申し込むと招待リンクが発行される
+                   参加費 7,600pt − 招待割 3,800pt ＝ お支払い 3,800pt
+──────────────────────────────────────
+  相方は登録しない / 1人で参加申請をする   ← 下部に小さく
+      ├ 相方の名前を入れる（アカウントなし）… 7,600pt
+      └ 1人で参加申請を出す                … 7,600pt
+```
+
+### 招待割（`invite_discount()` = 3,800pt）
+
+| | |
+|---|---|
+| 何か | **割引**。参加費から 3,800pt を引く（お支払い 3,800pt） |
+| ポイントの付与 | **一切しない。** 招待した側にも、された側にも 1pt も配らない |
+| 相方の負担 | 0pt（残高を持たないので払えない） |
+| 使えるのは | **簡易登録（`account_type='simple'`）で新しく入った方だけ** |
+
+> 🚨 **「招待した人に○○pt進呈」にしてはいけない。**
+> アカウントを作っては招待する形でポイントだけ抜ける（§16 CAPTCHA /
+> §17 カード1枚1アカウント と同じ形）。割引なら、実際に卓へ申し込んで
+> **承認されたときにしか効かず**、持ち出せる残高も生まれない。
+>
+> 🚨 **既存の会員は招待リンクを引き受けられない**（`claim_join_invite` が弾く）。
+> ここを緩めると、会員同士で招待し合って毎回 3,800pt で済ませられる。
+> リンクを踏んだ既存会員には「会員コードを伝えてください」と案内が出る。
+
+### 招待リンクの流れ
+
+1. ゲストが「招待して呼ぶ」で申し込む（`pay_mode='invite'`）。
+   → `enforce_group_join` が `join_requests.invite_code` を発行する。
+2. 画面に `https://aisekimatch.com/?invite=XXXXXXXX` が出る。**承認を待たずに送れる。**
+3. 相方が開く → 簡易登録（メール・パスワード → 名前・生年月日・**写真は任意**）。
+4. 確認メールから戻ってログイン → `claim_invite()` が枠を引き受ける。
+5. ホストが承認 → 3,800pt をお預かり → 実体つきの席ができる。
+
+- **承認までに登録が間に合わなくてもリンクは死なない。**
+  `accept_join_request()` が、引き受けられていない招待コードを
+  会の席（`party_members.invite_code`）へ**移し替える**。
+  送ってあるリンクはそのまま `claim_seat` の経路で通る。
+- **見送られた申し込みのリンクは無効になる**（`on_join_request_dead_invite`）。
+
+> 🚨 **`?invite=CODE` のコードの置き場は3か所ある。**
+> `group_members`（ホストのグループ）/ `join_requests`（参加申請の招待）/
+> `party_members`（承認後の席）。振り分けは DB の
+> **`invite_preview()` / `claim_invite()`** が1本で行う。
+> 画面から個別の RPC（`group_invite_preview` / `claim_group_invite` / `claim_seat`）を
+> 直接呼ばないこと。`gen_invite_code()` は3か所すべてと突き合わせてコードを作る。
+
+### 追いかけメール（簡易登録の方の正規会員化）
+
+Vercel の日次 Cron（`vercel.json` の `crons` / **UTC 2:00 ＝ 日本時間 11:00**）が
+`/api/cron/followup` を叩く。登録から1日後・7日後の2通。
+
+- 宛先は `followup_candidates()`（**service_role 専用**。メールアドレスを返すため）。
+  簡易登録・カード未登録・メール確認済みの人だけ。**カードを登録した時点で止まる。**
+- 送る前に `record_followup_email()` で記録を取り、取れたときだけ送る
+  （`followup_emails` の一意制約が二重送信を止める）。**順番を逆にしないこと。**
+- 文面は「カードを登録すると 5,000pt が付いて、自分でも申し込める」。
+
+> ⛔ **`RESEND_API_KEY` を Vercel に入れるまで、この Cron は 503 を返して何も送らない。**
+> Supabase 側の SMTP には Resend のキーが入っているが、
+> Management API の `smtp_pass` は**実値を返さない**（ハッシュ済みの64文字が返る）ので
+> こちらからは取り出せない。**Resend のダッシュボードでキーを作り直して入れること**:
+>
+> ```bash
+> printf '%s' 're_xxxxx' | vercel env add RESEND_API_KEY production --force
+> vercel deploy --prebuilt --prod --yes   # 環境変数は再デプロイまで効かない
+> ```
+>
+> ✅ `CRON_SECRET` は 2026-08-29 に発行して Production と `.env` に入れてある
+> （Vercel が Cron 実行時に `Authorization: Bearer` で送る。手で叩くときも同じ）。
+
+### 触るときの注意
+
+- 🚨 **請求額の出典は `join_charge_of(size, mode)` ひとつ。**
+  画面（`pricing.js` の `myJoinCharge` / `joinChargeBreakdown`）と
+  `accept_join_request()` と `join_charge_preview()` が同じ式を通る。
+  片方だけ直すと「画面に出ていた額」と「実際に引かれた額」がずれる。
+- 🚨 **列単位で grant する前に、テーブル全体の権限を落とすこと。**
+  Supabase の既定で public スキーマの全テーブルに ALL が付いているため、
+  `grant insert (列...)` を並べても、表全体の INSERT が残っていれば意味が無い
+  （`invite_code` を自分で指定して insert できた）。
+  この migration で `revoke select, insert on join_requests` を先に入れた。
+- 🚨 **新しく作った関数は anon から revoke する。**
+  同じく既定で「public スキーマの全関数」に EXECUTE が付く。
+  `grant execute ... to authenticated` を書いても anon は塞がらない。
+- **`platform_revenues.group_size` は「何名分を受け取ったか」。**
+  各自払い・招待割のときは1（金額と辻褄を合わせる）。返金はこの列ではなく
+  `points` の合計で戻すので、`refund_join_payment()` はそのまま使える。
+- **簡易登録の写真は端末に控えてから上げる。** メール確認が済むまで
+  セッションが無く、`avatars` のポリシー（自分のフォルダ）を満たせない。
+  `localStorage` の `aiseki:pendingInvitePhoto` に縮小した data URL を置き、
+  ログインした時点で `App.jsx` が上げる。
+- **お名前の欄は1つだけ**（ニックネーム）。AISEKI は本名を集めない。

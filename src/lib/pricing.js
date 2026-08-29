@@ -48,7 +48,10 @@ export const MIN_GROUP_SIZE = MIN_HOST_GROUP_SIZE;
    支払い方法（相方が既存会員のときだけ選べる）:
      ・各自払い   … 3,800pt ずつ、二人がそれぞれの残高から払う
      ・まとめ払い … 7,600pt を代表者がまとめて払う
-   相方が招待（簡易登録）の場合は、相方に残高が無いのでまとめ払いのみ。
+
+   ・招待して呼ぶ（＝まだ会員でない方を招待リンクで連れてくる）場合は
+     「招待割」として 3,800pt を差し引く。お支払いは 3,800pt。
+     ⚠ 招待はポイントの付与ではなく【割引】。1ptも増えない。
 
    ⚠ 決済のタイミングは「ホストが承認した時点（＝マッチ成立）」。
      リクエストを送っただけでは1ptも動かない（accept_join_request）。
@@ -59,12 +62,29 @@ export const JOIN_FEE_PER_PERSON = 3800;
    DB の billable_guests() / guest_slot_size() と一致させる。 */
 export const BILLABLE_MIN_GUESTS = GUEST_SLOT_SIZE;
 
-/* 1人で参加するときの金額（2名分）。DB の solo_fee() と一致させる。 */
+/* 1人で参加するとき・相方の名前だけを登録するときの金額（2名分）。
+   DB の solo_fee() と一致させる。 */
 export const SOLO_FEE = JOIN_FEE_PER_PERSON * BILLABLE_MIN_GUESTS;
 
-/* 支払い方法。DB の pay_modes() と一致させる。 */
+/* ── 招待割 ───────────────────────────────────────────
+   まだ会員でない方を招待リンクで連れてくるときの【割引額】。
+   参加費 7,600pt − 招待割 3,800pt ＝ お支払い 3,800pt。
+
+   🚨 これは割引であって、ポイントの付与ではない。
+     「招待した人に○○pt進呈」を足すと、アカウントを量産して
+     ポイントだけ抜くことができてしまう（§16 / §17 と同じ形）。
+     DB の invite_discount() と一致させること。
+   ──────────────────────────────────────────────────── */
+export const INVITE_DISCOUNT = 3800;
+
+/* 招待して呼ぶときのお支払い額（表示用。DB でも同じ式で計算する） */
+export const INVITE_FEE = SOLO_FEE - INVITE_DISCOUNT;
+
+/* 支払い方法。DB の pay_modes() と一致させる。
+   'invite' は画面の選択肢ではなく「招待して呼ぶ」を選んだ結果として付く。 */
 export const PAY_MODE_BUNDLE = "bundle";
 export const PAY_MODE_SPLIT = "split";
+export const PAY_MODE_INVITE = "invite";
 export const PAY_MODES = [
   {
     key: PAY_MODE_SPLIT,
@@ -94,9 +114,24 @@ export const billableGuests = (size) =>
 /* 参加グループが支払う合計ポイント */
 export const joinFeeTotal = (size) => JOIN_FEE_PER_PERSON * billableGuests(size);
 
-/* 自分がいくら払うか（各自払いなら半分） */
-export const myJoinCharge = (size, payMode) =>
-  payMode === PAY_MODE_SPLIT ? joinFeeTotal(size) / 2 : joinFeeTotal(size);
+/* 自分がいくら払うか
+     ・各自払い（split）… 半分（3,800pt）。残りは相方の残高から。
+     ・招待（invite）  … 招待割を引いた額（3,800pt）。相方は1ptも払わない。
+     ・まとめ払い       … 全額（7,600pt）
+   DB の join_charge_preview() / accept_join_request() と同じ式にすること。 */
+export const myJoinCharge = (size, payMode) => {
+  const total = joinFeeTotal(size);
+  if (payMode === PAY_MODE_SPLIT) return total / 2;
+  if (payMode === PAY_MODE_INVITE) return Math.max(total - INVITE_DISCOUNT, 0);
+  return total;
+};
+
+/* 表示用の内訳（参加費 / 割引 / お支払い）。金額を出す画面はこれを使う。 */
+export const joinChargeBreakdown = (size, payMode) => {
+  const total = joinFeeTotal(size);
+  const discount = payMode === PAY_MODE_INVITE ? Math.min(INVITE_DISCOUNT, total) : 0;
+  return { total, discount, charge: myJoinCharge(size, payMode) };
+};
 
 /* 登録ボーナス。参加は1人あたり 3,800pt。
 

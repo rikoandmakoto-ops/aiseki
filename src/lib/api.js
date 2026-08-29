@@ -6,8 +6,11 @@ import {
   GUEST_SLOT_SIZE,
   BILLABLE_MIN_GUESTS,
   SOLO_FEE,
+  INVITE_DISCOUNT,
+  INVITE_FEE,
   PAY_MODE_BUNDLE,
   PAY_MODE_SPLIT,
+  PAY_MODE_INVITE,
   PAY_MODES,
   ACCOUNT_FULL,
   ACCOUNT_SIMPLE,
@@ -15,6 +18,7 @@ import {
   billableGuests,
   joinFeeTotal,
   myJoinCharge,
+  joinChargeBreakdown,
   JOIN_FEE_PER_PERSON,
   SIGNUP_BONUS,
   REFERRAL_BONUS,
@@ -62,8 +66,11 @@ export {
   GUEST_SLOT_SIZE,
   BILLABLE_MIN_GUESTS,
   SOLO_FEE,
+  INVITE_DISCOUNT,
+  INVITE_FEE,
   PAY_MODE_BUNDLE,
   PAY_MODE_SPLIT,
+  PAY_MODE_INVITE,
   PAY_MODES,
   ACCOUNT_FULL,
   ACCOUNT_SIMPLE,
@@ -71,6 +78,7 @@ export {
   billableGuests,
   joinFeeTotal,
   myJoinCharge,
+  joinChargeBreakdown,
   JOIN_FEE_PER_PERSON,
   SIGNUP_BONUS,
   REFERRAL_BONUS,
@@ -629,6 +637,46 @@ export async function makeBlurredImage(file) {
   return new File([blob], "blur.jpg", { type: "image/jpeg" });
 }
 
+/* ── 登録前に選んだ写真を、端末に控えておくための変換 ────────────
+   招待リンクからの簡易登録は、メール確認が済むまでセッションが無い。
+   その場ではストレージへ上げられない（avatars のポリシーが auth.uid() の
+   フォルダを要求する）ので、いったん小さくして端末に控え、
+   確認メールから戻ってログインした時点で上げる（App.jsx）。
+   ⚠ 縮小しないと localStorage の容量（数MB）に収まらない。
+   ──────────────────────────────────────────────────────── */
+const PENDING_PHOTO_WIDTH = 720;
+
+export async function shrinkImageFile(file, maxWidth = PENDING_PHOTO_WIDTH) {
+  if (!file) throw new Error("画像を選択してください。");
+  if (!AVATAR_MIME.includes(file.type)) {
+    throw new Error("画像は JPEG・PNG・WebP のいずれかを選択してください。");
+  }
+  const img = await loadImage(file);
+  const w = Math.min(img.width || maxWidth, maxWidth);
+  const h = Math.max(1, Math.round(w * ((img.height / img.width) || 1)));
+  const canvas = document.createElement("canvas");
+  canvas.width = w; canvas.height = h;
+  canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+  const blob = await new Promise((res) => canvas.toBlob(res, "image/jpeg", 0.82));
+  if (!blob) throw new Error("画像を読み込めませんでした。");
+  return new File([blob], "photo.jpg", { type: "image/jpeg" });
+}
+
+export function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result || ""));
+    r.onerror = () => reject(new Error("画像を読み込めませんでした。"));
+    r.readAsDataURL(file);
+  });
+}
+
+export async function dataUrlToFile(dataUrl, name = "photo.jpg") {
+  const res = await fetch(dataUrl);
+  const blob = await res.blob();
+  return new File([blob], name, { type: blob.type || "image/jpeg" });
+}
+
 /* 写真を1枚アップロードして、素の画像とぼかし画像の両方のURLを返す。
    ぼかしの生成に失敗しても登録自体は通す（blurUrl が null になる）。 */
 export async function uploadAvatarPair(userId, file) {
@@ -1067,40 +1115,73 @@ export async function removeGroupMember(memberId) {
   if (error) throw wrapNewFlowError(error);
 }
 
+/* ── 招待リンク（?invite=CODE）─────────────────────────────
+   コードの置き場は3か所ある。リンクは1本なので、DB 側が振り分ける。
+     group … ホストが友達を集めるグループの枠
+     join  … 参加申請の「招待して呼ぶ」（承認前）
+     seat  … 会の席（承認後・未登録の同伴者）
+   ⚠ 個別の RPC（group_invite_preview / claim_group_invite / claim_seat）は
+     そのまま残してあるが、画面からは invitePreview / claimInvite を使うこと。
+   ──────────────────────────────────────────────────────── */
+
 /* 招待リンクを開いた人に見せる情報。まだ登録していない人も呼べる。
-   返るのは「誰のグループか」だけで、プロフィールは含まれない。 */
-export async function groupInvitePreview(code) {
-  const { data, error } = await supabase.rpc("group_invite_preview", {
+   返るのは「誰に招かれたか」だけで、プロフィールは含まれない。 */
+export async function invitePreview(code) {
+  const { data, error } = await supabase.rpc("invite_preview", {
     p_code: String(code || "").trim().toUpperCase(),
   });
-  if (error) throw wrapNewFlowError(error);
-  return data ?? null;   // { group_name, owner_name, display_name, claimed }
+  if (error) throw wrapInviteError(error);
+  return data ?? null;   // { kind, group_name, owner_name, display_name, claimed }
 }
 
 /* 簡易登録の直後に呼ぶ。招待された枠を自分のアカウントで引き受ける。 */
-export async function claimGroupInvite(code) {
-  const { data, error } = await supabase.rpc("claim_group_invite", {
+export async function claimInvite(code) {
+  const { data, error } = await supabase.rpc("claim_invite", {
     p_code: String(code || "").trim().toUpperCase(),
   });
-  if (error) throw wrapNewFlowError(error);
-  return data;   // { group_id }
+  if (error) throw wrapInviteError(error);
+  return data;   // { kind, group_id | party_id }
+}
+
+/* migration_invite_discount.sql が未適用のときに分かりやすいエラーへ変換する */
+function wrapInviteError(error) {
+  const msg = error?.message || "";
+  if (/invite_preview|claim_invite|my_join_invite|invite_discount|join_charge_of|schema cache/i.test(msg)) {
+    return new Error(
+      "この機能に必要なデータベースの更新がまだ適用されていません。" +
+      "supabase/migration_invite_discount.sql を実行してください。"
+    );
+  }
+  return wrapNewFlowError(error);
 }
 
 /* 卓を立てられるグループ（人数がそろっているもの）だけを返す */
 export const groupIsReady = (group) =>
   (group?.members?.length ?? 0) >= MIN_HOST_GROUP_SIZE;
 
-/* 招待リンクの URL。登録画面まで一気に運ぶ。 */
-export function groupInviteUrl(code) {
+/* 招待リンクの URL。登録画面まで一気に運ぶ（3種のコードで共通）。 */
+export function inviteUrl(code) {
   const origin = typeof window === "undefined" ? "https://aisekimatch.com" : window.location.origin;
   return `${origin}/?invite=${encodeURIComponent(code)}`;
 }
+export const groupInviteUrl = inviteUrl;
 
 export function groupInviteShareText(code, ownerName) {
   return (
     `${ownerName || "友だち"}さんから AISEKI（大人のグループ相席）のグループに招待されました。\n` +
     "お名前・年齢確認・写真だけの簡単な登録で参加できます（費用はかかりません）。\n" +
-    groupInviteUrl(code)
+    inviteUrl(code)
+  );
+}
+
+/* 参加申請の「招待して呼ぶ」で相方に送る文面。
+   ⚠ 相方は1ptも払わない（割引を受けるのは申し込んだ側）。誤解が出ないように書く。 */
+export function joinInviteShareText(code, myName, partyTitle) {
+  return (
+    `${myName || "友だち"}さんから AISEKI（大人のグループ相席）の相席にお誘いがあります。\n` +
+    (partyTitle ? `会: ${partyTitle}\n` : "") +
+    "お名前・年齢確認・お写真だけの簡単な登録でご参加いただけます（費用はかかりません）。\n" +
+    inviteUrl(code)
   );
 }
 
@@ -1157,10 +1238,12 @@ export async function listMyParties(userId) {
 /* ====================== Join requests ======================== */
 // グループ単位の参加リクエスト（募集側＝ホストは無料。ポイントは承認時に消費される）
 // 同伴者の表示名も一緒に送るが、承認されるまでホストには渡らない（列単位で遮断）。
-/* 参加リクエスト。
-     ・既定は2名。1名でも申し込める（その場合も2名分＝SOLO_FEE をお支払いいただく）
-     ・相方が既存会員なら partnerId を指定し、各自払い／まとめ払いを選べる
-     ・相方が招待（簡易登録）なら memberNames に名前を入れる → まとめ払いのみ
+/* 参加リクエスト。導線は3つ（画面の並びと同じ）。
+     ・既存の会員と参加 … partnerId を指定。各自払い／まとめ払いを選べる
+     ・招待して呼ぶ     … payMode を 'invite' に。招待割 3,800pt が引かれ、
+                          送信後に招待リンクが発行される（myJoinInvite）
+     ・相方は登録しない … 名前だけ memberNames に入れる／1名で申し込む。
+                          どちらも 7,600pt
 
    ⚠ この時点では1ptも動かない。決済はホストが承認した時点（マッチ成立）。 */
 export async function sendJoinRequest(
@@ -1171,9 +1254,13 @@ export async function sendJoinRequest(
   if (!(size >= MIN_GUEST_GROUP_SIZE)) {
     throw new Error("参加人数を選んでください。");
   }
-  const mode = payMode === PAY_MODE_SPLIT ? PAY_MODE_SPLIT : PAY_MODE_BUNDLE;
+  const mode = [PAY_MODE_SPLIT, PAY_MODE_INVITE].includes(payMode) ? payMode : PAY_MODE_BUNDLE;
   if (mode === PAY_MODE_SPLIT && !partnerId) {
     throw new Error("各自払いは、相方が既存の会員のときにのみ選べます。");
+  }
+  if (mode === PAY_MODE_INVITE) {
+    if (partnerId) throw new Error("招待して呼ぶ場合、相方の会員コードは指定できません。");
+    if (size !== 2) throw new Error("招待して呼ぶ場合は2名でお申し込みください。");
   }
   if (partnerId && size !== 2) {
     throw new Error("相方を指定するときは2名でお申し込みください。");
@@ -1215,10 +1302,19 @@ export async function findPartnerByCode(code) {
 export async function getJoinChargePreview(groupSize, payMode) {
   const { data, error } = await supabase.rpc("join_charge_preview", {
     p_size: Number(groupSize) || 1,
-    p_mode: payMode === PAY_MODE_SPLIT ? PAY_MODE_SPLIT : PAY_MODE_BUNDLE,
+    p_mode: [PAY_MODE_SPLIT, PAY_MODE_INVITE].includes(payMode) ? payMode : PAY_MODE_BUNDLE,
   });
   if (error) throw wrapNewFlowError(error);
-  return data;   // { group_size, billable_size, total, per_person, my_charge, my_balance }
+  // { group_size, billable_size, total, per_person, discount, my_charge, my_balance }
+  return data;
+}
+
+/* 「招待して呼ぶ」で申し込んだあとに発行される招待リンク。
+   コードはテーブルから直接読めない（自分の申し込みの分だけ RPC が返す）。 */
+export async function getMyJoinInvite(partyId) {
+  const { data, error } = await supabase.rpc("my_join_invite", { p_party: partyId });
+  if (error) throw wrapInviteError(error);
+  return data ?? null;   // { request_id, status, invite_code, claimed, invited_name }
 }
 
 /* この会に自分が申し込めるか（会が参加者に求めるランクを満たしているか）。

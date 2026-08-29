@@ -49,6 +49,7 @@
       "headers": [{ "key": "Cache-Control", "value": "no-store, max-age=0" }]
     }
   ],
+  "crons": [{ "path": "/api/cron/followup", "schedule": "0 2 * * *" }],
   "redirects": [
     { "source": "/lp/women", "destination": "/lp/host", "permanent": true },
     { "source": "/lp/men", "destination": "/lp/guest", "permanent": true },

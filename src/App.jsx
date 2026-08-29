@@ -876,6 +876,12 @@ const HomeScreen = ({ user, onDetail, onCreate }) => {
             const size = Math.max(1, r.group_size ?? api.GUEST_SLOT_SIZE);
             const billable = r.billable_size ?? api.billableGuests(size);
             const split = r.pay_mode === api.PAY_MODE_SPLIT;
+            const invited = r.pay_mode === api.PAY_MODE_INVITE;
+            /* 実際に運営が受け取る額。招待割の分だけ少なくなる
+               （各自払いは2人から半分ずつなので合計は変わらない）。 */
+            const taken = invited
+              ? api.myJoinCharge(size, api.PAY_MODE_INVITE)
+              : api.joinFeeFor(size);
             return (
               <div key={r.id} className="rise" style={{ ...card, padding: 16, marginBottom: 10, animationDelay: `${i * 60}ms`,
                 background: "linear-gradient(135deg, rgba(168,32,58,0.30), rgba(232,201,135,0.07))", border: `1px solid ${C.linePrimary}` }}>
@@ -902,9 +908,10 @@ const HomeScreen = ({ user, onDetail, onCreate }) => {
                   )}
                 </div>
                 <div style={{ fontSize: 11.5, color: C.textSec, marginBottom: 7, display: "inline-flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
-                  <Gem size={12} strokeWidth={1.8} color={C.primary} /> 承認すると <b style={{ color: C.primaryDeep }}>{api.joinFeeFor(size).toLocaleString()}pt</b> をお預かりします
+                  <Gem size={12} strokeWidth={1.8} color={C.primary} /> 承認すると <b style={{ color: C.primaryDeep }}>{taken.toLocaleString()}pt</b> をお預かりします
                   <span style={{ color: C.textMuted }}>
-                    （{feeText()}pt × {billable}名分{split ? " · 各自払い" : ""}）
+                    （{feeText()}pt × {billable}名分{split ? " · 各自払い" : ""}
+                    {invited ? ` · 招待割 -${api.INVITE_DISCOUNT.toLocaleString()}pt` : ""}）
                   </span>
                 </div>
                 <div style={{ fontSize: 10.5, color: C.textMuted, marginBottom: 9, lineHeight: 1.6 }}>
@@ -1004,16 +1011,24 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [sending, setSending] = useState(false);
-  /* ── 参加申請（2026-08-28 の新フロー）──────────────
-     既定は2名。相方は「招待（簡易登録）」か「既存会員」を指定する。
-     下部の小さな導線から1人でも申し込める（その場合も2名分をお支払い）。 */
-  const [groupSize, setGroupSize] = useState(api.GUEST_SLOT_SIZE);
-  const [guestNames, setGuestNames] = useState([]);      // 招待する相方のニックネーム
-  const [partnerMode, setPartnerMode] = useState("invite"); // 'invite' | 'member'
+  /* ── 参加申請（2026-08-29 に3つの導線へ整理）──────────────
+       'member' … 既存の会員と参加（既定）。会員コードで相方を指定し、
+                  各自払い（3,800ptずつ）／まとめ払い（7,600pt）を選ぶ
+       'invite' … 招待して呼ぶ。招待リンクを発行する。
+                  参加費 7,600pt − 招待割 3,800pt ＝ お支払い 3,800pt
+       'named'  … 相方の名前だけを登録（アカウントなし）… 7,600pt
+       'solo'   … 1人で参加申請 … 7,600pt
+     'named' / 'solo' は下部の小さな導線から選ぶ。
+     ⚠ 金額の出典は pricing.js（DB の join_charge_of と同じ式）。 */
+  const [joinMode, setJoinMode] = useState("member");
+  const [soloOpen, setSoloOpen] = useState(false);       // 下部の2択を開いているか
+  const [partnerName, setPartnerName] = useState("");    // 'named' の相方の名前
   const [partner, setPartner] = useState(null);          // { user_id, username }
   const [partnerCode, setPartnerCode] = useState("");
   const [lookingUp, setLookingUp] = useState(false);
   const [payMode, setPayMode] = useState(api.PAY_MODE_BUNDLE);
+  const [joinInvite, setJoinInvite] = useState(null);    // 発行済みの招待リンク
+  const [copied, setCopied] = useState("");
   const [hostPreview, setHostPreview] = useState(null);  // マッチ前はぼかし写真
   const [cancelling, setCancelling] = useState(false);
   const [openMember, setOpenMember] = useState(null);    // プロフィールを開いているメンバー
@@ -1038,6 +1053,15 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
     setMembers(ms);
     setBalance(bal);
     setReqStatus(req?.status ?? null);
+
+    /* 「招待して呼ぶ」で申し込んでいれば、発行済みのリンクを取る
+       （コードはテーブルから読めない。自分の分だけ RPC が返す）。 */
+    if (req?.status === "pending" || req?.status === "accepted") {
+      try { setJoinInvite(await api.getMyJoinInvite(partyId)); }
+      catch (e) { console.error(e); setJoinInvite(null); }
+    } else {
+      setJoinInvite(null);
+    }
 
     /* ホストの見え方。マッチが成立するまでは、サーバが「ぼかした別画像」
        だけを返す（素の写真の URL はそもそも渡ってこない）。 */
@@ -1117,26 +1141,61 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
     return () => { alive = false; };
   }, [load, reloadKey]);
 
+  /* 実際に使う支払い方式。画面の選択（joinMode）から決まる。
+     ⚠ 表示にも送信にも同じ値を使う。片方だけ変えると、
+       画面に出ている額と実際に引かれる額がずれる。 */
+  const effectivePayMode =
+    joinMode === "invite" ? api.PAY_MODE_INVITE
+      : joinMode === "member" && partner ? payMode
+        : api.PAY_MODE_BUNDLE;
+
   /* リクエストを送るだけ。この時点では1ptも動かない
      （決済はホストが承認した時点＝マッチ成立）。 */
   const sendRequest = async () => {
-    const usingMember = groupSize === 2 && partnerMode === "member";
-    if (usingMember && !partner) {
+    if (joinMode === "member" && !partner) {
       toast.error("相方の会員コードを確認してください。");
+      return;
+    }
+    if (joinMode === "named" && !partnerName.trim()) {
+      toast.error("相方のお名前を入力してください。");
       return;
     }
     setSending(true);
     try {
-      await api.sendJoinRequest(user.id, party.id, groupSize, guestNames, {
-        partnerId: usingMember ? partner.user_id : null,
-        payMode: usingMember ? payMode : api.PAY_MODE_BUNDLE,
-      });
+      await api.sendJoinRequest(
+        user.id, party.id,
+        joinMode === "solo" ? 1 : 2,
+        joinMode === "named" ? [partnerName.trim()] : [],
+        {
+          partnerId: joinMode === "member" ? partner.user_id : null,
+          payMode: effectivePayMode,
+        }
+      );
       setReqStatus("pending");
-      toast.success("参加リクエストを送りました。ホストの承認をお待ちください。ポイントは承認された時点でお預かりします。");
+      if (joinMode === "invite") {
+        /* 招待リンクはサーバが発行する。すぐ送れるよう、その場で取りに行く。 */
+        try { setJoinInvite(await api.getMyJoinInvite(party.id)); }
+        catch (e) { console.error(e); }
+        toast.success("参加リクエストを送りました。下の招待リンクを相方にお送りください。");
+      } else {
+        toast.success("参加リクエストを送りました。ホストの承認をお待ちください。ポイントは承認された時点でお預かりします。");
+      }
     } catch (e) {
       toast.error("リクエスト送信に失敗しました: " + e.message);
     } finally {
       setSending(false);
+    }
+  };
+
+  /* 招待リンクをコピーする（クリップボードが使えない環境では文言を出す） */
+  const copyInvite = async (text, key) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(key);
+      setTimeout(() => setCopied(""), 1800);
+      toast.success("招待リンクをコピーしました。");
+    } catch {
+      toast.info(text);
     }
   };
 
@@ -1245,12 +1304,14 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
 
   const { host: hostGroup, guest: guestGroup } = groupSizes(party);
   const seatsLeft = Math.max(0, party.max_members - party.current_members);
+  /* 申し込む人数。1人参加のときだけ1名（それでも課金は2名分）。 */
+  const groupSize = joinMode === "solo" ? 1 : 2;
   /* 相方が既存会員のときだけ「各自払い」を選べる。
-     招待（簡易登録）の相方は自分の残高を持たないため、まとめ払いのみ。 */
-  const partnerIsMember = groupSize === 2 && partnerMode === "member" && !!partner;
-  const effectivePayMode = partnerIsMember ? payMode : api.PAY_MODE_BUNDLE;
-  const cost = api.joinFeeFor(groupSize);                   // グループ合計（1名でも2名分）
-  const myCost = api.myJoinCharge(groupSize, effectivePayMode);
+     招待（簡易登録）の相方は自分の残高を持たないため、割引での申し込みになる。 */
+  const partnerIsMember = joinMode === "member" && !!partner;
+  /* 参加費・割引・お支払いの内訳。DB の join_charge_of() と同じ式。 */
+  const { total: cost, discount, charge: myCost } =
+    api.joinChargeBreakdown(groupSize, effectivePayMode);
   const isHost = party.host_id === user.id;
   const isMember = members.some((m) => m.user_id === user.id);
   const canSeeMembers = isHost || isMember;                 // 承認後のみ個人プロフィールを表示
@@ -1652,24 +1713,25 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
 
           {!cancelled && !isHost && !isMember && !rankLocked && reqStatus !== "accepted" && reqStatus !== "pending" && !isFull && (
             <>
-              {/* ── 相方 ────────────────────────────────
-                  既定は2名。相方は「招待リンク（簡易登録）」か
-                  「既存会員（会員コードで指定）」のどちらか。 */}
-              {groupSize === 2 && (
+              {/* ── 相方の決め方 ──────────────────────────
+                  左（既定）… 既存の会員と参加。会員コードで指定する
+                  右        … 招待して呼ぶ。招待リンクを発行する（招待割）
+                  相方を登録しない2つは、下部の小さな導線から選ぶ。 */}
+              {(joinMode === "member" || joinMode === "invite") && (
                 <div style={{ marginBottom: 14 }}>
                   <label style={labelStyle}>一緒に参加する相方</label>
                   <div style={{ display: "flex", gap: 8, marginBottom: 11 }}>
                     {[
+                      { key: "member", label: "既存の会員と参加", icon: Users },
                       { key: "invite", label: "招待して呼ぶ", icon: UserPlus },
-                      { key: "member", label: "既存の会員", icon: Users },
                     ].map((m) => {
-                      const on = partnerMode === m.key;
+                      const on = joinMode === m.key;
                       return (
                         <button key={m.key} type="button" className="chip"
-                          onClick={() => { setPartnerMode(m.key); if (m.key === "invite") setPartner(null); }}
+                          onClick={() => { setJoinMode(m.key); if (m.key === "invite") setPartner(null); }}
                           style={{
-                            flex: 1, padding: "10px 0", borderRadius: 999, fontSize: 12.5, fontWeight: 700, cursor: "pointer",
-                            display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
+                            flex: 1, padding: "10px 0", borderRadius: 999, fontSize: 12, fontWeight: 700, cursor: "pointer",
+                            display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 5,
                             ...(on ? popBtn : ghostBtn),
                           }}>
                           <m.icon size={13} strokeWidth={2.2} /> {m.label}
@@ -1678,56 +1740,108 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
                     })}
                   </div>
 
-                  {partnerMode === "invite" ? (
+                  {joinMode === "member" ? (
+                    partner ? (
+                      <div style={{
+                        display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", borderRadius: 14,
+                        background: "rgba(232,201,135,0.09)", border: `1px solid ${C.linePrimary}`,
+                      }}>
+                        <Check size={15} strokeWidth={2.6} color={C.primary} style={{ flexShrink: 0 }} />
+                        <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 700, color: C.text }}>
+                          {partner.username} さん
+                        </span>
+                        <button className="press" onClick={() => { setPartner(null); setPartnerCode(""); }} style={{
+                          ...ghostBtn, padding: "6px 12px", borderRadius: 999, fontSize: 11, flexShrink: 0,
+                        }}>変更</button>
+                      </div>
+                    ) : (
+                      <>
+                        <div style={{ display: "flex", gap: 9 }}>
+                          <input
+                            value={partnerCode}
+                            onChange={(e) => setPartnerCode(e.target.value.toUpperCase())}
+                            onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) { e.preventDefault(); lookupPartner(); } }}
+                            maxLength={12}
+                            placeholder="相方の会員コード"
+                            aria-label="相方の会員コード"
+                            style={{ ...fieldStyle, letterSpacing: 1.5, fontFamily: FONT_DISPLAY }}
+                          />
+                          <button className="press" onClick={lookupPartner} disabled={lookingUp || !partnerCode.trim()} style={{
+                            ...popBtn, padding: "0 18px", borderRadius: 999, fontSize: 13, flexShrink: 0,
+                            opacity: lookingUp || !partnerCode.trim() ? 0.5 : 1,
+                          }}>{lookingUp ? "確認中…" : "確認"}</button>
+                        </div>
+                        <div style={{ fontSize: 10.5, color: C.textMuted, marginTop: 8, lineHeight: 1.7 }}>
+                          相方の会員コードは、相方のマイページ「友達を招待」に表示されています。
+                          お支払いは<b style={{ color: C.primaryDeep, fontWeight: 700 }}>各自払い</b>と
+                          <b style={{ color: C.primaryDeep, fontWeight: 700 }}>まとめ払い</b>から選べます。
+                        </div>
+                      </>
+                    )
+                  ) : (
+                    /* 招待して呼ぶ。リンクはサーバが発行する（申し込みと同時）。 */
+                    <div style={{
+                      borderRadius: 14, padding: "13px 15px",
+                      background: "rgba(232,201,135,0.07)", border: `1px solid ${C.linePrimary}`,
+                    }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, fontWeight: 700, color: C.text }}>
+                        <Ticket size={14} strokeWidth={2} color={C.primary} />
+                        招待リンクを発行してお誘いします
+                      </div>
+                      <div style={{ fontSize: 10.5, color: C.textMuted, marginTop: 7, lineHeight: 1.75 }}>
+                        申し込むとリンクが発行されます。相方はメールアドレスとパスワード、
+                        お名前・年齢・お写真（任意）だけの<b style={{ color: C.textSec, fontWeight: 700 }}>かんたんな登録</b>で参加できます。
+                        <br />
+                        <b style={{ color: C.primaryDeep, fontWeight: 700 }}>招待割</b>として
+                        {api.INVITE_DISCOUNT.toLocaleString()}pt を差し引き、お支払いは
+                        <b style={{ color: C.primaryDeep, fontWeight: 700 }}>{api.INVITE_FEE.toLocaleString()}pt</b>です
+                        （相方のお支払いはありません）。
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── 相方を登録しないで申し込む（下部の導線から選んだ状態）── */}
+              {(joinMode === "named" || joinMode === "solo") && (
+                <div style={{ marginBottom: 14 }}>
+                  <label style={labelStyle}>
+                    {joinMode === "named" ? "相方のお名前" : "お一人での参加"}
+                  </label>
+                  {joinMode === "named" ? (
                     <>
                       <input
-                        value={guestNames[0] ?? ""}
-                        onChange={(e) => setGuestNames([e.target.value])}
+                        value={partnerName}
+                        onChange={(e) => setPartnerName(e.target.value)}
                         maxLength={api.LIMITS.username}
-                        placeholder="相方のニックネーム"
+                        placeholder="例: ゆうと"
                         style={fieldStyle}
                       />
                       <div style={{ fontSize: 10.5, color: C.textMuted, marginTop: 8, lineHeight: 1.7 }}>
-                        承認されると相方の席が確保され、招待コードが表示されます。
-                        相方はお名前・年齢確認・お写真だけの簡単な登録でグループチャットに参加できます。
-                        お支払いは<b style={{ color: C.primaryDeep, fontWeight: 700 }}>あなたがまとめて</b>お預かりします。
+                        相方のアカウント登録はありません。当日の席をお名前でお取りします
+                        （グループチャットには参加できません）。
+                        お支払いは<b style={{ color: C.primaryDeep, fontWeight: 700 }}>あなたが{api.SOLO_FEE.toLocaleString()}pt</b>です。
                       </div>
                     </>
-                  ) : partner ? (
-                    <div style={{
-                      display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", borderRadius: 14,
-                      background: "rgba(232,201,135,0.09)", border: `1px solid ${C.linePrimary}`,
-                    }}>
-                      <Check size={15} strokeWidth={2.6} color={C.primary} style={{ flexShrink: 0 }} />
-                      <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 700, color: C.text }}>
-                        {partner.username} さん
-                      </span>
-                      <button className="press" onClick={() => { setPartner(null); setPartnerCode(""); }} style={{
-                        ...ghostBtn, padding: "6px 12px", borderRadius: 999, fontSize: 11, flexShrink: 0,
-                      }}>変更</button>
-                    </div>
                   ) : (
-                    <>
-                      <div style={{ display: "flex", gap: 9 }}>
-                        <input
-                          value={partnerCode}
-                          onChange={(e) => setPartnerCode(e.target.value.toUpperCase())}
-                          maxLength={12}
-                          placeholder="相方の会員コード"
-                          aria-label="相方の会員コード"
-                          style={{ ...fieldStyle, letterSpacing: 1.5, fontFamily: FONT_DISPLAY }}
-                        />
-                        <button className="press" onClick={lookupPartner} disabled={lookingUp || !partnerCode.trim()} style={{
-                          ...popBtn, padding: "0 18px", borderRadius: 999, fontSize: 13, flexShrink: 0,
-                          opacity: lookingUp || !partnerCode.trim() ? 0.5 : 1,
-                        }}>{lookingUp ? "確認中…" : "確認"}</button>
-                      </div>
-                      <div style={{ fontSize: 10.5, color: C.textMuted, marginTop: 8, lineHeight: 1.7 }}>
-                        相方の会員コードは、相方のマイページ「友達を招待」に表示されています。
-                        既存の会員なら、お支払いを<b style={{ color: C.primaryDeep, fontWeight: 700 }}>各自払い</b>にもできます。
-                      </div>
-                    </>
+                    <div style={{
+                      borderRadius: 14, padding: "13px 15px",
+                      background: "rgba(255,255,255,0.03)", border: `1px solid ${C.line}`,
+                      fontSize: 10.5, color: C.textMuted, lineHeight: 1.75,
+                    }}>
+                      お一人でお申し込みになります。ホストグループは{hostGroup}名なので、
+                      1対1の席になることはありません。
+                      お席は{api.GUEST_SLOT_SIZE}名分をお取りするため、お支払いは
+                      <b style={{ color: C.primaryDeep, fontWeight: 700 }}>{api.SOLO_FEE.toLocaleString()}pt</b>です。
+                    </div>
                   )}
+                  <button className="press" onClick={() => { setJoinMode("member"); setSoloOpen(false); }} style={{
+                    background: "none", border: "none", cursor: "pointer", padding: "10px 0 0",
+                    fontSize: 11.5, color: C.primaryDeep, letterSpacing: 0.3,
+                    display: "inline-flex", alignItems: "center", gap: 6,
+                  }}>
+                    <Users size={12} strokeWidth={2} /> 相方を指定して申し込む
+                  </button>
                 </div>
               )}
 
@@ -1764,23 +1878,55 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
                 </div>
               )}
 
+              {/* ── 金額の内訳 ────────────────────────────
+                  参加費 → 割引 → お支払い の順に出す。
+                  金額の出典は pricing.js（DB の join_charge_of と同じ式）。 */}
               <div style={{
                 borderRadius: 16, padding: 18, marginBottom: 18, position: "relative", overflow: "hidden",
                 background: "linear-gradient(135deg, rgba(168,32,58,0.28), rgba(232,201,135,0.10))",
                 border: `1px solid ${C.linePrimary}`,
               }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 11.5, color: C.textSec }}>
+                  <span>参加費</span>
+                  <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13 }}>
+                    {cost.toLocaleString()} pt
+                  </span>
+                </div>
+                {discount > 0 && (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 11.5, color: C.primaryDeep, marginTop: 6 }}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontWeight: 700 }}>
+                      <Ticket size={12} strokeWidth={2.2} /> 招待割
+                    </span>
+                    <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13 }}>
+                      -{discount.toLocaleString()} pt
+                    </span>
+                  </div>
+                )}
+                {effectivePayMode === api.PAY_MODE_SPLIT && (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 11.5, color: C.textSec, marginTop: 6 }}>
+                    <span>各自払い（相方のお支払い）</span>
+                    <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13 }}>
+                      -{(cost - myCost).toLocaleString()} pt
+                    </span>
+                  </div>
+                )}
+
+                <div style={{ height: 1, background: C.lineSoft, margin: "12px 0 11px" }} />
+
                 <div style={{ fontSize: 10.5, color: C.textSec, fontWeight: 800, marginBottom: 6, letterSpacing: 0.2 }}>
-                  {effectivePayMode === api.PAY_MODE_SPLIT ? "あなたのお支払い（各自払い）" : "あなたのお支払い（グループ合計）"}
+                  お支払い
                 </div>
                 <div style={{ fontSize: 32, fontWeight: 700, fontFamily: FONT_DISPLAY, lineHeight: 1, ...brandText }}>
                   {myCost.toLocaleString()}<span style={{ fontSize: 15, fontFamily: FONT_BODY, fontWeight: 600 }}> pt</span>
                 </div>
                 <div style={{ fontSize: 11, color: C.textSec, marginTop: 6 }}>
-                  {groupSize === 1
-                    ? `お一人でのご参加は ${api.GUEST_SLOT_SIZE}名分（${feeText()}pt × ${api.GUEST_SLOT_SIZE}）です`
-                    : effectivePayMode === api.PAY_MODE_SPLIT
-                      ? `お二人で合計 ${cost.toLocaleString()}pt（${feeText()}pt ずつ）`
-                      : `一律 ${feeText()}pt × ${api.GUEST_SLOT_SIZE}名`}
+                  {joinMode === "solo"
+                    ? `お一人でのご参加も ${api.GUEST_SLOT_SIZE}名分（${feeText()}pt × ${api.GUEST_SLOT_SIZE}）です`
+                    : joinMode === "invite"
+                      ? "相方（ご招待の方）のお支払いはありません"
+                      : effectivePayMode === api.PAY_MODE_SPLIT
+                        ? `お二人で合計 ${cost.toLocaleString()}pt（${feeText()}pt ずつ）`
+                        : `一律 ${feeText()}pt × ${api.GUEST_SLOT_SIZE}名`}
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 9, paddingTop: 9, borderTop: `1px solid ${C.lineSoft}` }}>
                   <span style={{ fontSize: 11, color: C.textSec }}>現在の残高</span>
@@ -1810,31 +1956,106 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
                 </div>
               </div>
 
-              {/* ── 1人で参加する ──────────────────────
+              {/* ── 相方は登録しない ───────────────────────
                   裏技的な位置づけなので、目立たせず、必ず見つかる場所に置く。
-                  料金は2名分（SOLO_FEE）で、枠も2名分を押さえる。 */}
-              <div style={{ textAlign: "center", marginBottom: 16 }}>
-                {groupSize === 1 ? (
-                  <button className="press" onClick={() => setGroupSize(api.GUEST_SLOT_SIZE)} style={{
-                    background: "none", border: "none", cursor: "pointer", padding: "6px 10px",
-                    fontSize: 11.5, color: C.primaryDeep, letterSpacing: 0.3,
-                    display: "inline-flex", alignItems: "center", gap: 6,
-                  }}>
-                    <Users size={12} strokeWidth={2} /> 相方と2人で参加する
-                  </button>
-                ) : (
-                  <button className="press"
-                    onClick={() => { setGroupSize(1); setPartner(null); setGuestNames([]); setPayMode(api.PAY_MODE_BUNDLE); }}
-                    style={{
+                  どちらを選んでも {api.SOLO_FEE}pt（2名分）。 */}
+              {(joinMode === "member" || joinMode === "invite") && (
+                <div style={{ textAlign: "center", marginBottom: 16 }}>
+                  {soloOpen ? (
+                    <div style={{ display: "grid", gap: 7, textAlign: "left" }}>
+                      {[
+                        { key: "named", label: "相方の名前を入れる", note: "アカウント登録なし。お名前で席をお取りします", icon: UserPlus },
+                        { key: "solo", label: "1人で参加申請を出す", note: "お一人でお申し込みになります", icon: User },
+                      ].map((o) => (
+                        <button key={o.key} type="button" className="press"
+                          onClick={() => { setJoinMode(o.key); setPartner(null); setPayMode(api.PAY_MODE_BUNDLE); }}
+                          style={{
+                            ...ghostBtn, borderRadius: 14, padding: "12px 14px", cursor: "pointer",
+                            display: "flex", alignItems: "center", gap: 10, textAlign: "left",
+                          }}>
+                          <o.icon size={14} strokeWidth={2} color={C.primaryDeep} style={{ flexShrink: 0 }} />
+                          <span style={{ minWidth: 0, flex: 1 }}>
+                            <span style={{ display: "block", fontSize: 12.5, fontWeight: 700, color: C.text }}>{o.label}</span>
+                            <span style={{ display: "block", fontSize: 10.5, color: C.textMuted, lineHeight: 1.6, marginTop: 2 }}>
+                              {o.note}
+                            </span>
+                          </span>
+                          <span style={{ flexShrink: 0, fontSize: 11.5, fontWeight: 700, fontFamily: FONT_DISPLAY, color: C.textSec }}>
+                            {api.SOLO_FEE.toLocaleString()}pt
+                          </span>
+                        </button>
+                      ))}
+                      <button className="press" onClick={() => setSoloOpen(false)} style={{
+                        background: "none", border: "none", cursor: "pointer", padding: "4px 0",
+                        fontSize: 11, color: C.textMuted, letterSpacing: 0.3,
+                      }}>閉じる</button>
+                    </div>
+                  ) : (
+                    <button className="press" onClick={() => setSoloOpen(true)} style={{
                       background: "none", border: "none", cursor: "pointer", padding: "6px 10px",
                       fontSize: 11, color: C.textMuted, letterSpacing: 0.3,
                       display: "inline-flex", alignItems: "center", gap: 6,
                     }}>
-                    <User size={11} strokeWidth={1.9} /> 1人で参加する（{api.SOLO_FEE.toLocaleString()}pt）
-                  </button>
-                )}
-              </div>
+                      <User size={11} strokeWidth={1.9} /> 相方は登録しない / 1人で参加申請をする
+                    </button>
+                  )}
+                </div>
+              )}
             </>
+          )}
+
+          {/* ── 発行済みの招待リンク（「招待して呼ぶ」で申し込んだとき）──
+              承認前でも送れる。承認までに登録が間に合わなくても、
+              同じコードが会の席へ引き継がれるのでリンクは生き続ける
+              （accept_join_request）。 */}
+          {joinInvite?.invite_code && !joinInvite.claimed && (
+            <div style={{
+              borderRadius: 16, padding: "15px 16px", marginBottom: 16,
+              background: "rgba(232,201,135,0.09)", border: `1px solid ${C.linePrimary}`,
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, fontWeight: 700, color: C.text }}>
+                <Ticket size={14} strokeWidth={2} color={C.primary} /> 相方への招待リンク
+              </div>
+              <div style={{ fontSize: 10.5, color: C.textMuted, marginTop: 6, lineHeight: 1.7 }}>
+                このリンクを相方にお送りください。かんたんな登録でご参加いただけます
+                （相方のお支払いはありません）。
+              </div>
+              <div style={{
+                marginTop: 10, padding: "10px 12px", borderRadius: 12, wordBreak: "break-all",
+                background: "rgba(0,0,0,0.22)", border: `1px solid ${C.line}`,
+                fontSize: 11, color: C.textSec, lineHeight: 1.6,
+              }}>
+                {api.inviteUrl(joinInvite.invite_code)}
+              </div>
+              <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                <button className="press"
+                  onClick={() => copyInvite(api.inviteUrl(joinInvite.invite_code), "url")}
+                  style={{ ...popBtn, flex: 1, padding: "10px 0", borderRadius: 999, fontSize: 12.5,
+                    display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                  {copied === "url" ? <><Check size={13} strokeWidth={2.6} /> コピーしました</> : <><Copy size={13} strokeWidth={2} /> リンクをコピー</>}
+                </button>
+                <button className="press"
+                  onClick={() => copyInvite(
+                    api.joinInviteShareText(joinInvite.invite_code, user.user_metadata?.username, party.title), "text")}
+                  style={{ ...ghostBtn, flex: 1, padding: "10px 0", borderRadius: 999, fontSize: 12.5,
+                    display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                  {copied === "text" ? <><Check size={13} strokeWidth={2.6} /> コピーしました</> : <><Send size={13} strokeWidth={2} /> 文面ごとコピー</>}
+                </button>
+              </div>
+            </div>
+          )}
+          {joinInvite?.claimed && reqStatus === "pending" && (
+            <div style={{
+              display: "flex", gap: 9, alignItems: "center", marginBottom: 16,
+              borderRadius: 16, padding: "13px 15px",
+              background: "rgba(232,201,135,0.09)", border: `1px solid ${C.linePrimary}`,
+            }}>
+              <Check size={15} strokeWidth={2.6} color={C.primary} style={{ flexShrink: 0 }} />
+              <div style={{ fontSize: 11.5, color: C.textSec, lineHeight: 1.7 }}>
+                {joinInvite.invited_name || "相方の方"}が登録を済ませました。
+                ホストの承認をお待ちください。
+              </div>
+            </div>
           )}
 
           {isHost ? (
@@ -1900,7 +2121,13 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
               display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8,
               opacity: sending ? 0.7 : 1, cursor: sending ? "default" : "pointer",
             }}>
-              {sending ? "送信中…" : <><Send size={16} strokeWidth={2.2} /> {groupSize === 1 ? "1人で参加を申し込む" : "2人で参加を申し込む"}</>}
+              {sending ? "送信中…" : (
+                <><Send size={16} strokeWidth={2.2} /> {
+                  joinMode === "solo" ? "1人で参加を申し込む"
+                    : joinMode === "invite" ? "申し込んで招待リンクを発行"
+                      : "2人で参加を申し込む"
+                }</>
+              )}
             </button>
           )}
         </div>
@@ -3540,24 +3767,44 @@ export default function App() {
   }, []);
 
   /* 招待リンクから登録した人が、確認メールを踏んでログインしてきたときに
-     グループの枠を引き受ける。メール確認が有効なので、登録した直後には
-     セッションが無く、その場では引き受けられない（コードは端末に控えてある）。 */
+     枠を引き受ける。メール確認が有効なので、登録した直後には
+     セッションが無く、その場では引き受けられない（コードは端末に控えてある）。
+     引き受け先はコードの置き場（グループ／参加申請／会の席）で変わるが、
+     振り分けは DB 側の claim_invite が行う。
+
+     登録画面で選んでもらった写真も、ここで初めてアップロードできる
+     （avatars のポリシーが自分のフォルダを要求するため、
+       セッションが張られるまでは上げられない）。 */
   useEffect(() => {
     if (!session?.user) return;
     let alive = true;
     (async () => {
-      const { readPendingInvite, clearPendingInvite } =
+      const { readPendingInvite, clearPendingInvite, readPendingPhoto, clearPendingPhoto } =
         await import("./screens/InviteSignupScreen.jsx");
       const code = readPendingInvite();
       if (!code || !alive) return;
       try {
-        await api.claimGroupInvite(code);
-        clearPendingInvite();
+        await api.claimInvite(code);
       } catch (e) {
         /* 既に引き受け済み・期限切れなど。何度も試さないよう必ず消す。 */
         console.error("[aiseki] 招待の引き受けに失敗:", e);
-        clearPendingInvite();
       }
+
+      const photo = readPendingPhoto();
+      if (photo) {
+        try {
+          const file = await api.dataUrlToFile(photo);
+          const { url, blurUrl } = await api.uploadAvatarPair(session.user.id, file);
+          await api.updateProfile(session.user.id, {
+            avatar_url: url, avatar_blur_url: blurUrl || "",
+          });
+        } catch (e) {
+          /* 写真は任意。失敗してもマイページから設定してもらえる。 */
+          console.error("[aiseki] 招待登録時の写真の保存に失敗:", e);
+        }
+        clearPendingPhoto();
+      }
+      clearPendingInvite();
     })();
     return () => { alive = false; };
   }, [session?.user?.id]);
