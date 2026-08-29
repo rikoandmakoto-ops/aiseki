@@ -1739,3 +1739,19 @@ Vercel の日次 Cron（`vercel.json` の `crons` / **UTC 2:00 ＝ 日本時間 
   `localStorage` の `aiseki:pendingInvitePhoto` に縮小した data URL を置き、
   ログインした時点で `App.jsx` が上げる。
 - **お名前の欄は1つだけ**（ニックネーム）。AISEKI は本名を集めない。
+
+### 本番反映（2026-08-29）
+
+- ✅ **デプロイ済み**（`dpl_2YXJBgNPoAf8YQtehXLPsNke64nE` / `aisekimatch.com` に alias 済み。
+  配信バンドルは `assets/main-a3ZVM5vy.js`）。出す前の grep は §15 のとおり全て確認した
+  （現行 ref あり / 旧 ref 0件 / `sk_live`・`whsec_`・`CRON_SECRET` 0件）。
+  ⚠ `vercel pull` の埋め戻しは今回も必要だった（`VITE_STRIPE_PUBLISHABLE_KEY` /
+  `VITE_TURNSTILE_SITE_KEY` が `len=2`）。
+- ✅ Cron は Vercel に登録済み（`/api/cron/followup` / `0 2 * * *` / enabled）。
+  認証なしで叩くと **401**、`CRON_SECRET` 付きだと
+  **`{"error":"RESEND_API_KEY が設定されていません。"}`** を返す（＝キー待ちで空撃ちしない）。
+- ✅ `/api/stripe/status` は `{"enabled":true,"cardEnabled":true}` のまま。
+- ✅ 画面の通し確認はローカルで実施（本番スキーマに接続）。
+  4つの導線すべてと、申し込み → 招待リンク発行 → `?invite=` の簡易登録画面まで確認した。
+  確認に使ったアカウントと参加申請は削除済み（`auth.users` 9件・`join_requests` 0件に戻したことを確認）。
+- ⛔ **実機（スマートフォン）での確認は未実施。**
