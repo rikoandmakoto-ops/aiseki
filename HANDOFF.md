@@ -1798,3 +1798,10 @@ Vercel の日次 Cron（`vercel.json` の `crons` / **UTC 2:00 ＝ 日本時間 
 > `migration_invite_discount_on_signup.sql`）。前者だけを流し直すと
 > 「発行しただけで割引」の古い規則に戻る。`.e2e-newflow.mjs` / `.e2e-invite.mjs` は
 > どちらも3本を通しで当てている。
+
+**本番反映（2026-08-29）**: `dpl_3QC4RK2sdkiXdThqCgydHiXvsBiE` /
+配信バンドル `assets/main-BLY_9gdz.js`。出す前の grep は §15 のとおり全て確認
+（現行 ref あり / 旧 ref・`sk_live`・`whsec_`・`CRON_SECRET` 0件）。
+`/api/stripe/status` は `{"enabled":true,"cardEnabled":true}` のまま。
+画面の通し確認（本番スキーマに接続）で、申し込み前 7,600pt →
+招待された人の登録完了後 3,800pt に変わることを実際に見た。確認用のデータは削除済み。
