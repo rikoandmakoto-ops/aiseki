@@ -8,7 +8,7 @@ import {
   Search, SlidersHorizontal, CalendarDays, Gift, Star, Beer, Heart, Store,
   UserPlus, EyeOff,
 } from "lucide-react";
-import { supabase, configError } from "./lib/supabase";
+import { supabase, configError, INITIAL_RECOVERY } from "./lib/supabase";
 import * as api from "./lib/api";
 import { POINT_PACKS, packDiscount, packSeats, packUnitPrice } from "./lib/packs.js";
 import { nextTierOf, mixWithSamples, NEXT_TIER_SLOTS } from "./lib/nextTier.js";
@@ -3892,7 +3892,15 @@ const IS_ADMIN_ROUTE = (() => {
 
 /* パスワード再設定メールから戻ってきたかを判定する。
    Supabase はリンク先に #access_token=…&type=recovery を付けて返す
-   （バージョンによっては ?type=recovery のクエリ）。両方を見る。 */
+   （バージョンによっては ?type=recovery のクエリ）。両方を見る。
+
+   🚨 ここで読むだけでは間に合わない。detectSessionInUrl の supabase-js が
+     復旧セッションを張った直後に **ハッシュを消してしまう**ため、
+     最初の描画の時点では既に `type=recovery` が無いことがある
+     （＝再設定のリンクを踏んでも、ただログインしただけの
+       ホーム画面に着いてフォームが出ない）。
+     そのため本命は supabase.js が createClient より前に捕まえた
+     INITIAL_RECOVERY で、この関数はハッシュがまだ残っている場合の控え。 */
 const isRecoveryLink = () => {
   if (typeof window === "undefined") return false;
   const q = new URLSearchParams(window.location.search);
@@ -4085,7 +4093,9 @@ const PartnerConfirmSheet = ({ user, onDone }) => {
 export default function App() {
   const [session, setSession] = useState(null);
   const [authReady, setAuthReady] = useState(false);
-  const [recovery, setRecovery] = useState(isRecoveryLink);
+  /* INITIAL_RECOVERY が本命（supabase-js にハッシュを消される前の値）。
+     isRecoveryLink() は、まだ消されていない場合の控え。 */
+  const [recovery, setRecovery] = useState(() => INITIAL_RECOVERY || isRecoveryLink());
   const [authMode, setAuthMode] = useState(INITIAL_AUTH_MODE);   // null = ランディングページ
   const [checkoutResult, setCheckoutResult] = useState(readCheckoutResult);
   const [tab, setTab] = useState(() => (readCheckoutResult() ? "points" : readTabParam() ?? "home"));

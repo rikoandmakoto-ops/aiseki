@@ -435,8 +435,16 @@ export async function signOut() {
 export async function sendPasswordReset(email) {
   const addr = String(email || "").trim();
   if (!isValidEmail(addr)) throw new Error("メールアドレスを正しく入力してください。");
+  /* ⚠ ここに `?type=recovery` を付けても**残らない**（2026-08-29 に実測）。
+       Supabase の Redirect URLs は `https://aisekimatch.com/**` のような
+       パスのワイルドカードで、**クエリ付きの URL は許可判定に通らない**。
+       弾かれた redirect_to は site_url に差し替えられるので、
+       戻り先は結局 `https://aisekimatch.com` になる。
+     再設定かどうかは、GoTrue が必ず付けてくるハッシュ
+       `#access_token=…&type=recovery`
+     で判定する（supabase.js の INITIAL_RECOVERY）。 */
   const redirectTo =
-    typeof window === "undefined" ? undefined : `${window.location.origin}/?type=recovery`;
+    typeof window === "undefined" ? undefined : `${window.location.origin}/`;
   const { error } = await supabase.auth.resetPasswordForEmail(addr, { redirectTo });
   if (error) throw error;
 }

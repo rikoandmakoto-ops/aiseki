@@ -13,6 +13,27 @@ import { createClient } from "@supabase/supabase-js";
    画面には Failed to fetch としか出なかった。
    フォールバックは持たず、未設定なら configError で明示する。
    ===================================================================== */
+/* 🚨 パスワード再設定から戻ってきたかを、createClient より前に読み取る。
+   ここでなければならない理由:
+     detectSessionInUrl: true の supabase-js は、起動時に URL の
+     #access_token=…&type=recovery を読んで復旧セッションを張り、
+     その直後に **ハッシュを URL から消す**（履歴に残さないため）。
+   消えたあとに App.jsx が読んでも `type=recovery` は見つからず、
+   PASSWORD_RECOVERY イベントも onAuthStateChange を貼る useEffect より
+   先に飛んでしまうので取りこぼす。
+   結果、再設定のリンクを踏んだ人が「ただログインしただけ」の
+   ホーム画面に着いて、パスワードを変える画面が出なかった。
+
+   このファイルはモジュールグラフの最初（createClient の直前）に評価されるので、
+   ここで捕まえておけば supabase-js に消される前の値が必ず取れる。
+   ⚠ この行を createClient より下に動かさないこと。 */
+export const INITIAL_RECOVERY = (() => {
+  if (typeof window === "undefined") return false;
+  const q = new URLSearchParams(window.location.search);
+  const h = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  return q.get("type") === "recovery" || h.get("type") === "recovery";
+})();
+
 const SUPABASE_URL = String(import.meta.env.VITE_SUPABASE_URL || "").trim();
 const SUPABASE_ANON_KEY = String(import.meta.env.VITE_SUPABASE_ANON_KEY || "").trim();
 
