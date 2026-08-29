@@ -1042,6 +1042,9 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
        進行中のリクエストの結果を捨ててしまう（＝いつまでも
        「発行しています…」のまま止まる）。ref なら再実行を起こさない。 */
   const invitedFor = useRef("");
+  /* 「もう一度試す」で発行をやり直すための印。invitedFor（ref）を消すだけでは
+     effect の依存が何も変わらず再実行されないので、これを1つ進める。 */
+  const [inviteNonce, setInviteNonce] = useState(0);
   const [copied, setCopied] = useState("");
   const [reqPartner, setReqPartner] = useState(null);    // 送った申し込みの相方の同意状況
   const [hostPreview, setHostPreview] = useState(null);  // マッチ前はぼかし写真
@@ -1071,9 +1074,15 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
     setReqPartner(req?.partner_status ?? null);
 
     /* 発行済みの招待リンクがあれば取る（申し込みの前でも出る）。
-       コードはテーブルから読めない。自分の分だけ RPC が返す。 */
-    try { setJoinInvite(await api.getMyJoinInvite(partyId)); }
-    catch (e) { console.error(e); setJoinInvite(null); }
+       コードはテーブルから読めない。自分の分だけ RPC が返す。
+       🚨 既に手元にあるリンクを null で上書きしないこと。
+         発行の RPC と この読み直しが前後すると、発行は成功しているのに
+         画面のリンクだけが消え、invitedFor（発行済みの印）が立っているため
+         二度と発行し直されない＝「準備しています…」のまま固まる。 */
+    try {
+      const inv = await api.getMyJoinInvite(partyId);
+      setJoinInvite((prev) => inv ?? (prev?.invite_code ? prev : null));
+    } catch (e) { console.error(e); }
 
     /* ホストの見え方。マッチが成立するまでは、サーバが「ぼかした別画像」
        だけを返す（素の写真の URL はそもそも渡ってこない）。 */
@@ -1171,7 +1180,15 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
     setInviteError("");
     (async () => {
       try {
-        setJoinInvite(await api.issueJoinInvite(party.id));
+        const res = await api.issueJoinInvite(party.id);
+        /* 🚨 コードの無い応答を黙って受け入れないこと。
+             そのまま state に入れると、発行済みの印だけが立った状態で
+             「準備しています…」から動かなくなる（エラーも出ない）。
+           引き受け済みでコードが席へ移ったときは、それが分かる文言を出す。 */
+        if (!res?.invite_code && !res?.claimed) {
+          throw new Error("招待リンクを発行できませんでした。もう一度お試しください。");
+        }
+        setJoinInvite(res);
       } catch (e) {
         /* 失敗したまま「発行しています…」で固まらせない。
            セッション切れ・電波不良で普通に起きる（＝リンクが出ない、に見える）。 */
@@ -1185,7 +1202,7 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
         setIssuingInvite(false);
       }
     })();
-  }, [joinMode, party, members, joinInvite?.invite_code, user.id]);
+  }, [joinMode, party, members, joinInvite?.invite_code, user.id, inviteNonce]);
 
   /* 相方が簡易登録を終えたら、この画面の金額（7,600pt → 3,800pt）を切り替える。
      ⚠ 引き受けが起きるのは相手の端末なので、こちらには何も届かない。
@@ -1916,20 +1933,34 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
                               </div>
                             )}
                           </>
-                        ) : inviteError ? (
-                          <div>
-                            <div style={{ fontSize: 11, color: C.accentDeep, lineHeight: 1.7 }}>
-                              {inviteError}
-                            </div>
-                            <button className="press"
-                              onClick={() => { invitedFor.current = ""; setInviteError(""); }}
-                              style={{ ...ghostBtn, marginTop: 9, padding: "9px 18px", borderRadius: 999, fontSize: 12 }}>
-                              もう一度試す
-                            </button>
+                        ) : joinInvite?.claimed ? (
+                          /* 引き受け済みでコードが席へ移ったあと。リンクはもう要らない。 */
+                          <div style={{ fontSize: 11, color: C.primaryDeep, lineHeight: 1.7, display: "flex", gap: 6, alignItems: "flex-start" }}>
+                            <Check size={12} strokeWidth={2.6} style={{ flexShrink: 0, marginTop: 3 }} />
+                            <span>{joinInvite.invited_name || "相方の方"}のご登録は完了しています。招待割が適用されます。</span>
+                          </div>
+                        ) : issuingInvite ? (
+                          <div style={{ fontSize: 11, color: C.textMuted }}>
+                            招待リンクを発行しています…
                           </div>
                         ) : (
-                          <div style={{ fontSize: 11, color: C.textMuted }}>
-                            {issuingInvite ? "招待リンクを発行しています…" : "招待リンクを準備しています…"}
+                          /* 🚨 ここを「準備しています…」の出しっぱなしにしないこと。
+                               何かの理由で発行が済んでいないとき、押す物が無いと
+                               利用者は永久に待つことになる（＝今回の不具合）。
+                               発行できていない状態は必ず操作可能にしておく。 */
+                          <div>
+                            <div style={{ fontSize: 11, color: inviteError ? C.accentDeep : C.textMuted, lineHeight: 1.7 }}>
+                              {inviteError || "招待リンクがまだ発行されていません。"}
+                            </div>
+                            <button className="press"
+                              onClick={() => {
+                                invitedFor.current = "";
+                                setInviteError("");
+                                setInviteNonce((n) => n + 1);
+                              }}
+                              style={{ ...ghostBtn, marginTop: 9, padding: "9px 18px", borderRadius: 999, fontSize: 12 }}>
+                              招待リンクを発行する
+                            </button>
                           </div>
                         )}
                       </div>
