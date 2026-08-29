@@ -1031,9 +1031,19 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
   const [partner, setPartner] = useState(null);          // { user_id, username }
   const [partnerCode, setPartnerCode] = useState("");
   const [lookingUp, setLookingUp] = useState(false);
-  const [payMode, setPayMode] = useState(api.PAY_MODE_BUNDLE);
+  /* 既定は各自払い（3,800pt）。相方を指定する前からこの額を出す。 */
+  const [payMode, setPayMode] = useState(api.DEFAULT_PAY_MODE);
   const [joinInvite, setJoinInvite] = useState(null);    // 発行済みの招待リンク
+  const [issuingInvite, setIssuingInvite] = useState(false);
+  const [inviteError, setInviteError] = useState("");    // 発行に失敗したときだけ
+  /* 発行を一度だけ走らせるための印。
+     🚨 state で見張ってはいけない。state を effect の依存に入れると
+       「false→true」で effect が張り直され、cleanup が走って
+       進行中のリクエストの結果を捨ててしまう（＝いつまでも
+       「発行しています…」のまま止まる）。ref なら再実行を起こさない。 */
+  const invitedFor = useRef("");
   const [copied, setCopied] = useState("");
+  const [reqPartner, setReqPartner] = useState(null);    // 送った申し込みの相方の同意状況
   const [hostPreview, setHostPreview] = useState(null);  // マッチ前はぼかし写真
   const [cancelling, setCancelling] = useState(false);
   const [openMember, setOpenMember] = useState(null);    // プロフィールを開いているメンバー
@@ -1058,15 +1068,12 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
     setMembers(ms);
     setBalance(bal);
     setReqStatus(req?.status ?? null);
+    setReqPartner(req?.partner_status ?? null);
 
-    /* 「招待して呼ぶ」で申し込んでいれば、発行済みのリンクを取る
-       （コードはテーブルから読めない。自分の分だけ RPC が返す）。 */
-    if (req?.status === "pending" || req?.status === "accepted") {
-      try { setJoinInvite(await api.getMyJoinInvite(partyId)); }
-      catch (e) { console.error(e); setJoinInvite(null); }
-    } else {
-      setJoinInvite(null);
-    }
+    /* 発行済みの招待リンクがあれば取る（申し込みの前でも出る）。
+       コードはテーブルから読めない。自分の分だけ RPC が返す。 */
+    try { setJoinInvite(await api.getMyJoinInvite(partyId)); }
+    catch (e) { console.error(e); setJoinInvite(null); }
 
     /* ホストの見え方。マッチが成立するまでは、サーバが「ぼかした別画像」
        だけを返す（素の写真の URL はそもそも渡ってこない）。 */
@@ -1146,12 +1153,48 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
     return () => { alive = false; };
   }, [load, reloadKey]);
 
+  /* 「招待して呼ぶ」を選んだら、その場で招待リンクを発行する。
+     ⚠ 申し込むまで待たない。相方を誘ってから申し込む人のほうが多く、
+       「申し込まないとリンクが出ない」ではリンクを送れない。
+     何度呼んでも同じものが返る（卓ごと・自分ごとに1本）。 */
+  useEffect(() => {
+    if (joinMode !== "invite" || !party) return;
+    if (joinInvite?.invite_code) return;
+    /* 同じ卓で二度走らせない（失敗したときは「もう一度試す」で印を消す） */
+    if (invitedFor.current === party.id) return;
+    if (party.host_id === user.id) return;
+    if (members.some((m) => m.user_id === user.id)) return;
+    if (party.status === "cancelled" || party.status === "completed") return;
+
+    invitedFor.current = party.id;
+    setIssuingInvite(true);
+    setInviteError("");
+    (async () => {
+      try {
+        setJoinInvite(await api.issueJoinInvite(party.id));
+      } catch (e) {
+        /* 失敗したまま「発行しています…」で固まらせない。
+           セッション切れ・電波不良で普通に起きる（＝リンクが出ない、に見える）。 */
+        console.error("[aiseki] 招待リンクの発行に失敗:", e);
+        setInviteError(
+          /jwt|session|401|permission denied/i.test(e?.message || "")
+            ? "ログインの有効期限が切れているようです。一度アプリを開き直してから、もう一度お試しください。"
+            : (e?.message || "招待リンクを発行できませんでした。")
+        );
+      } finally {
+        setIssuingInvite(false);
+      }
+    })();
+  }, [joinMode, party, members, joinInvite?.invite_code, user.id]);
+
   /* 実際に使う支払い方式。画面の選択（joinMode）から決まる。
      ⚠ 表示にも送信にも同じ値を使う。片方だけ変えると、
        画面に出ている額と実際に引かれる額がずれる。 */
+  /* ⚠ 相方を選ぶ前から各自払い（3,800pt）で出す。相方を指定してから
+     金額が半分になると、申し込む前に見ていた額と食い違って見える。 */
   const effectivePayMode =
     joinMode === "invite" ? api.PAY_MODE_INVITE
-      : joinMode === "member" && partner ? payMode
+      : joinMode === "member" ? payMode
         : api.PAY_MODE_BUNDLE;
 
   /* リクエストを送るだけ。この時点では1ptも動かない
@@ -1177,11 +1220,14 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
         }
       );
       setReqStatus("pending");
+      setReqPartner(joinMode === "member" ? api.PARTNER_PENDING : api.PARTNER_NONE);
       if (joinMode === "invite") {
-        /* 招待リンクはサーバが発行する。すぐ送れるよう、その場で取りに行く。 */
+        /* 招待リンクはタブを開いた時点で発行済み。念のため取り直す。 */
         try { setJoinInvite(await api.getMyJoinInvite(party.id)); }
         catch (e) { console.error(e); }
-        toast.success("参加リクエストを送りました。下の招待リンクを相方にお送りください。");
+        toast.success("参加リクエストを送りました。招待リンクを相方にお送りください。");
+      } else if (joinMode === "member") {
+        toast.success(`${partner.username}さんに確認をお送りしました。お相手が同意するとホストに届きます。`);
       } else {
         toast.success("参加リクエストを送りました。ホストの承認をお待ちください。ポイントは承認された時点でお預かりします。");
       }
@@ -1780,8 +1826,8 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
                         </div>
                         <div style={{ fontSize: 10.5, color: C.textMuted, marginTop: 8, lineHeight: 1.7 }}>
                           相方の会員コードは、相方のマイページ「友達を招待」に表示されています。
-                          お支払いは<b style={{ color: C.primaryDeep, fontWeight: 700 }}>各自払い</b>と
-                          <b style={{ color: C.primaryDeep, fontWeight: 700 }}>まとめ払い</b>から選べます。
+                          お申し込みのあと<b style={{ color: C.primaryDeep, fontWeight: 700 }}>相方の画面にも確認</b>が出ます
+                          （同意されるまでホストには届きません）。
                         </div>
                       </>
                     )
@@ -1796,13 +1842,66 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
                         招待リンクを発行してお誘いします
                       </div>
                       <div style={{ fontSize: 10.5, color: C.textMuted, marginTop: 7, lineHeight: 1.75 }}>
-                        申し込むとリンクが発行されます。相方はメールアドレスとパスワード、
+                        下のリンクを相方にお送りください。相方はメールアドレスとパスワード、
                         お名前・年齢・お写真（任意）だけの<b style={{ color: C.textSec, fontWeight: 700 }}>かんたんな登録</b>で参加できます。
                         <br />
                         相方の<b style={{ color: C.textSec, fontWeight: 700 }}>ご登録が完了した時点</b>で
                         <b style={{ color: C.primaryDeep, fontWeight: 700 }}>招待割 -{api.INVITE_DISCOUNT.toLocaleString()}pt</b>が適用され、
                         お支払いは<b style={{ color: C.primaryDeep, fontWeight: 700 }}>{api.INVITE_FEE.toLocaleString()}pt</b>になります
                         （相方のお支払いはありません）。
+                      </div>
+
+                      {/* ── 招待リンク ──────────────────────
+                          申し込む前に出す。先に相方を誘ってから
+                          申し込む人のほうが多いため。 */}
+                      <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.lineSoft}` }}>
+                        {joinInvite?.invite_code ? (
+                          <>
+                            <div style={{
+                              padding: "10px 12px", borderRadius: 12, wordBreak: "break-all",
+                              background: "rgba(0,0,0,0.22)", border: `1px solid ${C.line}`,
+                              fontSize: 11, color: C.textSec, lineHeight: 1.6,
+                            }}>
+                              {api.inviteUrl(joinInvite.invite_code)}
+                            </div>
+                            <div style={{ display: "flex", gap: 8, marginTop: 9 }}>
+                              <button className="press"
+                                onClick={() => copyInvite(api.inviteUrl(joinInvite.invite_code), "url")}
+                                style={{ ...popBtn, flex: 1, padding: "10px 0", borderRadius: 999, fontSize: 12.5,
+                                  display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                                {copied === "url" ? <><Check size={13} strokeWidth={2.6} /> コピーしました</> : <><Copy size={13} strokeWidth={2} /> リンクをコピー</>}
+                              </button>
+                              <button className="press"
+                                onClick={() => copyInvite(
+                                  api.joinInviteShareText(joinInvite.invite_code, user.user_metadata?.username, party.title), "text")}
+                                style={{ ...ghostBtn, flex: 1, padding: "10px 0", borderRadius: 999, fontSize: 12.5,
+                                  display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                                {copied === "text" ? <><Check size={13} strokeWidth={2.6} /> コピーしました</> : <><Send size={13} strokeWidth={2} /> 文面ごとコピー</>}
+                              </button>
+                            </div>
+                            {joinInvite.claimed && (
+                              <div style={{ fontSize: 10.5, color: C.primaryDeep, marginTop: 9, lineHeight: 1.7, display: "flex", gap: 6, alignItems: "flex-start" }}>
+                                <Check size={12} strokeWidth={2.6} style={{ flexShrink: 0, marginTop: 3 }} />
+                                <span>{joinInvite.invited_name || "相方の方"}が登録を済ませました。招待割が適用されます。</span>
+                              </div>
+                            )}
+                          </>
+                        ) : inviteError ? (
+                          <div>
+                            <div style={{ fontSize: 11, color: C.accentDeep, lineHeight: 1.7 }}>
+                              {inviteError}
+                            </div>
+                            <button className="press"
+                              onClick={() => { invitedFor.current = ""; setInviteError(""); }}
+                              style={{ ...ghostBtn, marginTop: 9, padding: "9px 18px", borderRadius: 999, fontSize: 12 }}>
+                              もう一度試す
+                            </button>
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: 11, color: C.textMuted }}>
+                            {issuingInvite ? "招待リンクを発行しています…" : "招待リンクを準備しています…"}
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
@@ -1852,8 +1951,9 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
                 </div>
               )}
 
-              {/* ── お支払い方法（相方が既存会員のときだけ選べる）── */}
-              {partnerIsMember && (
+              {/* ── お支払い方法（既存の会員と参加するときだけ選べる）──
+                  既定は各自払い。相方を指定する前から選んでおける。 */}
+              {joinMode === "member" && (
                 <div style={{ marginBottom: 14 }}>
                   <label style={labelStyle}>お支払い方法</label>
                   <div style={{ display: "grid", gap: 7 }}>
@@ -1879,8 +1979,11 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
                     })}
                   </div>
                   <div style={{ fontSize: 10.5, color: C.textMuted, marginTop: 8, lineHeight: 1.7 }}>
-                    各自払いを選ぶと、ホストが承認した時点でお二人の残高からそれぞれお預かりします。
-                    どちらかの残高が足りないと承認が通りません。
+                    お申し込みのあと、<b style={{ color: C.textSec, fontWeight: 700 }}>相方の画面にも確認</b>が出ます。
+                    相方が同意すると、はじめてホストに届きます。
+                    {effectivePayMode === api.PAY_MODE_SPLIT
+                      ? "ポイントはホストが承認した時点で、お二人の残高からそれぞれお預かりします（どちらかの残高が足りないと承認が通りません）。"
+                      : "ポイントはホストが承認した時点で、あなたの残高からまとめてお預かりします。"}
                   </div>
                 </div>
               )}
@@ -2027,7 +2130,7 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
               承認前でも送れる。承認までに登録が間に合わなくても、
               同じコードが会の席へ引き継がれるのでリンクは生き続ける
               （accept_join_request）。 */}
-          {joinInvite?.invite_code && !joinInvite.claimed && (
+          {(reqStatus === "pending" || reqStatus === "accepted") && joinInvite?.invite_code && !joinInvite.claimed && (
             <div style={{
               borderRadius: 16, padding: "15px 16px", marginBottom: 16,
               background: "rgba(232,201,135,0.09)", border: `1px solid ${C.linePrimary}`,
@@ -2084,6 +2187,26 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
               </div>
             </div>
           )}
+          {/* 相方（既存会員）の確認待ち。ホストにはまだ届いていないことを明記する。 */}
+          {reqStatus === "pending" && reqPartner === api.PARTNER_PENDING && (
+            <div style={{
+              display: "flex", gap: 11, alignItems: "flex-start", marginBottom: 16,
+              borderRadius: 16, padding: "14px 16px",
+              background: "rgba(232,201,135,0.09)", border: `1px solid ${C.linePrimary}`,
+            }}>
+              <Clock size={16} strokeWidth={1.9} color={C.primary} style={{ flexShrink: 0, marginTop: 2 }} />
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: C.text, letterSpacing: 0.3 }}>
+                  お相手の確認をお待ちしています
+                </div>
+                <div style={{ fontSize: 11.5, color: C.textSec, lineHeight: 1.75, marginTop: 3 }}>
+                  相方の画面に確認が出ています。相方が同意すると、はじめてホストに届きます。
+                  <br />
+                  <b style={{ color: C.textSec, fontWeight: 700 }}>この時点ではまだ1ptもお預かりしていません。</b>
+                </div>
+              </div>
+            </div>
+          )}
           {joinInvite?.claimed && reqStatus === "pending" && (
             <div style={{
               display: "flex", gap: 9, alignItems: "center", marginBottom: 16,
@@ -2137,7 +2260,9 @@ const DetailScreen = ({ user, partyId, onBack, onGoPoints, onCancelled, onReport
             </div>
           ) : reqStatus === "pending" ? (
             <div style={{ ...ghostBtn, width: "100%", padding: "15px 0", borderRadius: 999, fontSize: 14, textAlign: "center", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: "default", color: C.primaryDeep }}>
-              <Check size={17} strokeWidth={2.5} /> リクエスト送信済み（承認待ち）
+              {reqPartner === api.PARTNER_PENDING
+                ? <><Clock size={16} strokeWidth={2.2} /> お相手の確認待ち</>
+                : <><Check size={17} strokeWidth={2.5} /> リクエスト送信済み（承認待ち）</>}
             </div>
           ) : isFull ? (
             <div style={{ ...ghostBtn, width: "100%", padding: "15px 0", borderRadius: 999, fontSize: 14, textAlign: "center", cursor: "default", color: C.textMuted }}>
@@ -3758,6 +3883,142 @@ const NotificationBell = ({ user, onOpen, refreshKey }) => {
   );
 };
 
+/* ═══════════════════════════════════ 相方に指定されたときの確認
+   会員コードで相方に指定されても、それだけでは何も起きない。
+   本人がここで「◯◯pt を払って一緒に参加する」を確認して初めて
+   ホストの受信箱に届く（DB 側 partner_status）。
+
+   🚨 会員コード（＝紹介コード）は本人が友達に配るものなので、
+     それだけで相手の残高から引けたり、当日の席に入れられたりしては
+     いけない。この確認を外さないこと。
+
+   ⚠ 出すのは「誰から・どの会へ・いくら」まで。申込者のプロフィール
+     （年齢・写真・性別・評価）は承認後まで見えない（§1）。 */
+const PartnerConfirmSheet = ({ user, onDone }) => {
+  const { toast } = useToast();
+  const [items, setItems] = useState([]);
+  const [busy, setBusy] = useState("");
+  const [dismissed, setDismissed] = useState([]);
+
+  useEffect(() => {
+    let alive = true;
+    const check = async () => {
+      try {
+        const rows = await api.listPartnerRequests();
+        if (alive) setItems(Array.isArray(rows) ? rows : []);
+      } catch (e) {
+        console.error("[aiseki] 相方の確認の取得に失敗:", e);
+      }
+    };
+    check();
+    // 相手が申し込んだ直後に気づけるよう、ゆっくり見に行く
+    const timer = setInterval(check, 60000);
+    return () => { alive = false; clearInterval(timer); };
+  }, [user.id]);
+
+  const req = items.find((r) => !dismissed.includes(r.request_id));
+  if (!req) return null;
+
+  const charge = Number(req.my_charge) || 0;
+  const balance = Number(req.my_balance) || 0;
+  const enough = balance >= charge;
+
+  const answer = async (yes) => {
+    setBusy(req.request_id);
+    try {
+      if (yes) {
+        await api.confirmJoinPartner(req.request_id);
+        toast.success("お相手と一緒に参加を申し込みました。ホストの承認をお待ちください。");
+      } else {
+        await api.declineJoinPartner(req.request_id);
+        toast.info("お誘いをお断りしました。");
+      }
+      setItems((prev) => prev.filter((r) => r.request_id !== req.request_id));
+      onDone?.();
+    } catch (e) {
+      toast.error(e.message);
+      setDismissed((prev) => [...prev, req.request_id]);
+    } finally {
+      setBusy("");
+    }
+  };
+
+  return createPortal(
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 90, display: "flex",
+      alignItems: "center", justifyContent: "center", padding: 20,
+      background: "rgba(6,9,20,0.72)", backdropFilter: "blur(3px)",
+    }}>
+      <div className="fade" style={{ ...card, width: "100%", maxWidth: 400, padding: 22 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 13 }}>
+          <AvatarBubble size={38}><UsersRound size={17} strokeWidth={1.8} color={C.primary} /></AvatarBubble>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: C.text, lineHeight: 1.5 }}>
+              {req.applicant_name}さんからのお誘い
+            </div>
+            <div style={{ fontSize: 11, color: C.textMuted }}>相方として一緒に参加します</div>
+          </div>
+        </div>
+
+        <div style={{
+          borderRadius: 14, padding: "13px 15px", marginBottom: 13,
+          background: "rgba(255,255,255,0.04)", border: `1px solid ${C.line}`,
+        }}>
+          <div style={{ fontSize: 13.5, fontWeight: 700, color: C.text, lineHeight: 1.6 }}>
+            {req.party_title}
+          </div>
+          <div style={{ fontSize: 11.5, color: C.textSec, lineHeight: 1.8, marginTop: 5 }}>
+            {[api.formatPartyDate(req.party_date), req.party_time].filter(Boolean).join(" ")}
+            {req.location ? ` · ${req.location}` : ""}{req.area ? `（${req.area}）` : ""}
+          </div>
+        </div>
+
+        <div style={{
+          borderRadius: 14, padding: "13px 15px", marginBottom: 14,
+          background: "rgba(232,201,135,0.09)", border: `1px solid ${C.linePrimary}`,
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+            <span style={{ fontSize: 11.5, color: C.textSec }}>あなたのお支払い</span>
+            <span style={{ fontSize: 20, fontWeight: 700, fontFamily: FONT_DISPLAY, ...brandText }}>
+              {charge.toLocaleString()}<span style={{ fontSize: 12, fontFamily: FONT_BODY }}> pt</span>
+            </span>
+          </div>
+          <div style={{ fontSize: 10.5, color: C.textMuted, lineHeight: 1.7, marginTop: 6 }}>
+            {charge > 0
+              ? <>ホストが承認してマッチが成立した時点でお預かりします（現在の残高 {balance.toLocaleString()}pt）。
+                  当日のお会計は参加グループの負担です。</>
+              : <>{req.applicant_name}さんがまとめてお支払いします。あなたのポイントのお支払いはありません。
+                  当日のお会計は参加グループの負担です。</>}
+          </div>
+          {charge > 0 && !enough && (
+            <div style={{ fontSize: 10.5, color: C.accentDeep, lineHeight: 1.7, marginTop: 6 }}>
+              ※ 残高が足りません。このままでも同意できますが、承認までにポイントを補充してください。
+            </div>
+          )}
+        </div>
+
+        <div style={{ display: "grid", gap: 8 }}>
+          <button className="lux-cta" disabled={!!busy} onClick={() => answer(true)} style={{
+            ...popBtn, width: "100%", padding: "14px 0", borderRadius: 999, fontSize: 14.5,
+            display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8,
+            opacity: busy ? 0.6 : 1,
+          }}>
+            <Check size={16} strokeWidth={2.4} />
+            {charge > 0 ? `${charge.toLocaleString()}pt を支払って参加する` : "一緒に参加する"}
+          </button>
+          <button className="press" disabled={!!busy} onClick={() => answer(false)} style={{
+            ...ghostBtn, width: "100%", padding: "12px 0", borderRadius: 999, fontSize: 13,
+            color: C.textMuted, opacity: busy ? 0.6 : 1,
+          }}>
+            今回は見送る
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+};
+
 export default function App() {
   const [session, setSession] = useState(null);
   const [authReady, setAuthReady] = useState(false);
@@ -4096,6 +4357,10 @@ export default function App() {
         active={tab}
         onTab={(t) => { setTab(t); setDetailId(null); setOverlay(null); setCheckoutResult(null); }}
       />
+
+      {/* 相方に指定されたときの確認。どの画面にいても最優先で出す
+          （本人の同意なしにポイントが引かれることが無いようにするため） */}
+      <PartnerConfirmSheet user={user} onDone={() => setNotifyKey((k) => k + 1)} />
     </>
   );
 }

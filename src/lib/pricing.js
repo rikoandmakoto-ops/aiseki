@@ -46,8 +46,14 @@ export const MIN_GROUP_SIZE = MIN_HOST_GROUP_SIZE;
    ・そのかわり、当日のホストグループの飲食代は参加グループが負担する。
 
    支払い方法（相方が既存会員のときだけ選べる）:
-     ・各自払い   … 3,800pt ずつ、二人がそれぞれの残高から払う
-     ・まとめ払い … 7,600pt を代表者がまとめて払う
+     ・各自払い（既定）… 3,800pt ずつ、二人がそれぞれの残高から払う
+     ・仲間の分も出す  … 7,600pt を代表者がまとめて払う
+
+   ⚠ 相方（既存会員）を指定した申し込みは、**相方本人の同意**が要る。
+     会員コードは本人が友達に配るものなので、それだけで相手の残高から
+     引けたり、当日の席に入れられたりしてはいけない。
+     DB 側は join_requests.partner_status が 'confirmed' になるまで
+     ホストの受信箱にも出さない（migration_partner_consent.sql）。
 
    ・招待して呼ぶ（＝まだ会員でない方を招待リンクで連れてくる）場合は
      「招待割」として 3,800pt を差し引く。お支払いは 3,800pt。
@@ -101,10 +107,19 @@ export const PAY_MODES = [
   },
   {
     key: PAY_MODE_BUNDLE,
-    label: "まとめ払い",
+    label: "仲間の分も出す",
     note: `あなたが ${SOLO_FEE.toLocaleString()}pt をまとめてお支払いします`,
   },
 ];
+
+/* 既定のお支払い方法。相方（既存会員）と参加するときは各自払い。 */
+export const DEFAULT_PAY_MODE = PAY_MODE_SPLIT;
+
+/* 相方の同意の状態。DB の join_requests.partner_status と一致させる。 */
+export const PARTNER_NONE = "none";
+export const PARTNER_PENDING = "pending";
+export const PARTNER_CONFIRMED = "confirmed";
+export const PARTNER_DECLINED = "declined";
 
 /* アカウント種別。DB の account_types() と一致させる。
    'simple' は招待リンクからの簡易登録（名前＋年齢確認＋写真だけ）。

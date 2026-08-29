@@ -12,6 +12,11 @@ import {
   PAY_MODE_SPLIT,
   PAY_MODE_INVITE,
   PAY_MODES,
+  DEFAULT_PAY_MODE,
+  PARTNER_NONE,
+  PARTNER_PENDING,
+  PARTNER_CONFIRMED,
+  PARTNER_DECLINED,
   ACCOUNT_FULL,
   ACCOUNT_SIMPLE,
   MAX_GROUP_MEMBERS,
@@ -72,6 +77,11 @@ export {
   PAY_MODE_SPLIT,
   PAY_MODE_INVITE,
   PAY_MODES,
+  DEFAULT_PAY_MODE,
+  PARTNER_NONE,
+  PARTNER_PENDING,
+  PARTNER_CONFIRMED,
+  PARTNER_DECLINED,
   ACCOUNT_FULL,
   ACCOUNT_SIMPLE,
   MAX_GROUP_MEMBERS,
@@ -1146,6 +1156,12 @@ export async function claimInvite(code) {
 /* migration_invite_discount.sql が未適用のときに分かりやすいエラーへ変換する */
 function wrapInviteError(error) {
   const msg = error?.message || "";
+  if (/issue_join_invite|list_partner_requests|confirm_join_partner|decline_join_partner|join_invites|partner_status/i.test(msg)) {
+    return new Error(
+      "この機能に必要なデータベースの更新がまだ適用されていません。" +
+      "supabase/migration_partner_consent.sql を実行してください。"
+    );
+  }
   if (/invite_preview|claim_invite|my_join_invite|invite_discount|join_charge_of|schema cache/i.test(msg)) {
     return new Error(
       "この機能に必要なデータベースの更新がまだ適用されていません。" +
@@ -1317,11 +1333,43 @@ export async function getJoinChargePreview(groupSize, payMode) {
 export async function getMyJoinInvite(partyId) {
   const { data, error } = await supabase.rpc("my_join_invite", { p_party: partyId });
   if (error) throw wrapInviteError(error);
-  /* { request_id, status, invite_code, claimed, invited_name,
-       total, charge, discount_when_claimed }
+  /* { invite_code, claimed, invited_name, total, charge,
+       discount_when_claimed, status }
      ⚠ charge は「いまホストが承認したら引かれる額」。相方の登録が
-       済むまでは割引が効かないので total と同じ。 */
+       済むまでは割引が効かないので total と同じ。
+     まだ発行していなければ null。 */
   return data ?? null;
+}
+
+/* 招待リンクを発行する。**申し込む前に呼んでよい**（これが本来の導線）。
+   すでに発行済みなら同じものが返る（何度押しても増えない）。 */
+export async function issueJoinInvite(partyId) {
+  const { data, error } = await supabase.rpc("issue_join_invite", { p_party: partyId });
+  if (error) throw wrapInviteError(error);
+  return data;   // { invite_code, claimed, invited_name, total, charge, discount_when_claimed }
+}
+
+/* ============== 相方（既存会員）の同意 ==============
+   会員コードで指定されただけでは何も起きない。相方本人が
+   「3,800pt を払って一緒に参加する」を確認して初めてホストへ届く。
+   ⚠ 会員コードは本人が友達に配るものなので、それだけで相手の残高から
+     引けたり、当日の席に入れられたりしてはいけない。
+   ==================================================== */
+export async function listPartnerRequests() {
+  const { data, error } = await supabase.rpc("list_partner_requests");
+  if (error) throw wrapInviteError(error);
+  return data ?? [];   // [{ request_id, party_title, applicant_name, my_charge, ... }]
+}
+
+export async function confirmJoinPartner(requestId) {
+  const { data, error } = await supabase.rpc("confirm_join_partner", { p_request_id: requestId });
+  if (error) throw wrapInviteError(error);
+  return data;   // { party_id, already }
+}
+
+export async function declineJoinPartner(requestId) {
+  const { error } = await supabase.rpc("decline_join_partner", { p_request_id: requestId });
+  if (error) throw wrapInviteError(error);
 }
 
 /* この会に自分が申し込めるか（会が参加者に求めるランクを満たしているか）。
@@ -1342,7 +1390,7 @@ export function guestTierLabel(party) {
 export async function getMyJoinRequest(userId, partyId) {
   const { data, error } = await supabase
     .from("join_requests")
-    .select("id, status, group_size, billable_size, pay_mode")
+    .select("id, status, group_size, billable_size, pay_mode, partner_status")
     .eq("user_id", userId)
     .eq("party_id", partyId)
     .order("created_at", { ascending: false })
@@ -1371,11 +1419,13 @@ export async function listIncomingRequests(userId) {
   const { data, error } = await supabase
     .from("join_requests")
     .select(
-      "id, party_id, group_size, billable_size, pay_mode, applicant_name, status, created_at, " +
+      "id, party_id, group_size, billable_size, pay_mode, partner_status, applicant_name, status, created_at, " +
       "party:party_id(id, title)"
     )
     .in("party_id", ids)
     .eq("status", "pending")
+    /* 相方の確認待ちはホストに出さない（2人とも確認してから届く） */
+    .in("partner_status", [PARTNER_NONE, PARTNER_CONFIRMED])
     .order("created_at", { ascending: false });
   if (error) throw error;
   const rows = data ?? [];
