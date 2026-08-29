@@ -188,22 +188,29 @@ export function isValidEmail(v) {
   return s.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
 }
 
-/* 電話番号。全角で打つ人がいるので半角に寄せてから見る。
-   ⚠ 判定の規則は DB の profiles_phone_number_fmt と揃えてある。
-     片方だけ変えると、画面を通ったのに保存で CHECK に落ちる。 */
+/* 電話番号。保存する形は E.164（+81XXXXXXXXX）で統一する。
+   受け付けるのは日本の携帯（070 / 080 / 090）だけ。SMS を送る前提なので
+   固定電話は受け取らない。全角・ハイフン・国番号つきの表記は吸収する。
+
+   🚨 規則は DB の normalize_phone_jp() と同じにしてあること。
+     片方だけ変えると、画面を通ったのに保存で CHECK に落ちる。
+   ⚠ これは「掛からない番号を弾く」だけで、本人確認ではない。
+     実在と本人性の確認は SMS 認証を入れて初めて成立する。
+   戻り値: E.164 の文字列、または受け取れないとき null。 */
 export function normalizePhone(v) {
-  return String(v || "")
-    .replace(/[０-９＋（）－ー―‐]/g, (c) =>
-      "０１２３４５６７８９".includes(c)
-        ? String("０１２３４５６７８９".indexOf(c))
-        : ({ "＋": "+", "（": "(", "）": ")" }[c] ?? "-"))
-    .trim()
-    .slice(0, 20);
+  let s = String(v || "").replace(/[０-９＋（）－ー―‐]/g, (c) => {
+    const i = "０１２３４５６７８９".indexOf(c);
+    if (i >= 0) return String(i);
+    return c === "＋" ? "+" : c === "（" ? "(" : c === "）" ? ")" : "-";
+  });
+  s = s.replace(/[^0-9+]/g, "");
+  if (!s) return null;
+  s = s.replace(/^(\+81|0081|81)/, "0");
+  return /^0[789]0[0-9]{8}$/.test(s) ? `+81${s.slice(1)}` : null;
 }
 
 export function isValidPhone(v) {
-  const s = normalizePhone(v);
-  return /^[0-9+()\- ]{8,20}$/.test(s) && /[0-9]/.test(s);
+  return normalizePhone(v) !== null;
 }
 
 /* プロフィール写真の保存先（Supabase Storage）のオリジン。

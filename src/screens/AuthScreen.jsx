@@ -74,7 +74,7 @@ export default function AuthScreen({ initialMode = "login", signupIntent = null,
         return;
       }
       if (!isValidPhone(phone)) {
-        setError("電話番号を正しく入力してください。");
+        setError("携帯電話番号（070/080/090）を正しく入力してください。");
         return;
       }
       if (!birthDate) {
@@ -250,7 +250,7 @@ export default function AuthScreen({ initialMode = "login", signupIntent = null,
                 </div>
 
                 <div style={{ marginBottom: 16 }}>
-                  <label style={labelStyle}>電話番号</label>
+                  <label style={labelStyle}>電話番号（携帯）</label>
                   <input
                     type="tel"
                     value={phone}

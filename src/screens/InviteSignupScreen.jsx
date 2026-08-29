@@ -146,7 +146,7 @@ export default function InviteSignupScreen({ code, onBack, onLogin }) {
     if (!api.isValidEmail(email.trim())) { setError("メールアドレスを正しく入力してください。"); return; }
     if (!username.trim()) { setError("お名前（ニックネーム）を入力してください。"); return; }
     if (!realName.trim()) { setError("ご本名を入力してください。"); return; }
-    if (!api.isValidPhone(phone)) { setError("電話番号を正しく入力してください。"); return; }
+    if (!api.isValidPhone(phone)) { setError("携帯電話番号（070/080/090）を正しく入力してください。"); return; }
     if (password.length < MIN_PASSWORD) { setError(`パスワードは${MIN_PASSWORD}文字以上で入力してください。`); return; }
     if (!birthDate) { setError("年齢確認のため、生年月日を入力してください。"); return; }
     if (age === null) { setError("生年月日を正しく入力してください。"); return; }
@@ -313,7 +313,7 @@ export default function InviteSignupScreen({ code, onBack, onLogin }) {
               </div>
 
               <div style={{ marginBottom: 15 }}>
-                <label style={labelStyle}>電話番号</label>
+                <label style={labelStyle}>電話番号（携帯）</label>
                 <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)}
                   maxLength={20} autoComplete="tel" inputMode="tel"
                   placeholder="例: 090-1234-5678" style={fieldStyle} />
