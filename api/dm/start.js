@@ -18,7 +18,7 @@
    返すもの:
      { batch: [{ target, message, dmUrl, profileUrl, warnings }], remainingToday, stats }
    ===================================================================== */
-import { ConfigError, json, requireAdmin, serviceClient } from "../_lib.js";
+import { ConfigError, json, requireAdminUnlocked, serviceClient } from "../_lib.js";
 import { DEFAULT_BATCH, MAX_BATCH, renderTemplate, unresolvedKeys } from "./_dm.js";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -30,7 +30,7 @@ const profileUrl = (username) => `https://www.instagram.com/${encodeURIComponent
 
 export async function POST(request) {
   try {
-    const { error: denied } = await requireAdmin(request);
+    const { error: denied } = await requireAdminUnlocked(request);
     if (denied) return denied;
 
     let body = {};

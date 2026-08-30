@@ -282,6 +282,9 @@ export default function AdminScreen({ user, onExit }) {
   const [error, setError] = useState("");
   const [openId, setOpenId] = useState(null);
   const [busyId, setBusyId] = useState(null);
+  /* サーバが 200 を返した＝運営のアカウント。他の管理画面への導線はこのときだけ出す。
+     画面側でメールアドレスを見て判定しない（ADMIN_EMAILS の出典は api/_lib.js だけ）。 */
+  const [isAdmin, setIsAdmin] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -295,8 +298,9 @@ export default function AdminScreen({ user, onExit }) {
       setItems(payload.items ?? []);
       setCounts(payload.counts ?? null);
       setDenied(false);
+      setIsAdmin(true);
     } catch (e) {
-      if (e.status === 403 || e.status === 401) { setDenied(true); return; }
+      if (e.status === 403 || e.status === 401) { setDenied(true); setIsAdmin(false); return; }
       setError(e.message);
     } finally {
       setLoading(false);
@@ -361,23 +365,28 @@ export default function AdminScreen({ user, onExit }) {
         </button>
       </div>
 
-      {/* 他の管理画面への導線。増えたらここに並べる。 */}
-      <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 18 }}>
-        <a
-          href="/admin/dm"
-          className="press"
-          style={{
-            display: "inline-flex", alignItems: "center", gap: 6, textDecoration: "none",
-            padding: "8px 14px", borderRadius: 999, fontSize: 11.5, fontWeight: 700, letterSpacing: 0.4,
-            background: "rgba(255,255,255,0.045)", color: C.textSec, border: `1px solid ${C.lineSoft}`,
-          }}
-        >
-          <Send size={12} strokeWidth={2.2} />
-          インフルエンサー営業
-        </a>
-      </div>
+      {/* 他の管理画面への導線。増えたらここに並べる。
+          運営だとサーバが認めたときだけ出す（＝通報の一覧が 200 で返ったとき）。
+          /admin/dm は開いた先で管理者パスワード（ADMIN_PASSWORD）も要る。 */}
+      {isAdmin && (
+        <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 18 }}>
+          <a
+            href="/admin/dm"
+            className="press"
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 6, textDecoration: "none",
+              padding: "8px 14px", borderRadius: 999, fontSize: 11.5, fontWeight: 700, letterSpacing: 0.4,
+              background: "rgba(255,255,255,0.045)", color: C.textSec, border: `1px solid ${C.lineSoft}`,
+            }}
+          >
+            <Send size={12} strokeWidth={2.2} />
+            インフルエンサー営業
+            <Lock size={11} strokeWidth={2.2} style={{ opacity: 0.7 }} />
+          </a>
+        </div>
+      )}
     </>
-  ), [onExit, load, loading, user?.email]);
+  ), [onExit, load, loading, user?.email, isAdmin]);
 
   if (denied) {
     return (

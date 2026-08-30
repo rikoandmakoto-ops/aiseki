@@ -12,7 +12,7 @@
    ⚠ 文面は §1 の業態上の制約に沿わせる。「出会い」を訴求する文面にしない。
      名乗り・用件・断りたいときの導線を必ず入れること。
    ===================================================================== */
-import { ConfigError, json, requireAdmin, serviceClient } from "../_lib.js";
+import { ConfigError, json, requireAdminUnlocked, serviceClient } from "../_lib.js";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SELECT = "id,name,body,is_default,created_at,updated_at";
@@ -22,7 +22,7 @@ const MAX_BODY = 1000;
 
 export async function GET(request) {
   try {
-    const { error: denied } = await requireAdmin(request);
+    const { error: denied } = await requireAdminUnlocked(request);
     if (denied) return denied;
 
     const db = serviceClient();
@@ -40,7 +40,7 @@ export async function GET(request) {
 
 export async function POST(request) {
   try {
-    const { error: denied } = await requireAdmin(request);
+    const { error: denied } = await requireAdminUnlocked(request);
     if (denied) return denied;
 
     let body = {};
@@ -71,7 +71,7 @@ export async function POST(request) {
 
 export async function PATCH(request) {
   try {
-    const { error: denied } = await requireAdmin(request);
+    const { error: denied } = await requireAdminUnlocked(request);
     if (denied) return denied;
 
     let body = {};
@@ -110,7 +110,7 @@ export async function PATCH(request) {
 
 export async function DELETE(request) {
   try {
-    const { error: denied } = await requireAdmin(request);
+    const { error: denied } = await requireAdminUnlocked(request);
     if (denied) return denied;
 
     const id = String(new URL(request.url).searchParams.get("id") ?? "").trim();

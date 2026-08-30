@@ -9,11 +9,13 @@
    ・dm_* は RLS でポリシーを1つも作っていない（＝ anon / authenticated は
      何も読めない）。運営の読み書きは service_role でしか通らないので、
      必ずこのエンドポイントを経由する。
-   ・運営かどうかの判定は requireAdmin()。ADMIN_EMAILS（api/_lib.js）が唯一の出典。
+   ・運営かどうかの判定は requireAdminUnlocked()（api/_lib.js）。
+     運営のメール（ADMIN_EMAILS）に加えて、管理者パスワード（ADMIN_PASSWORD）を
+     通した証明が要る。/api/dm/* は全てこの2段。合言葉が無い／切れたときは 423。
 
    ⚠ ここは送信を行わない。理由は api/dm/_dm.js の冒頭を読むこと。
    ===================================================================== */
-import { ConfigError, json, requireAdmin, serviceClient } from "../_lib.js";
+import { ConfigError, json, requireAdminUnlocked, serviceClient } from "../_lib.js";
 import { DM_STATUSES, MAX_IMPORT_ROWS, csvToTargets, normalizeUsername } from "./_dm.js";
 
 const DEFAULT_LIMIT = 100;
@@ -29,7 +31,7 @@ const safeSearch = (v) => String(v).replace(/[,()*]/g, " ").trim();
 
 export async function GET(request) {
   try {
-    const { error: denied } = await requireAdmin(request);
+    const { error: denied } = await requireAdminUnlocked(request);
     if (denied) return denied;
 
     const db = serviceClient();
@@ -64,7 +66,7 @@ export async function GET(request) {
      上書きすると、送信済みの相手が pending に戻って二重送信になる。 */
 export async function POST(request) {
   try {
-    const { error: denied } = await requireAdmin(request);
+    const { error: denied } = await requireAdminUnlocked(request);
     if (denied) return denied;
 
     let body = {};
@@ -137,7 +139,7 @@ export async function POST(request) {
    画面の操作をそのまま受けて dm_mark() に流す（履歴も向こうで残る）。 */
 export async function PATCH(request) {
   try {
-    const { user, error: denied } = await requireAdmin(request);
+    const { user, error: denied } = await requireAdminUnlocked(request);
     if (denied) return denied;
 
     let body = {};
@@ -171,7 +173,7 @@ export async function PATCH(request) {
 
 export async function DELETE(request) {
   try {
-    const { error: denied } = await requireAdmin(request);
+    const { error: denied } = await requireAdminUnlocked(request);
     if (denied) return denied;
 
     const id = String(new URL(request.url).searchParams.get("id") ?? "").trim();

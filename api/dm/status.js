@@ -8,11 +8,11 @@
      Instagram の検知を避けるためのものではない（そういう使い方はしない）。
      出しすぎを運営側で止めるための歯止めとして置いてある。
    ===================================================================== */
-import { ConfigError, json, requireAdmin, serviceClient } from "../_lib.js";
+import { ConfigError, json, requireAdminUnlocked, serviceClient } from "../_lib.js";
 
 export async function GET(request) {
   try {
-    const { error: denied } = await requireAdmin(request);
+    const { error: denied } = await requireAdminUnlocked(request);
     if (denied) return denied;
 
     const db = serviceClient();
@@ -41,7 +41,7 @@ export async function GET(request) {
 
 export async function PATCH(request) {
   try {
-    const { error: denied } = await requireAdmin(request);
+    const { error: denied } = await requireAdminUnlocked(request);
     if (denied) return denied;
 
     let body = {};

@@ -4323,8 +4323,9 @@ export default function App() {
 
   /* 運営用の管理画面（/admin · /admin/dm）。
      未ログインならログインだけさせる（ここにランディングを出す意味がない）。
-     権限が無いアカウントで開いた場合は、各画面が API の 403 を受けて
-     「権限がありません」に切り替わる。 */
+     権限が無いアカウントで開いた場合は、/admin は API の 403 を受けて
+     「権限がありません」に切り替わり、/admin/dm は中身を出さずにトップへ帰す
+     （/admin/dm はさらに管理者パスワード＝ ADMIN_PASSWORD も要る）。 */
   if (ADMIN_ROUTE) {
     const toApp = () => { window.location.assign("/"); };
     const toAdmin = () => { window.location.assign("/admin"); };

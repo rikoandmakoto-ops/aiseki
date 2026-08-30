@@ -4,8 +4,14 @@
    相席・飲み会系のインフルエンサーへ営業DMを出すための、
    リスト・文面・送信状況の管理画面。運営だけが使う。
 
-   ⚠ 運営かどうかを決めるのはサーバ（/api/dm/*）だけ。
-     この画面はメールアドレスを一切見ていない。403 が返ったら閉じるだけ。
+   ⚠ 運営かどうかを決めるのはサーバ（/api/admin/gate · /api/dm/*）だけ。
+     この画面はメールアドレスを一切見ていない。403 が返ったらトップへ帰す。
+
+   ⚠ この画面だけ2段になっている。
+     1段目 … 運営のメールアドレス（ADMIN_EMAILS）
+     2段目 … 管理者パスワード（サーバの ADMIN_PASSWORD）
+     合言葉を通すまで /api/dm/* は 423 を返すので、中身は1件も出てこない。
+     通した証明は sessionStorage に置くだけ（タブを閉じれば消える・8時間で失効）。
 
    🚨 **送信は自動化していない。ここを「自動送信」に作り替えないこと。**
      Instagram の初回DM（相手からの接触が無い状態）は
@@ -28,7 +34,9 @@ import {
   C, FONT_HEAD, FONT_BODY, card, popBtn, ghostBtn, fieldStyle, labelStyle,
   Eyebrow, Spinner, EmptyState,
 } from "../lib/theme.jsx";
-import { callAdminApi, isDenied } from "../lib/adminApi";
+import {
+  callAdminApi, clearAdminUnlock, fetchAdminGate, isDenied, isForbidden, unlockAdmin,
+} from "../lib/adminApi";
 import { useToast } from "../lib/toast.jsx";
 
 /* 送信状況。並び順はそのまま画面の並び順。 */
@@ -824,32 +832,145 @@ const TemplateTab = ({ onDenied }) => {
   );
 };
 
+/* ───────────────────────────────── 2段目 — 管理者パスワード
+   照合はサーバ（/api/admin/gate）。ここは入力を預かるだけで、
+   合言葉をどこにも保存しない（通ったときサーバが返す証明だけを預かる）。 */
+const UnlockGate = ({ user, busy, error, onSubmit, onExit }) => {
+  const [password, setPassword] = useState("");
+
+  return (
+    <div style={{ ...card, padding: 26, maxWidth: 420, margin: "0 auto" }}>
+      <div style={{
+        width: 56, height: 56, margin: "0 auto 16px", borderRadius: 28,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        background: "rgba(232,201,135,0.12)", border: `1px solid ${C.linePrimary}`, color: C.primaryDeep,
+      }}>
+        <Lock size={22} strokeWidth={1.8} />
+      </div>
+      <div style={{
+        fontFamily: FONT_HEAD, fontSize: 16, color: C.text, letterSpacing: 0.6,
+        marginBottom: 8, textAlign: "center",
+      }}>
+        管理者パスワード
+      </div>
+      <div style={{ fontSize: 11.5, color: C.textSec, lineHeight: 1.9, textAlign: "center", marginBottom: 18 }}>
+        営業リストを開くには、ログインに加えて<br />管理者パスワードの入力が必要です。
+        <div style={{ fontSize: 10.5, color: C.textMuted, marginTop: 6, wordBreak: "break-all" }}>{user?.email}</div>
+      </div>
+
+      <form
+        onSubmit={(e) => { e.preventDefault(); if (password.trim()) onSubmit(password); }}
+      >
+        <label style={labelStyle} htmlFor="admin-password">パスワード</label>
+        <input
+          id="admin-password"
+          type="password"
+          value={password}
+          autoFocus
+          autoComplete="current-password"
+          disabled={busy}
+          onChange={(e) => setPassword(e.target.value)}
+          style={{ ...fieldStyle, marginBottom: 12 }}
+        />
+        {error && (
+          <div style={{
+            fontSize: 11.5, color: C.text, lineHeight: 1.8, marginBottom: 12,
+            padding: "10px 12px", borderRadius: 10,
+            background: "rgba(200,56,79,0.10)", border: "1px solid rgba(200,56,79,0.30)",
+          }}>{error}</div>
+        )}
+        <button
+          type="submit"
+          className="press"
+          disabled={busy || !password.trim()}
+          style={{ ...popBtn, width: "100%", padding: "13px 0", fontSize: 13.5, opacity: busy || !password.trim() ? 0.55 : 1 }}
+        >
+          {busy ? "確認しています…" : "開く"}
+        </button>
+      </form>
+
+      <button
+        className="press"
+        onClick={onExit}
+        style={{
+          background: "none", border: "none", cursor: "pointer", display: "block",
+          margin: "14px auto 0", fontSize: 12, color: C.textMuted, letterSpacing: 0.4,
+        }}
+      >
+        管理画面に戻る
+      </button>
+    </div>
+  );
+};
+
 /* ───────────────────────────────── 画面本体 */
 export default function AdminDMScreen({ user, onExit }) {
   const { toast } = useToast();
   const [tab, setTab] = useState("send");
   const [stats, setStats] = useState(null);
-  const [denied, setDenied] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  const onDenied = useCallback(() => setDenied(true), []);
+  /* 入口の状態。checking → locked（合言葉待ち）→ ready。
+     運営でないアカウントはここに来た時点でトップへ帰すので denied を持たない。 */
+  const [gate, setGate] = useState("checking");
+  const [gateError, setGateError] = useState("");
+  const [unlockError, setUnlockError] = useState("");
+  const [unlocking, setUnlocking] = useState(false);
+
+  const checkGate = useCallback(async () => {
+    setGate("checking");
+    try {
+      const payload = await fetchAdminGate();
+      if (!payload.configured) {
+        setGateError("サーバーに管理者パスワード（ADMIN_PASSWORD）が設定されていません。");
+        setGate("error");
+        return;
+      }
+      setGate(payload.unlocked ? "ready" : "locked");
+    } catch (e) {
+      // 運営のアカウントでなければ、画面を見せずにトップへ返す
+      if (isForbidden(e)) { clearAdminUnlock(); window.location.replace("/"); return; }
+      setGateError(e.message);
+      setGate("error");
+    }
+  }, []);
+
+  useEffect(() => { checkGate(); }, [checkGate]);
+
+  /* 子画面が 401/403/423 を受けたときは、入口の判定からやり直す
+     （合言葉切れなら入力へ、権限が無くなっていればトップへ）。 */
+  const onDenied = useCallback(() => { checkGate(); }, [checkGate]);
   const onStats = useCallback((s) => { if (s) setStats(s); }, []);
+
+  const submitUnlock = async (password) => {
+    setUnlocking(true);
+    setUnlockError("");
+    try {
+      await unlockAdmin(password);
+      setGate("ready");
+    } catch (e) {
+      // 401/403 は「運営のアカウントではない」（合言葉の不一致は 422）
+      if (isForbidden(e)) { clearAdminUnlock(); window.location.replace("/"); return; }
+      setUnlockError(e.message);
+    } finally {
+      setUnlocking(false);
+    }
+  };
 
   const loadStats = useCallback(async () => {
     setLoading(true);
     try {
       const payload = await callAdminApi("/api/dm/status");
       setStats(payload.stats ?? null);
-      setDenied(false);
     } catch (e) {
-      if (isDenied(e)) { setDenied(true); return; }
+      if (isDenied(e)) { onDenied(); return; }
       toast.error(e.message);
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, [toast, onDenied]);
 
-  useEffect(() => { loadStats(); }, [loadStats]);
+  useEffect(() => { if (gate === "ready") loadStats(); }, [gate, loadStats]);
 
   const header = useMemo(() => (
     <>
@@ -881,11 +1002,19 @@ export default function AdminDMScreen({ user, onExit }) {
     </>
   ), [onExit, loadStats, loading, user?.email]);
 
-  if (denied) {
+  /* 判定が済むまで中身を出さない（運営でなければトップへ帰る途中） */
+  if (gate === "checking") {
     return (
       <div style={{ padding: "0 20px 24px" }}>
-        {header}
-        <div style={{ ...card, padding: 26, textAlign: "center" }}>
+        <Spinner label="確認しています…" />
+      </div>
+    );
+  }
+
+  if (gate === "error") {
+    return (
+      <div style={{ padding: "0 20px 24px" }}>
+        <div style={{ ...card, padding: 26, textAlign: "center", maxWidth: 420, margin: "48px auto 0" }}>
           <div style={{
             width: 56, height: 56, margin: "0 auto 16px", borderRadius: 28,
             display: "flex", alignItems: "center", justifyContent: "center",
@@ -893,17 +1022,35 @@ export default function AdminDMScreen({ user, onExit }) {
           }}>
             <Lock size={22} strokeWidth={1.8} />
           </div>
-          <div style={{ fontFamily: FONT_HEAD, fontSize: 16, color: C.text, letterSpacing: 0.6, marginBottom: 8 }}>
-            この画面を利用する権限がありません
-          </div>
-          <div style={{ fontSize: 12, color: C.textSec, lineHeight: 1.9 }}>
-            管理画面は運営のアカウントでのみご利用いただけます。<br />
-            ログイン中のアカウント：{user?.email || "—"}
-          </div>
-          <button className="press" onClick={onExit} style={{ ...popBtn, marginTop: 20, padding: "12px 28px", fontSize: 13.5 }}>
+          <div style={{ fontSize: 12, color: C.textSec, lineHeight: 1.9 }}>{gateError}</div>
+          <button className="press" onClick={checkGate} style={{ ...popBtn, marginTop: 20, padding: "12px 28px", fontSize: 13.5 }}>
+            もう一度試す
+          </button>
+          <button
+            className="press"
+            onClick={onExit}
+            style={{
+              background: "none", border: "none", cursor: "pointer", display: "block",
+              margin: "14px auto 0", fontSize: 12, color: C.textMuted, letterSpacing: 0.4,
+            }}
+          >
             管理画面に戻る
           </button>
         </div>
+      </div>
+    );
+  }
+
+  if (gate === "locked") {
+    return (
+      <div style={{ padding: "48px 20px 24px" }}>
+        <UnlockGate
+          user={user}
+          busy={unlocking}
+          error={unlockError}
+          onSubmit={submitUnlock}
+          onExit={onExit}
+        />
       </div>
     );
   }

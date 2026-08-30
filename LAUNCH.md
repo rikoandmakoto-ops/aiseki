@@ -342,6 +342,18 @@ SUPABASE_ACCESS_TOKEN=sbp_xxxx node scripts/apply_email_templates.mjs
 | `VITE_STRIPE_PUBLISHABLE_KEY` | `pk_live_...` | ✅ 2026-08-26 設定済 |
 | `STRIPE_WEBHOOK_SECRET` | `whsec_...` | ✅ 2026-08-26 設定済 |
 | `PUBLIC_BASE_URL` | `https://aisekimatch.com` | ✅ 2026-08-26 設定済 |
+| `ADMIN_PASSWORD` | 運営画面 `/admin/dm` の合言葉 | ✅ 2026-08-30 設定済（Production / Preview / Development） |
+
+> **`ADMIN_PASSWORD`（2026-08-30 追加）** — `/admin/dm`（インフルエンサー営業）は
+> 運営メール（`theoffzaki@gmail.com`）でのログインに加えて、この合言葉の入力を求める。
+> 照合は `/api/admin/gate` だけで行い、ブラウザには配らない（`VITE_` を付けない）。
+> **未設定だと `/api/dm/*` は 503 で止まる**（設定し忘れが素通しにならないように fail closed）。
+> 値を変えると発行済みの解除証明はすべて無効になる（署名鍵がこの値だから）。
+> 変更したら**再デプロイするまで実行時に反映されない**。
+>
+> ```bash
+> printf '%s' '<新しいパスワード>' | vercel env add ADMIN_PASSWORD production --force
+> ```
 
 `VITE_` が付く変数はブラウザに埋め込まれる。
 **`SUPABASE_SERVICE_ROLE_KEY` と `STRIPE_SECRET_KEY` には絶対に `VITE_` を付けないこと。**
