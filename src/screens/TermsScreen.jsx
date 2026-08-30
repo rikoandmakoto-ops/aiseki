@@ -75,9 +75,10 @@ const Article = ({ s }) => (
   </div>
 );
 
-/* 規約本文（画面内・ログイン前どちらからも使う） */
-export const TermsBody = () => {
-  const [tab, setTab] = useState("terms");
+/* 規約本文（画面内・ログイン前どちらからも使う）
+   initialTab は /privacy で開かれたときにプライバシーポリシー側を出すためのもの。 */
+export const TermsBody = ({ initialTab = "terms" }) => {
+  const [tab, setTab] = useState(initialTab === "privacy" ? "privacy" : "terms");
   const isTerms = tab === "terms";
   const sections = isTerms ? TERMS : PRIVACY;
   const intro = isTerms ? TERMS_INTRO : PRIVACY_INTRO;
@@ -192,7 +193,8 @@ export const TermsBody = () => {
 };
 
 /* アプリ内の1画面として表示するラッパー */
-export default function TermsScreen({ onBack }) {
+export default function TermsScreen({ onBack, initialTab = "terms", backLabel = "戻る" }) {
+  const isPrivacy = initialTab === "privacy";
   return (
     <div style={{ padding: "0 20px 24px" }}>
       {onBack && (
@@ -200,14 +202,16 @@ export default function TermsScreen({ onBack }) {
           display: "inline-flex", alignItems: "center", gap: 4, background: "none", border: "none",
           fontSize: 13.5, color: C.primaryDeep, cursor: "pointer", padding: "14px 0", fontWeight: 600, letterSpacing: 0.4,
         }}>
-          <ChevronLeft size={18} strokeWidth={2} /> 戻る
+          <ChevronLeft size={18} strokeWidth={2} /> {backLabel}
         </button>
       )}
       <div style={{ marginBottom: 16 }}>
         <Eyebrow style={{ marginBottom: 4 }}>Terms & Privacy</Eyebrow>
-        <div style={{ fontFamily: FONT_HEAD, fontSize: 23, fontWeight: 600, letterSpacing: 0.5, color: C.text }}>利用規約</div>
+        <div style={{ fontFamily: FONT_HEAD, fontSize: 23, fontWeight: 600, letterSpacing: 0.5, color: C.text }}>
+          {isPrivacy ? "プライバシーポリシー" : "利用規約"}
+        </div>
       </div>
-      <TermsBody />
+      <TermsBody initialTab={initialTab} />
     </div>
   );
 }

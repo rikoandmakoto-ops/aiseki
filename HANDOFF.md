@@ -2725,3 +2725,81 @@ src/screens/AdminScreen.jsx    /admin/dm への導線は、サーバが運営と
 - ✅ 配信中の `assets/adminApi-*.js` に `/api/admin/gate` と `x-admin-unlock` が入っていることを確認。
 - ⛔ 画面での通し確認（一般ユーザーでログインして `/admin/dm` がトップへ戻ること）は**未実施**。
   API 側は上のとおり本番で確認済み。
+
+---
+
+## 31. `/terms` · `/privacy` のURLと 404 ページ（2026-08-30）
+
+`/terms` を直接開くと**アプリのトップ（LP）が出ていた**。`TermsScreen` は前からあるが、
+アプリ内のオーバーレイ（`overlay === "terms"`）としてしか開けず、URLからの入口が無かった。
+同じ理由で、存在しないURLも全部トップに吸われていた
+（`vercel.json` の catch-all `"/(.*)" → "/"` で index.html が返るため）。
+
+### 31-a. 直したもの
+
+| | 前 | 後 |
+|---|---|---|
+| `/terms` | トップ（LP）が出る | 利用規約が出る（未ログインでも可） |
+| `/privacy` | トップ（LP）が出る | 同じ画面の**プライバシータブ**が初期表示 |
+| 存在しないURL | トップ（LP）が出る | 404 画面（`src/screens/NotFoundScreen.jsx`） |
+
+- `src/App.jsx` に `ADMIN_ROUTE` と同じ形の **`LEGAL_ROUTE`**（`/terms` → `"terms"` /
+  `/privacy` → `"privacy"`）と **`NOT_FOUND_ROUTE`** を追加した。ルーターは入れていない。
+- 描画は **`ADMIN_ROUTE` の判定より前**、さらに `configError` / `authReady` よりも前に置いた。
+  規約も 404 も supabase を使わないので、接続設定が壊れていても・セッション復元を待たずに出せる。
+- `TermsScreen` に `initialTab`（`"terms"` / `"privacy"`）と `backLabel` を足した。
+  既存の呼び出し（`overlay === "terms"`）は既定値のままなので挙動は変わらない。
+  `TermsBody` の `initialTab` も同じ（`AuthScreen` / `InviteSignupScreen` は無指定＝規約から）。
+
+### 31-b. 有効なパスは `KNOWN_PATHS` の1箇所にある
+
+```
+/ · /index.html · /lp/host · /lp/guest · /lp/host.html · /lp/guest.html
+/login · /signup · /admin · /admin/dm · /terms · /privacy
+```
+
+> ⚠ **画面を増やしてパスを見るようにしたら、必ず `KNOWN_PATHS` にも足すこと。**
+> 足し忘れると、そのURLが 404 に飲まれる。末尾の `/` は落として比較している。
+> 静的ファイル（`/og-host.png` · `/sitemap.xml` 等）は Vercel が先に返すので
+> catch-all に来ない＝ここに書く必要はない。
+> `/login` · `/signup` はアプリ側にまだ画面が無く、トップ（LP）が出る。404 にはしない。
+
+> 🚨 **HTTP のステータスは 200 のまま**（`/zzz` も 200 + 404画面）。
+> catch-all で index.html を返す作りなので、本当に 404 を返すには
+> Vercel 側で別ページを用意する必要がある。検索エンジンに拾わせたくない
+> URLが出てきたら、そのときに考える。
+
+### 31-c. 確認したこと（2026-08-30）
+
+- ✅ 手元（`npm run dev`）で `/terms`（利用規約）・`/privacy`（プライバシーポリシー）・
+  `/no-such-page`（404）・`/`（LP）を実際に開いて確認。
+- ✅ **本番へデプロイ済み**（`dpl_EAj7vLC2UWsC9RPcppXWtZ5oq8Hr` / `aisekimatch.com` に alias 済み）。
+  `https://aisekimatch.com/terms` · `/privacy` · `/zzz-not-a-page` をブラウザで開いて確認。
+- ⚠ `vercel pull` は今回も **`VITE_STRIPE_PUBLISHABLE_KEY` と `VITE_TURNSTILE_SITE_KEY` を
+  空（`""`）で書き出した**。`--prebuilt` で出す前に `.env` の実値で埋め戻し、
+  バンドルに `pk_live_` と Turnstile サイトキー・現行 ref が入っていること、
+  旧 ref が0件であることを grep で確認してから送っている（§2 の手順）。
+
+---
+
+## 32. テストユーザーのメール確認を Admin API で通した（2026-08-30）
+
+`test-debug@aisekimatch.com`（`e3fa099e-7dad-41c3-b1b5-7f6037a11905`）が
+**メール未確認のまま**で、ログインできなかった。確認メールを待たずに済ませた。
+
+```bash
+# 1) UUID を探す
+curl -s "$SUPABASE_URL/auth/v1/admin/users?per_page=200" \
+  -H "apikey: $SERVICE_ROLE_KEY" -H "Authorization: Bearer $SERVICE_ROLE_KEY"
+
+# 2) 確認済みにする
+curl -s -X PUT "$SUPABASE_URL/auth/v1/admin/users/<uuid>" \
+  -H "apikey: $SERVICE_ROLE_KEY" -H "Authorization: Bearer $SERVICE_ROLE_KEY" \
+  -H "Content-Type: application/json" -d '{"email_confirm":true}'
+```
+
+`email_confirmed_at` / `confirmed_at` が `2026-08-30T06:17:24Z` になったことを GET で確認済み。
+
+- `email_confirm: true` は**メールを送らずに**確認済みにする（SMTP のレート制限も踏まない）。
+- これは「メール確認」だけ。**SMS（電話番号）認証は別**で、参加まで通すなら §28 の関門も要る。
+- 接続先は現行 ref（`melfyxfvhyknqhruytms`）。⛔ 旧 ref `tvydtsqirogdxglkoicz` には繋がない。

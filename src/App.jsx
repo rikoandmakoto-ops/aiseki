@@ -54,6 +54,8 @@ const RankCard = lazy(() => import("./screens/RankCard.jsx"));
 /* 運営用の管理画面（/admin · /admin/dm）。利用者は開かないので、必ず遅延読み込みにする。 */
 const AdminScreen = lazy(() => import("./screens/AdminScreen.jsx"));
 const AdminDMScreen = lazy(() => import("./screens/AdminDMScreen.jsx"));
+/* 404（存在しないURL）。ふだんは誰も開かないので遅延読み込みにする。 */
+const NotFoundScreen = lazy(() => import("./screens/NotFoundScreen.jsx"));
 
 /* 分割した画面を読み込んでいる間のつなぎ */
 const Loading = ({ label }) => (
@@ -3916,6 +3918,42 @@ const ADMIN_ROUTE = (() => {
   return null;
 })();
 
+/* 規約・プライバシーポリシー（/terms · /privacy）。
+   ADMIN_ROUTE と同じくパスだけを見る。広告やアプリストアの審査、
+   フッターのリンクから直接開かれるので、ログインは要らない。
+   /privacy はプライバシーポリシー側のタブを初期表示にする。 */
+const LEGAL_ROUTE = (() => {
+  if (typeof window === "undefined") return null;
+  const path = window.location.pathname;
+  if (/^\/terms\/?$/.test(path)) return "terms";
+  if (/^\/privacy\/?$/.test(path)) return "privacy";
+  return null;
+})();
+
+/* 存在しないURL（404）。
+   vercel.json の catch-all（"/(.*)" → "/"）でどんなパスでも index.html が
+   返るため、綴りを間違えても「トップが出る」だけで気づけなかった。
+   ここに挙げたパス以外は 404 を出す。
+
+   ⚠ 画面を増やして新しいパスを見るようにしたら、必ずここにも足すこと。
+     足し忘れると、そのURLが 404 に飲まれる。
+   ・静的ファイル（/og-host.png · /sitemap.xml 等）は Vercel が先に返すので
+     catch-all に来ない＝ここに書く必要はない。
+   ・/lp/host · /lp/guest も rewrites で別ページに行くが、
+     手元の `npm run dev`（catch-all が無い）と揃えるため残してある。 */
+const KNOWN_PATHS = new Set([
+  "/", "/index.html",
+  "/lp/host", "/lp/guest", "/lp/host.html", "/lp/guest.html",
+  "/login", "/signup",
+  "/admin", "/admin/dm",
+  "/terms", "/privacy",
+]);
+const NOT_FOUND_ROUTE = (() => {
+  if (typeof window === "undefined") return false;
+  const path = window.location.pathname.replace(/\/+$/, "") || "/";
+  return !KNOWN_PATHS.has(path);
+})();
+
 /* パスワード再設定メールから戻ってきたかを判定する。
    Supabase はリンク先に #access_token=…&type=recovery を付けて返す
    （バージョンによっては ?type=recovery のクエリ）。両方を見る。
@@ -4302,6 +4340,29 @@ export default function App() {
       </div>
     </div>
   );
+
+  /* 規約 / プライバシーポリシー（/terms · /privacy）と 404。
+     どちらも supabase を使わないので、接続設定の確認（configError）や
+     セッションの復元（authReady）より前に出す。
+     ⚠ ADMIN_ROUTE の判定より前に置くこと。 */
+  if (LEGAL_ROUTE) {
+    return shell(
+      <Suspense fallback={<Loading label="読み込み中…" />}>
+        <TermsScreen
+          initialTab={LEGAL_ROUTE}
+          backLabel="トップへ"
+          onBack={() => window.location.assign("/")}
+        />
+      </Suspense>
+    );
+  }
+  if (NOT_FOUND_ROUTE) {
+    return shell(
+      <Suspense fallback={<Loading label="読み込み中…" />}>
+        <NotFoundScreen path={typeof window === "undefined" ? "" : window.location.pathname} />
+      </Suspense>
+    );
+  }
 
   if (configError) return shell(<ConfigErrorScreen message={configError} />);
   if (!authReady) {
