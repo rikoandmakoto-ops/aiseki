@@ -14,13 +14,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ChevronLeft, RefreshCw, ShieldAlert, MessageSquare, Lock, Mail,
-  ChevronDown, ChevronUp, User, Users, Clock, Copy, Check,
+  ChevronDown, ChevronUp, User, Users, Clock, Copy, Check, Send,
 } from "lucide-react";
 import {
   C, FONT_HEAD, FONT_BODY, card, popBtn, ghostBtn, Eyebrow, Spinner, EmptyState,
 } from "../lib/theme.jsx";
 import { INQUIRY_KINDS } from "../lib/api";
-import { supabase } from "../lib/supabase";
+import { callAdminApi } from "../lib/adminApi";
 import { useToast } from "../lib/toast.jsx";
 
 /* 対応状況。順番はそのまま画面の並び順（左から進んでいく）。 */
@@ -40,41 +40,7 @@ const fmtDate = (iso) => {
   return `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 };
 
-/* /api/admin/* の呼び出し。403 は「権限が無い」として画面ごと切り替えるので、
-   ステータスコードを潰さずに投げる。 */
-async function callAdminApi(path, { method = "GET", body } = {}) {
-  const { data } = await supabase.auth.getSession();
-  const token = data?.session?.access_token;
-  if (!token) {
-    const e = new Error("ログインが必要です。");
-    e.status = 401;
-    throw e;
-  }
-
-  const res = await fetch(path, {
-    method,
-    headers: {
-      accept: "application/json",
-      authorization: `Bearer ${token}`,
-      ...(body ? { "content-type": "application/json" } : {}),
-    },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-  });
-
-  // npm run dev には /api が無く HTML が返る（vercel dev で起動する必要がある）
-  if (!res.headers.get("content-type")?.includes("application/json")) {
-    const e = new Error("管理APIに接続できませんでした。ローカルでは `vercel dev` で起動してください。");
-    e.status = res.status;
-    throw e;
-  }
-  const payload = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const e = new Error(payload?.error || "通信に失敗しました。");
-    e.status = res.status;
-    throw e;
-  }
-  return payload;
-}
+/* 呼び出しは src/lib/adminApi.js に集約してある（DM営業の画面と共有）。 */
 
 /* ───────────────────────────────── 小さな部品 */
 const Pill = ({ on, children, onClick, count }) => (
@@ -393,6 +359,22 @@ export default function AdminScreen({ user, onExit }) {
           <RefreshCw size={13} strokeWidth={2.2} style={loading ? { animation: "spin 0.85s linear infinite" } : undefined} />
           更新
         </button>
+      </div>
+
+      {/* 他の管理画面への導線。増えたらここに並べる。 */}
+      <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 18 }}>
+        <a
+          href="/admin/dm"
+          className="press"
+          style={{
+            display: "inline-flex", alignItems: "center", gap: 6, textDecoration: "none",
+            padding: "8px 14px", borderRadius: 999, fontSize: 11.5, fontWeight: 700, letterSpacing: 0.4,
+            background: "rgba(255,255,255,0.045)", color: C.textSec, border: `1px solid ${C.lineSoft}`,
+          }}
+        >
+          <Send size={12} strokeWidth={2.2} />
+          インフルエンサー営業
+        </a>
       </div>
     </>
   ), [onExit, load, loading, user?.email]);

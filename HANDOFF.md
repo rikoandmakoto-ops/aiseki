@@ -2,7 +2,10 @@
 
 最終更新: 2026-08-30（**SMS（電話番号）認証を実装し本番へデプロイ済み** §28。
 Twilio Verify を使い、認証が済むまで会の作成・参加申込・相方の同意を DB 側で止める。
-⛔ Twilio アカウントがトライアルのままなので、**公開前にアップグレードが要る**）
+⛔ Twilio アカウントがトライアルのままなので、**公開前にアップグレードが要る**。
+同日 **インフルエンサー営業DMの管理画面 `/admin/dm` を追加** §29 ＝ 未デプロイ。
+🚨 Instagram の初回DMは API でもブラウザ自動化でも自動送信できないので、
+送信は人が押す作りにしてある。自動送信に作り替えないこと（§29-a））
 
 > ## ⚠️ まずこれを読む — Supabase プロジェクトが変わった（2026-08-20）
 >
@@ -556,16 +559,23 @@ aiseki/
 │   │   │                  CONTACT_EMAIL / SERVICE_URL / LEGAL_VERSION
 │   │   ├── packs.js     ★ ポイントプランの単価（唯一の出典）
 │   │   ├── captcha.js   ★ Turnstile の読み込み・描画（§16）
+│   │   ├── adminApi.js  ★ /api/admin/* · /api/dm/* の呼び出し（運営画面で共有・§29）
 │   │   ├── supabase.js  クライアント生成
 │   │   ├── theme.jsx / toast.jsx / pwa.js
 │   │   └── screens/     Auth / Landing / ProfileEdit / Terms / Safety /
 │   │                    Support / Referral / Notifications / MemberSheet /
-│   │                    ResetPassword / InstallCard
+│   │                    ResetPassword / InstallCard /
+│   │                    Admin（/admin）/ AdminDM（/admin/dm・§29）
 │
-├── api/                 Vercel Functions（決済・SMS認証）
-│   ├── _lib.js
+├── api/                 Vercel Functions（決済・SMS認証・運営）
+│   ├── _lib.js          ★ ADMIN_EMAILS（運営判定の唯一の出典）もここ
 │   ├── _captcha.js      ★ CAPTCHA（Turnstile）の検証（§16）
 │   ├── _twilio.js       ★ Twilio Verify の呼び出し（§28）
+│   ├── admin/           inquiries.js（通報・お問い合わせ）
+│   ├── cron/            followup.js（追いかけメール・§20）
+│   ├── dm/              ★ インフルエンサー営業（§29）
+│   │                      _dm.js / targets.js / templates.js / status.js / start.js
+│   │                      🚨 start.js は払い出しだけ。送信を足さないこと（§29-a）
 │   ├── sms/             start.js / check.js / status.js（SMS認証・§28）
 │   └── stripe/          checkout.js / status.js / webhook.js
 │
@@ -581,6 +591,7 @@ aiseki/
 │   ├── migration_mutual_rank.sql            ✅適用済 ランク相互公開/min_guest_tier（§13-b）
 │   ├── migration_new_flow.sql               ✅適用済 新しい決済・マッチングフロー（§18）
 │   ├── migration_sms_verify.sql             ✅適用済 SMS電話番号認証／参加の関門（§28）
+│   ├── migration_dm_outreach.sql            ✅適用済 インフルエンサー営業リスト（§29・service_role専用）
 │   └── migration_*.sql               （それ以前の履歴）
 │
 └── scripts/
@@ -2547,3 +2558,100 @@ node scripts/setup_twilio_verify.mjs   # 無ければ作る・あれば拾う。
 > - 🚨 `confirm_join_partner()` は `migration_partner_consent.sql` と**二重定義**。片方だけ直さない。
 > - ⚠ 環境変数を消すと画面の案内は消えるが **DB の関門は残る**。
 >   誰も参加できなくなるので、止めるときは migration 側の関門も外すこと。
+
+---
+
+## 29. インフルエンサー営業DMの管理（2026-08-30）
+
+`supabase/migration_dm_outreach.sql` の1本（冪等・**適用済み**）＋ `api/dm/*` ＋
+`src/screens/AdminDMScreen.jsx`（`/admin/dm`）。運営だけが使う。
+
+相席・飲み会系のインフルエンサーへ営業DMを出すための、
+**リスト・文面・送信状況の管理**。集客のための営業支援であって、アプリの機能ではない。
+
+### 29-a. 🚨 まず読む — 送信は自動化していない（そう作れない）
+
+**Instagram の初回DM（相手からこちらへ接触が無い状態）は、どの経路でも自動送信できない。**
+2026-08-30 に調べた結果:
+
+| 経路 | 可否 | 理由 |
+|---|---|---|
+| Instagram Messaging API | ❌ | **相手の最終接触から24時間以内**しか送れない。未接触の相手は API そのものが受け付けない。`HUMAN_AGENT` タグで7日に延びるが、そこに販促を載せるのは規約違反で messaging 権限の停止対象 |
+| Instagram Basic Display API | ❌ | 読み取り専用。送信のエンドポイントが無い（そもそも廃止済み） |
+| Playwright / Puppeteer 等のブラウザ自動化 | ❌ | Meta Platform Terms が「人の操作を模す自動化」を明示的に禁止。スパム通報1件でアカウント審査、複数で永久BAN |
+
+そのため `/api/dm/*` は **送信を行わない**。やるのは
+「次に誰へ・どの文面で出すか」を払い出し、「出した結果」を記録することまで。
+実際の送信は運営が `/admin/dm` から1件ずつ行う（コピー → DM画面が開く → 貼って送る → 結果を押す）。
+
+> 🚨 **`api/dm/start.js` に自動送信を足さないこと。**
+> ここが「1000通ワンクリック」になった時点で、上の表の3行目そのものになる。
+> aiseki は §1 のとおり「異性紹介事業に非該当」を RLS まで含めて維持している事業なので、
+> 公式アカウントがスパム認定されると失うものがドメインだけで済まない。
+>
+> ✅ **伸ばすなら「返信が来たあと」。** 相手が1通返した時点で24時間ウィンドウが開くので、
+> そこからのやり取り（自動返信・フォローアップ・ステータス遷移）は
+> Messaging API で**完全に自動化できる**。営業で手間がかかるのは実はこちら側。
+
+### 29-b. 入っているもの
+
+```
+supabase/migration_dm_outreach.sql   ✅適用済
+api/dm/_dm.js         正規化・差し込み・CSV読み取り（共通）
+api/dm/targets.js     一覧 / 取り込み / 状況の変更 / 削除
+api/dm/templates.js   文面ひな形の CRUD
+api/dm/status.js      集計と作業ペースの設定
+api/dm/start.js       「次に出す分」の払い出し（★送信はしない）
+src/lib/adminApi.js   /api/admin/* · /api/dm/* の呼び出し（AdminScreen と共有）
+src/screens/AdminDMScreen.jsx   /admin/dm（送信 / リスト / 文面 の3タブ）
+```
+
+| テーブル | 何 |
+|---|---|
+| `dm_targets` | 送信先。`status` は pending → sent / failed / skipped |
+| `dm_templates` | 文面のひな形。`{{username}}` `{{display_name}}` `{{category}}` を差し込める |
+| `dm_events` | 状態遷移の記録（**追記のみ**。UPDATE / DELETE のポリシーが無い） |
+| `dm_settings` | 1日の上限（既定30）と最短間隔（既定60秒）。1行だけ |
+
+### 29-c. 🚨 dm_* は service_role 専用
+
+RLS を有効にしたうえで**ポリシーを1つも作っていない**（＝ anon / authenticated は全て落ちる）。
+営業リストは利用者に見せるものではないし、書き換えられてもいけない。
+
+- `revoke` は `from public` だけでは足りず **`anon, authenticated` を名指し**してある
+  （§12 / [[aiseki-revoke-must-name-roles]]）。
+- マイグレーション末尾の DO ブロックが `information_schema.role_table_grants` を見て、
+  権限が残っていたら**例外で落ちる**。次に触るときもこの検算を消さないこと。
+
+### 29-d. 触るときの注意
+
+- **ユーザー名の正規化は2箇所にある。** `api/dm/_dm.js` の `normalizeUsername()` と
+  DB の `dm_normalize_username()`。**片方だけ変えると取り込みが CHECK 制約
+  （`dm_targets_username_shape`）で落ちる。** 取り込みは最大2000行あるので
+  1行ずつ RPC を叩かず JS 側で潰し、DB の CHECK を最後の砦にしている。
+- **取り込みは既存を上書きしない**（`ignoreDuplicates`）。
+  上書きすると送信済みの相手が pending に戻り、**同じ人に二度送る**。
+- **本日ぶんの判定は日本時間**（`at time zone 'Asia/Tokyo'`）。
+  `current_date`（UTC）で比べると 0:00〜9:00 に画面とDBがずれる（§11 と同じ罠）。
+- **`daily_cap` は検知回避のためのものではない。** 1日にどれだけ営業をかけるかという
+  運用上の歯止め。`dm_next_batch()` がこの上限を超えて払い出さない。
+- **文面は §1 の業態上の制約に沿わせる。** 名乗り・用件・断りたいときの導線を必ず入れ、
+  「出会い」を訴求する文面にしない。既定のひな形はその形で入れてある。
+- `is_default` は部分一意索引で1つに絞ってある。立てる前に降ろすこと（API 側でやっている）。
+  既定のひな形を消すと、残りの最古のものが自動で既定に繰り上がる。
+
+### 29-e. 確認したこと（2026-08-30）
+
+- ✅ migration 適用済み（`melfyxfvhyknqhruytms` / 権限の検算通過）。
+- ✅ `.e2e-dm.mjs` **51項目**（本番スキーマ・テストデータは最後に削除）—
+  正規化（JS と DB の一致・7ケース×2）／anon が4テーブルとも読めない・書けない・
+  RPC を呼べない／CSV 取り込み（@ · URL · カンマ入り数値 · 重複 · 見出し無し）／
+  差し込み／払い出しと記録（`sent_at`・`attempts`・履歴・再払い出しされないこと）／
+  1日の上限／集計。
+- ✅ `npm run build` 通過（`AdminDMScreen` は 24.97 kB の遅延チャンクに分離）。
+- ✅ `/admin/dm` を実ブラウザで描画確認（送信・リスト・文面の3タブ / コンソールエラー無し）。
+  検証用アカウントは削除済み。
+  ※ `npm run dev` には `/api` が無いので、各タブは
+  「管理APIに接続できませんでした」を出す。これは**正常**（§6）。
+- ⛔ **未デプロイ。** 本番へ出すときは §2 の `--prebuilt` 手順（grep 確認込み）で。
+- ⛔ 実際の営業リストはまだ0件（`dm_targets`）。ひな形だけ既定の1件が入っている。
