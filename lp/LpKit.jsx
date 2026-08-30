@@ -70,6 +70,10 @@ const LP_CSS = `
   min-height:100dvh;
   font-feature-settings:"palt" 1;        /* 日本語の詰め。字間が間延びしない */
   text-rendering:optimizeLegibility;
+
+  /* 下に固定CTAを出す分だけ地を空ける（フッターの最終行が隠れないように）。
+     ノッチ端末の下端も逃がす。デスクトップでは下のバーごと消す。 */
+  padding-bottom:calc(72px + env(safe-area-inset-bottom));
 }
 
 /* ───────────────── 主CTA ─────────────────
@@ -93,35 +97,35 @@ const LP_CSS = `
 .lp-faq[data-open="true"] .lp-faq-panel{ grid-template-rows:1fr }
 .lp-faq-panel > div{ overflow:hidden; min-height:0 }
 
+/* ══════════════ ここから下はスマホの指定が既定 ══════════════
+   広告からの流入はほぼスマホなので、狭い画面の見え方を素の状態にして、
+   広くなったぶんだけ min-width で足していく（max-width で削らない）。
+   段は 561px（2列に戻す）→ 721px（下の固定CTAを消す）→ 941px（2段組み）。 */
+
 /* ───────────────── ヒーロー ─────────────────
-   左（文）を広く、右（画面）を狭く。天地も揃えず、右を少し下げる。
-   半々で上下も揃えると、置きに行った絵に見える。
-   見出しを大きく取りたいので、左をさらに広げてある。 */
-.lph{
-  display:grid; grid-template-columns:minmax(0,1.52fr) minmax(0,1fr);
-  gap:clamp(30px,4.5vw,58px); align-items:start;
-}
-.lph-visual{ padding-top:46px }
+   スマホでは文が上、画面（伝票・会の一覧）が下。
+   広い画面では左（文）を広く、右（画面）を狭く。天地も揃えず、右を少し下げる。
+   半々で上下も揃えると、置きに行った絵に見える。 */
+.lph{ display:grid; grid-template-columns:1fr; gap:30px; align-items:start }
+.lph-visual{ padding-top:4px }
 
 /* ヒーローの「何が得か」。ラベルは小さく、数字は大きく。
-   罫で仕切るだけで、囲みも地も付けない。 */
+   罫で仕切るだけで、囲みも地も付けない。
+   スマホでは3つ並べると1つあたりが潰れるので、折り返して2列に落とす。 */
 .lp-facts{ display:flex; flex-wrap:wrap }
-.lp-fact{ padding:0 26px }
+.lp-fact{ padding:0 18px; margin-bottom:14px }
 .lp-fact:first-child{ padding-left:0 }
 .lp-fact:not(:first-child){ border-left:1px solid ${RULE_SOFT} }
+.lp-fact:nth-child(3){ padding-left:0; border-left:none }
 
 /* ───────────────── 見出しを左に置く2段組み ─────────────────
-   見出しを上に載せて中央に置くより、脇に寄せたほうが読む幅が締まる。 */
-.lp-split{
-  display:grid; grid-template-columns:minmax(0,.76fr) minmax(0,1.42fr);
-  gap:clamp(24px,4.5vw,60px); align-items:start;
-}
+   見出しを上に載せて中央に置くより、脇に寄せたほうが読む幅が締まる。
+   スマホでは重ねるしかないので1列。 */
+.lp-split{ display:grid; grid-template-columns:1fr; gap:26px; align-items:start }
 
-/* ───────────────── 罫で区切る一覧（特徴・手順） ───────────────── */
-.lp-row{
-  display:grid; grid-template-columns:24px minmax(0,1fr); gap:18px;
-  padding:26px 0; border-top:1px solid ${RULE_SOFT};
-}
+/* ───────────────── 罫で区切る一覧（特徴・手順） ─────────────────
+   スマホは幅が足りないので、アイコン／番号を上に置いて1列に積む。 */
+.lp-row{ display:grid; grid-template-columns:1fr; gap:12px; padding:22px 0; border-top:1px solid ${RULE_SOFT} }
 .lp-row-first{ border-top:none; padding-top:0 }
 
 /* ───────────────── 締めのCTA ───────────────── */
@@ -130,20 +134,52 @@ const LP_CSS = `
   justify-content:space-between; align-items:flex-end;
 }
 
-/* ───────────────── 画面が狭いとき ───────────────── */
-@media (max-width:940px){
-  .lph, .lp-split{ grid-template-columns:1fr }
-  .lph-visual{ padding-top:4px }
+/* 親指の届く幅いっぱいに。ここが最も押される */
+.lp-cta-xl{ display:block; width:100%; text-align:center }
+
+/* ───────────────── 下に固定するCTA（スマホのみ） ─────────────────
+   縦に長いページなので、読み終えた位置から登録へ戻れるようにする。
+   地は単色（ヘッダーと同じ）。影も光も付けない。 */
+.lp-bar{
+  position:fixed; left:0; right:0; bottom:0; z-index:60;
+  display:flex; align-items:center; gap:12px;
+  padding:10px 14px calc(10px + env(safe-area-inset-bottom));
+  background:rgba(11,16,32,0.94);
+  backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
+  border-top:1px solid ${RULE};
 }
-@media (max-width:620px){
-  /* 3つ並べると1つあたりが潰れるので、2列に折る */
-  .lp-fact{ padding:0 18px; margin-bottom:14px }
-  .lp-fact:nth-child(3){ padding-left:0; border-left:none }
+.lp-bar-note{
+  flex:1; min-width:0; font-size:11px; line-height:1.55;
+  color:rgba(244,239,227,.44); letter-spacing:.3px;
 }
-@media (max-width:560px){
-  .lp-row{ grid-template-columns:1fr; gap:12px; padding:22px 0 }
-  /* 親指の届く幅いっぱいに。ここが最も押される */
-  .lp-cta-xl{ display:block; width:100%; text-align:center }
+.lp-bar .lp-cta{ flex-shrink:0 }
+
+/* ───────────────── 条件のチップ（選べるものの列挙） ─────────────────
+   囲いは1pxの罫だけ。地も金も付けない（飾りに見せない）。 */
+.lp-chips{ display:flex; flex-wrap:wrap; gap:8px }
+.lp-chip{
+  font-size:12px; letter-spacing:.3px; color:rgba(244,239,227,.66);
+  padding:6px 13px; border:1px solid ${RULE_SOFT}; border-radius:999px;
+  white-space:nowrap;
+}
+
+/* ───────────────── 画面が広くなったら ───────────────── */
+@media (min-width:561px){
+  .lp-row{ grid-template-columns:24px minmax(0,1fr); gap:18px; padding:26px 0 }
+  .lp-cta-xl{ display:inline-block; width:auto }
+  .lp-fact{ padding:0 26px; margin-bottom:0 }
+  .lp-fact:first-child{ padding-left:0 }
+  .lp-fact:nth-child(3){ padding-left:26px; border-left:1px solid ${RULE_SOFT} }
+}
+@media (min-width:721px){
+  /* 広い画面では本文中のCTAが常に見えているので、下のバーは要らない */
+  .lp-bar{ display:none }
+  .lp-root{ padding-bottom:0 }
+}
+@media (min-width:941px){
+  .lph{ grid-template-columns:minmax(0,1.52fr) minmax(0,1fr); gap:clamp(30px,4.5vw,58px) }
+  .lph-visual{ padding-top:46px }
+  .lp-split{ grid-template-columns:minmax(0,.76fr) minmax(0,1.42fr); gap:clamp(24px,4.5vw,60px) }
 }
 `;
 
@@ -461,6 +497,25 @@ export const CtaSection = ({ eyebrow, title, body, ctaLabel, ctaHref }) => (
       </div>
     </div>
   </Section>
+);
+
+/* ───────────────────── 条件のチップ ─────────────────────
+   「何が選べるか」をそのまま並べる。文章にすると読み飛ばされる。 */
+export const Chips = ({ items, style }) => (
+  <div className="lp-chips" style={style}>
+    {items.map((t) => (
+      <span key={t} className="lp-chip">{t}</span>
+    ))}
+  </div>
+);
+
+/* ─────────────────── 下に固定するCTA（スマホのみ） ───────────────────
+   721px 以上では CSS で消える。デスクトップには出さない。 */
+export const MobileCtaBar = ({ href, label, note }) => (
+  <div className="lp-bar">
+    <div className="lp-bar-note">{note}</div>
+    <CtaLink href={href} size="md">{label}</CtaLink>
+  </div>
 );
 
 /* ─────────────────────────────── フッター ─────────────────────────────── */

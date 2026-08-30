@@ -1,30 +1,37 @@
 /* ══════════════════════════════════════════════════════════════
    AISEKI — ランディングページ / 募集する側（おごられる側）向け
 
-   訴求は「0円で、いい店のごはん」。
+   訴求は「0円で相席できて、あたらしい出会いが見つかる」。
    AISEKI では、会を募集するホストグループはポイントを使わず、
    当日の飲食代も相席する参加グループが負担する（＝必ずおごられる）。
-   その一点だけを最後まで押す。
+   その「0円」を土台に、届いたリクエストから選べることを押す。
 
    ⚠ 誠実さの線引き
      AISEKI は登録時に性別を選ぶが、それは「募集中の会へメッセージを
      送れるか」の判定に使うだけで、料金にも参加条件にも一切関係しない。
      したがって「女性は無料」ではなく「募集する側は無料」が事実。
-     広告の宛先は女性だが、ページ上の説明は必ず
+     広告の宛先は分けていても、ページ上の説明は必ず
      「募集する側（ホスト）／参加する側（ゲスト）」で書くこと。
      FAQ にもその旨を明記してある（消さないこと）。
 
+   ⚠ 「出会い」の書き方（HANDOFF.md §10 / src/lib/legal.js と読み合わせること）
+     ここで言う出会いは「グループ同士で同じ卓に着くこと」。
+     1対1の紹介ではなく、異性交際を目的としたサービスでもない
+     （インターネット異性紹介事業としての運営は行っていない）。
+     FAQ の「出会い系アプリとは違うのですか？」は必ず残す。
+
    ⚠ 見た目は LpKit.jsx の方針に従う（光らせない・並べない・中央に置かない）。
+     レイアウトはスマホが既定で、広い画面に min-width で足していく。
    ══════════════════════════════════════════════════════════════ */
-import { Wallet, UsersRound, ShieldCheck, Lock } from "lucide-react";
-import { C, FONT_HEAD, FONT_DISPLAY } from "../src/lib/theme.jsx";
+import { Wallet, Sparkles, UsersRound, ShieldCheck, Lock, EyeOff } from "lucide-react";
+import { C, FONT_HEAD, FONT_DISPLAY, FONT_BODY } from "../src/lib/theme.jsx";
 import {
   MIN_AGE, MIN_GROUP_SIZE, JOIN_FEE_PER_PERSON as JOIN_FEE,
 } from "../src/lib/pricing.js";
 import {
   LpPage, LpHeader, LpFooter, Section, Heading, Kicker, HeroTitle, HeroFacts,
   CtaLink, GhostLink, FeatureList, StepList, TrustBadges, Faq, CtaSection,
-  signupUrl, panel, RULE, RULE_SOFT,
+  Chips, MobileCtaBar, signupUrl, panel, RULE, RULE_SOFT,
 } from "./LpKit.jsx";
 
 const FROM = "lp-host";
@@ -37,6 +44,12 @@ const FEATURES = [
     title: "0円で、いいお店へ。",
     body: "会を募集する側（ホスト）にポイントはかかりません。当日のホストグループの飲食代も、相席する参加グループが負担する決まりです。",
     note: `参加する側は1名あたり一律${JOIN_FEE.toLocaleString()}pt＋当日のお会計。募集する側は、どちらも支払いません。`,
+  },
+  {
+    icon: Sparkles,
+    title: "会いたいと思った相手とだけ、会う。",
+    body: "会を出しておくと、参加リクエストがまとまって届きます。エリア・お店・人数・飲みスタイルを見て、いいなと思ったグループだけを承認してください。断った相手には何も伝わりません。",
+    note: "お店に着いてから相手が決まるのではなく、行く前にグループ同士で決まります。",
   },
   {
     icon: UsersRound,
@@ -56,7 +69,7 @@ const STEPS = [
   {
     n: "01",
     title: "友だちを誘って、登録する",
-    body: `メールアドレスと生年月日だけ（${MIN_AGE}歳以上）。一緒に行く友だちはニックネームを登録するだけでよく、その場にアプリが入っていなくても参加できます。`,
+    body: `メールアドレスと生年月日だけ（${MIN_AGE}歳以上）。カードの登録も要りません。一緒に行く友だちはニックネームを登録するだけでよく、その場にアプリが入っていなくても参加できます。`,
   },
   {
     n: "02",
@@ -76,12 +89,16 @@ const FAQ = [
     a: `はい。会を募集する側（ホスト）は、ポイントを使いません。当日のホストグループの飲食代も、相席する参加グループが負担する決まりです。そのかわり、募集する側がポイントなどの報酬を受け取ることもありません（AISEKIのポイントに換金性はありません）。`,
   },
   {
-    q: "「女性向け」とありますが、性別で料金が変わるのですか？",
+    q: "どんな人からリクエストが届きますか？",
+    a: "すべて一般のご利用者です。当社および提携店舗が報酬を支払って客の相手をさせる、いわゆる「サクラ」やキャストは一切在籍していません。リクエストには相手グループの人数・エリア・飲みスタイルのタグが付いていて、それを見てから承認するかどうかを決められます。承認するまで、相手にはあなたの名前も写真も表示されません。",
+  },
+  {
+    q: "「おごられる側」とありますが、性別で料金が変わるのですか？",
     a: "いいえ。無料になるのは「募集する側（ホスト）」で、性別は関係ありません。このページで「おごられる側」と呼んでいるのは、会を募集するホストグループのことです。登録時に性別は選んでいただきますが、これは募集中の会へメッセージ（アプローチ）を送れるかどうかの判定にのみ使います。性別が他のユーザーに表示されることはなく、会の参加条件にもならないため、同性グループ同士の会も等しく成立します。",
   },
   {
-    q: "ひとりでも参加できますか？",
-    a: `いいえ。AISEKIは${MIN_GROUP_SIZE}名以上のグループ同士でのみ会が成立します。1対1のマッチングは、システム上どうしても作れないようになっています。同伴者が当日アプリを入れていなくても、代表者が人数分の席を確保すれば大丈夫です。`,
+    q: "ひとりでも募集できますか？",
+    a: `いいえ。会を募集する側は必ず${MIN_GROUP_SIZE}名以上です。1対1のマッチングは、システム上どうしても作れないようになっています。同伴者が当日アプリを入れていなくても、代表者がニックネームを登録すれば大丈夫です。`,
   },
   {
     q: "顔写真や名前は、誰に見られますか？",
@@ -153,6 +170,52 @@ const BillCard = () => (
   </div>
 );
 
+/* 届いた参加リクエストの見え方。「選べる」を文章で言うより、
+   受信箱をそのまま1枚見せたほうが早い。飾りは足さない。 */
+const RequestInbox = () => (
+  <div style={{ ...panel, padding: "18px 20px 20px", maxWidth: 560 }}>
+    <div style={{
+      display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10,
+      paddingBottom: 14, borderBottom: `1px solid ${RULE}`,
+    }}>
+      <span style={{ fontFamily: FONT_HEAD, fontSize: 13, fontWeight: 600, letterSpacing: 0.5, color: C.text }}>
+        届いた参加リクエスト
+      </span>
+      <span style={{ fontSize: 10.5, color: C.textMuted, letterSpacing: 0.4 }}>承認制</span>
+    </div>
+
+    {[
+      { n: "2名のグループ", s: "恵比寿 · 金曜 19:30", tags: ["まったり派", "食事メイン"] },
+      { n: "2名のグループ", s: "中目黒 · 土曜 20:00", tags: ["2件目OK", "オールナイトOK"] },
+    ].map((r, i) => (
+      <div key={r.s} style={{ padding: "16px 0", borderTop: i === 0 ? "none" : `1px solid ${RULE_SOFT}` }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontFamily: FONT_HEAD, fontSize: 14, fontWeight: 600, color: C.text, letterSpacing: 0.2 }}>
+              {r.n}
+            </div>
+            <div style={{ fontSize: 11, color: C.textSec, marginTop: 6, letterSpacing: 0.3 }}>{r.s}</div>
+          </div>
+          <span style={{
+            flexShrink: 0, fontSize: 11, fontWeight: 700, color: C.primary,
+            fontFamily: FONT_BODY, letterSpacing: 0.5,
+          }}>承認する</span>
+        </div>
+        <Chips items={r.tags} style={{ marginTop: 11 }} />
+      </div>
+    ))}
+
+    <div style={{
+      marginTop: 4, paddingTop: 14, borderTop: `1px solid ${RULE}`,
+      display: "flex", gap: 8, alignItems: "flex-start",
+      fontSize: 10.5, color: C.textMuted, lineHeight: 1.8,
+    }}>
+      <EyeOff size={12} strokeWidth={1.7} color={C.textFaint} style={{ flexShrink: 0, marginTop: 3 }} />
+      <span>承認するまで、相手にあなたの名前・写真は表示されません。見送っても相手に通知は届きません。</span>
+    </div>
+  </div>
+);
+
 export default function HostPage() {
   return (
     <LpPage>
@@ -160,23 +223,25 @@ export default function HostPage() {
 
       {/* ══════════════ ヒーロー ══════════════
           読ませる順は 何のサービスか → 見出し → 一文 → CTA → 得な数字。
-          見出しは折り返さない大きさに収める（日本語は途中で折れると読みにくい）。 */}
-      <Section pad="clamp(52px, 7.5vw, 104px)">
+          見出しは折り返さない大きさに収める（日本語は途中で折れると読みにくい）。
+          いちばん長い行は「出会いも見つかる。」の9文字。 */}
+      <Section pad="clamp(44px, 7.5vw, 104px)">
         <div className="lph">
           <div>
             <Kicker>グループ同士の相席マッチング</Kicker>
 
             <HeroTitle>
-              今夜のごはんは、<br />
-              <span style={{ color: C.primary }}>ぜんぶ、おごられる。</span>
+              0円で飲んで、<br />
+              <span style={{ color: C.primary }}>出会いも見つかる。</span>
             </HeroTitle>
 
             <p style={{
               fontSize: "clamp(14.5px, 1.7vw, 16.5px)", color: C.textSec, lineHeight: 1.95,
               margin: "24px 0 0", maxWidth: 520, letterSpacing: 0.4,
             }}>
-              友だちと{MIN_GROUP_SIZE}名以上で「会」を立てるだけ。
-              募集する側は、参加ポイントも当日の飲食代も払いません。
+              {/* ⚠ 日本語は1行で書く。JSX が改行を半角スペースに畳むので、
+                    行を分けると文の途中に空きが出る。 */}
+              友だちと{MIN_GROUP_SIZE}名以上で「会」を立てるだけ。募集する側は、参加ポイントも当日の飲食代も払いません。相席するのは、同じように友だちと来ているグループです。
             </p>
 
             <div style={{ display: "flex", alignItems: "center", gap: 28, flexWrap: "wrap", marginTop: 34 }}>
@@ -192,7 +257,7 @@ export default function HostPage() {
                 数字は伝票に任せて、こちらは条件（誰と・どこで）だけ置く。 */}
             <HeroFacts
               items={[
-                { label: "参加の単位", value: MIN_GROUP_SIZE, unit: "名以上のグループ" },
+                { label: "相席のお相手", value: MIN_GROUP_SIZE, unit: "名以上のグループ" },
                 { label: "相席する席", value: "オープン席", unit: "のみ" },
                 { label: "個人間のDM", value: "なし" },
               ]}
@@ -206,7 +271,7 @@ export default function HostPage() {
       </Section>
 
       {/* ══════════════ 特徴 ══════════════ */}
-      <Section tone="sunken" divider pad="clamp(56px, 7.5vw, 92px)">
+      <Section tone="sunken" divider pad="clamp(50px, 7.5vw, 92px)">
         <div className="lp-split">
           <Heading
             eyebrow="Why AISEKI"
@@ -223,21 +288,43 @@ export default function HostPage() {
         </div>
       </Section>
 
+      {/* ══════════════ 届いたリクエストから選ぶ ══════════════
+          「出会いが見つかる」を、受信箱の実物で見せる。 */}
+      <Section divider pad="clamp(48px, 7vw, 88px)">
+        <div className="lp-split">
+          <Heading
+            eyebrow="Requests"
+            sub="会を出しておくだけで、参加したいグループから声がかかります。誰と過ごすかを決めるのは、いつでも募集した側です。"
+          >
+            選ぶのは、<br />こちら側。
+          </Heading>
+          <div>
+            <RequestInbox />
+            <div style={{ marginTop: 26 }}>
+              <div style={{ fontSize: 11, color: C.textMuted, letterSpacing: 0.6, marginBottom: 11 }}>
+                承認する前に分かること
+              </div>
+              <Chips items={["人数", "エリア", "日時", "お店", "飲みスタイル", "ニックネーム"]} />
+            </div>
+            <div style={{ marginTop: 30 }}>
+              <CtaLink href={CTA_HREF}>{CTA}</CtaLink>
+            </div>
+          </div>
+        </div>
+      </Section>
+
       {/* ══════════════ 使い方 ══════════════ */}
-      <Section id="how" divider pad="clamp(52px, 7vw, 88px)">
+      <Section id="how" tone="sunken" divider pad="clamp(48px, 7vw, 88px)">
         <Heading eyebrow="How it works" sub="登録から当日の待ち合わせまで、3ステップで完結します。">
           はじめ方は、かんたん。
         </Heading>
         <div style={{ marginTop: 38 }}>
           <StepList items={STEPS} />
         </div>
-        <div style={{ marginTop: 34 }}>
-          <CtaLink href={CTA_HREF}>{CTA}</CtaLink>
-        </div>
       </Section>
 
       {/* ══════════════ よくある質問 ══════════════ */}
-      <Section divider pad="clamp(50px, 6.5vw, 80px)">
+      <Section divider pad="clamp(46px, 6.5vw, 80px)">
         <div className="lp-split">
           <Heading eyebrow="FAQ">よくあるご質問</Heading>
           <Faq items={FAQ} />
@@ -254,6 +341,13 @@ export default function HostPage() {
       />
 
       <LpFooter />
+
+      {/* スマホだけ、下に固定のCTA（721px 以上では CSS で消える） */}
+      <MobileCtaBar
+        href={CTA_HREF}
+        label={CTA}
+        note={<>参加ポイント0pt・当日の飲食代0円<br />{MIN_AGE}歳以上限定・登録無料</>}
+      />
     </LpPage>
   );
 }
