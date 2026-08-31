@@ -62,7 +62,7 @@
     { "source": "/lp/host", "destination": "/lp/host.html" },
     { "source": "/lp/guest", "destination": "/lp/guest.html" },
     {
-      "source": "/(.*)",
+      "source": "/((?!api/).*)",
       "destination": "/"
     }
   ]
